@@ -6,3 +6,6 @@ edition = "2024"
 [dependencies]
 miniquad = { path = "../miniquad" }
 png = "0.18"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+glam = "0.33"

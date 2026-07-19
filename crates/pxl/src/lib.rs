@@ -1,9 +1,27 @@
 use miniquad::*;
 use png;
-use std::{fs::File, io::BufReader};
+use std::{
+    collections::{HashSet, VecDeque},
+    fs::File,
+    io::BufReader,
+};
 
+// reexports
 pub use miniquad;
+pub use serde_json;
+
+pub mod input;
+
 pub mod painter;
+
+pub mod ldtk;
+pub mod math;
+pub mod time;
+pub mod window;
+
+pub mod prelude;
+
+use glam::Vec2;
 
 pub struct Engine {
     ctx: Box<dyn RenderingBackend>,
@@ -12,7 +30,7 @@ pub struct Engine {
 impl Engine {
     pub fn new() -> Self {
         Self {
-            ctx: window::new_rendering_backend(),
+            ctx: miniquad::window::new_rendering_backend(),
         }
     }
 }
@@ -58,4 +76,76 @@ pub fn load_texture_from_png(ctx: &mut dyn RenderingBackend, file_path: &str) ->
             ..Default::default()
         },
     )
+}
+
+struct Context {
+    // audio_context: audio::AudioContext,
+    screen_width: f32,
+    screen_height: f32,
+
+    // simulate_mouse_with_touch: bool,
+    keys_down: HashSet<KeyCode>,
+    keys_pressed: HashSet<KeyCode>,
+    keys_released: HashSet<KeyCode>,
+    mouse_down: HashSet<MouseButton>,
+    mouse_pressed: HashSet<MouseButton>,
+    mouse_released: HashSet<MouseButton>,
+    // touches: HashMap<u64, input::Touch>,
+    chars_pressed_queue: VecDeque<char>,
+    chars_pressed_ui_queue: VecDeque<char>,
+    mouse_position: Vec2,
+    last_mouse_position: Option<Vec2>,
+    mouse_wheel: Vec2,
+
+    prevent_quit_event: bool,
+    quit_requested: bool,
+
+    cursor_grabbed: bool,
+    // input_events: Vec<Vec<MiniquadInputEvent>>,
+
+    // gl: QuadGl,
+    // camera_matrix: Option<Mat4>,
+
+    // ui_context: UiContext,
+    // coroutines_context: experimental::coroutines::CoroutinesContext,
+    // fonts_storage: text::FontsStorage,
+
+    // pc_assets_folder: Option<String>,
+    start_time: f64,
+    last_frame_time: f64,
+    frame_time: f64,
+
+    // #[cfg(one_screenshot)]
+    // counter: usize,
+
+    // camera_stack: Vec<camera::CameraState>,
+    // texture_batcher: texture::Batcher,
+    // unwind: bool,
+    // recovery_future: Option<Pin<Box<dyn Future<Output = ()>>>>,
+    quad_context: Box<dyn miniquad::RenderingBackend>,
+    // default_filter_mode: crate::quad_gl::FilterMode,
+    // textures: crate::texture::TexturesContext,
+
+    // update_on: conf::UpdateTrigger,
+
+    // dropped_files: Vec<DroppedFile>,
+}
+
+// TODO: impl Context
+
+#[unsafe(no_mangle)]
+static mut CONTEXT: Option<Context> = None;
+
+#[allow(static_mut_refs)]
+fn get_context() -> &'static mut Context {
+    // thread_assert::same_thread();
+    unsafe { CONTEXT.as_mut().unwrap_or_else(|| panic!()) }
+}
+
+#[allow(static_mut_refs)]
+fn get_quad_context() -> &'static mut dyn miniquad::RenderingBackend {
+    // thread_assert::same_thread();
+
+    unsafe { assert!(CONTEXT.is_some()) }
+    unsafe { &mut *CONTEXT.as_mut().unwrap().quad_context }
 }

@@ -11,3 +11,11 @@ members = [
 
 [dependencies]
 pxl = { path = "crates/pxl" }
+
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

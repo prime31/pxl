@@ -1,3 +1,4 @@
+use pxl::prelude::*;
 use pxl::{load_texture_from_png, miniquad::*, painter::MiniquadPainter};
 
 struct Stage {

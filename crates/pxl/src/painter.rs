@@ -27,7 +27,7 @@ pub struct MiniquadPainter {
 }
 
 impl MiniquadPainter {
-    pub fn new(ctx: &mut Context, max_quads: usize) -> Self {
+    pub fn new(ctx: &mut dyn RenderingBackend, max_quads: usize) -> Self {
         let max_vertices = max_quads * 4;
         let max_indices = max_quads * 6;
 
@@ -106,7 +106,7 @@ impl MiniquadPainter {
     }
 
     /// Dispatches all remaining stored commands over to the GPU and flushes cache state
-    pub fn flush(&mut self, ctx: &mut Context) {
+    pub fn flush(&mut self, ctx: &mut dyn RenderingBackend) {
         if self.indices.is_empty() {
             return;
         }
@@ -131,7 +131,12 @@ impl MiniquadPainter {
     }
 
     /// State checking boundary validation. Flushes automatically if resources shift
-    fn pre_draw(&mut self, ctx: &mut Context, needed_vertices: usize, texture: TextureId) {
+    fn pre_draw(
+        &mut self,
+        ctx: &mut dyn RenderingBackend,
+        needed_vertices: usize,
+        texture: TextureId,
+    ) {
         if self.current_texture != texture
             || (self.vertices.len() + needed_vertices) > (self.max_elements * 4)
         {
@@ -143,7 +148,7 @@ impl MiniquadPainter {
     /// Draw a line using dynamic hardware-accelerated rectangle expansion
     pub fn draw_line(
         &mut self,
-        ctx: &mut Context,
+        ctx: &mut dyn RenderingBackend,
         x1: f32,
         y1: f32,
         x2: f32,
@@ -190,7 +195,7 @@ impl MiniquadPainter {
     }
 
     /// Draw an untextured rectangle shape
-    pub fn draw_rect(&mut self, ctx: &mut Context, x: f32, y: f32, w: f32, h: f32) {
+    pub fn draw_rect(&mut self, ctx: &mut dyn RenderingBackend, x: f32, y: f32, w: f32, h: f32) {
         self.pre_draw(ctx, 4, self.white_texture);
 
         let base_idx = self.vertices.len() as u16;
@@ -223,7 +228,7 @@ impl MiniquadPainter {
     /// Draw a quad using user provided textures
     pub fn draw_texture(
         &mut self,
-        ctx: &mut Context,
+        ctx: &mut dyn RenderingBackend,
         texture: TextureId,
         x: f32,
         y: f32,
