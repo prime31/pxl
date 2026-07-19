@@ -1,0 +1,45 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "cargo run (last chosen)",
+            "type": "shell",
+            "command": ".vscode/run",
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            }
+        },
+        {
+            "label": "cargo run (force chooser)",
+            "type": "shell",
+            "command": ".vscode/run tosser",
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            }
+        },
+        {
+            "label": "cargo run release (last chosen)",
+            "type": "shell",
+            "command": ".vscode/run --release",
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            }
+        },
+        {
+            "label": "cargo run release (force chooser)",
+            "type": "shell",
+            "command": ".vscode/run tosser --release",
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            }
+        }
+    ]
+}
