@@ -11,8 +11,6 @@ pub use crate::window::*;
 // pub use crate::shapes::*;
 // pub use crate::text::*;
 // pub use crate::texture::*;
-
-// pub use crate::color::{Color, colors::*};
 // pub use crate::quad_gl::{DrawMode, GlPipeline, QuadGl};
 pub use glam;
 pub use miniquad::{

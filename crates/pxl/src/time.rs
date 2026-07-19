@@ -26,6 +26,5 @@ pub fn get_frame_time() -> f32 {
 /// save the value and reuse it throughout your code.
 pub fn get_time() -> f64 {
     let context = get_context();
-
     miniquad::date::now() - context.start_time
 }
