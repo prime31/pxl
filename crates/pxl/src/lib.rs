@@ -10,6 +10,7 @@ use std::{
 pub use miniquad;
 pub use serde_json;
 
+pub mod app;
 pub mod input;
 
 pub mod painter;
@@ -341,6 +342,7 @@ impl Context {
 }
 
 #[unsafe(no_mangle)]
+#[allow(static_mut_refs)]
 static mut CONTEXT: Option<Context> = None;
 
 #[allow(static_mut_refs)]

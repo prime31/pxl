@@ -1,4 +1,4 @@
-use crate::get_context;
+use crate::{get_context, math::Color};
 
 pub fn screen_width() -> f32 {
     let context = get_context();
