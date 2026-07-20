@@ -24,10 +24,8 @@ impl Stage {
 }
 
 impl EventHandler for Stage {
-    // Signature fixed to comply with modern zero-parameter specification
     fn update(&mut self) {}
 
-    // Signature fixed to comply with modern zero-parameter specification
     fn draw(&mut self) {
         let ctx = &mut *self.mq_ctx;
 
