@@ -24,7 +24,7 @@ pub mod prelude;
 
 use glam::{Mat4, Vec2, vec2};
 
-use crate::math::Color;
+use crate::{math::Color, painter::MiniquadPainter};
 
 pub struct Engine {
     ctx: Box<dyn RenderingBackend>,
@@ -81,10 +81,11 @@ pub fn load_texture_from_png(ctx: &mut dyn RenderingBackend, file_path: &str) ->
     )
 }
 
-struct Context {
+pub struct Context {
     // audio_context: audio::AudioContext,
     screen_width: f32,
     screen_height: f32,
+    pub painter: MiniquadPainter,
 
     keys_down: HashSet<KeyCode>,
     keys_pressed: HashSet<KeyCode>,
@@ -120,7 +121,7 @@ struct Context {
 
     // texture_batcher: texture::Batcher,
     // camera_stack: Vec<camera::CameraState>,
-    quad_context: Box<dyn miniquad::RenderingBackend>,
+    pub quad_context: Box<dyn miniquad::RenderingBackend>,
     default_filter_mode: crate::FilterMode,
     // textures: crate::texture::TexturesContext,
     // dropped_files: Vec<DroppedFile>,
@@ -207,10 +208,12 @@ impl Context {
         let mut ctx: Box<dyn miniquad::RenderingBackend> =
             miniquad::window::new_rendering_backend();
         let (screen_width, screen_height) = miniquad::window::screen_size();
+        let painter = MiniquadPainter::new(&mut *ctx, 2048);
 
         Context {
             screen_width,
             screen_height,
+            painter,
 
             keys_down: HashSet::new(),
             keys_pressed: HashSet::new(),
@@ -282,7 +285,6 @@ impl Context {
         // self.ui_context.process_input();
 
         let color = Self::DEFAULT_BG_COLOR;
-
         get_quad_context().clear(Some((color.r, color.g, color.b, color.a)), None, None);
         // self.gl.reset();
     }
@@ -346,7 +348,7 @@ impl Context {
 static mut CONTEXT: Option<Context> = None;
 
 #[allow(static_mut_refs)]
-fn get_context() -> &'static mut Context {
+pub fn get_context() -> &'static mut Context {
     // thread_assert::same_thread();
     unsafe { CONTEXT.as_mut().unwrap_or_else(|| panic!()) }
 }

@@ -7,10 +7,11 @@ use crate::{CONTEXT, Context, MiniquadInputEvent, get_context};
 
 pub struct App {
     update: fn(),
+    render: fn(),
 }
 
 impl App {
-    pub fn run(setup: fn(), update: fn()) {
+    pub fn run(setup: fn(), update: fn(), render: fn()) {
         let mut conf = conf::Conf::default();
         let metal = std::env::args().nth(1).as_deref() == Some("metal");
         conf.platform.apple_gfx_api = if metal {
@@ -24,7 +25,7 @@ impl App {
             unsafe { CONTEXT = Some(context) };
 
             setup();
-            Box::new(App { update })
+            Box::new(App { update, render })
         });
     }
 }
@@ -44,13 +45,9 @@ impl EventHandler for App {
 
     fn draw(&mut self) {
         {
-            {
-                get_context().begin_frame();
-            }
+            get_context().begin_frame();
 
-            {
-                get_context().end_frame();
-            }
+            get_context().end_frame();
 
             get_context().frame_time = date::now() - get_context().last_frame_time;
             get_context().last_frame_time = date::now();
