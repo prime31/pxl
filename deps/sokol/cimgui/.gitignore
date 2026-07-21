@@ -1,0 +1,9 @@
+venv/
+imgui/
+imgui-docking/
+dear_bindings/
+build/
+.vscode/
+src*/*.json
+.zig-*
+zig-*

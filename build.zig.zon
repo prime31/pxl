@@ -1,0 +1,22 @@
+.{
+    .name = .moogle,
+    .version = "0.0.0",
+    .fingerprint = 0xc487d6372a40f85d, // Changing this has security and trust implications.
+    // .minimum_zig_version = "0.17.0-dev.1275+59a628c6d",
+    .dependencies = .{
+        .sokol_builder = .{
+            .path = "deps/sokol",
+        },
+        .gamepad = .{
+            .path = "deps/gamepad",
+        },
+        .stb = .{
+            .path = "deps/stb",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

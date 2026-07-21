@@ -1,0 +1,13 @@
+.{
+    .name = .zstbi,
+    .version = "0.10.0",
+    .fingerprint = 0x3c971054c962c40f,
+    .minimum_zig_version = "0.13.0-dev.351+64ef45eb0",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "libs",
+        "src",
+        "README.md",
+    },
+}
