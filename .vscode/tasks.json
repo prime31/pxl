@@ -2,9 +2,9 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "cargo run (last chosen)",
+            "label": "Run audio example",
             "type": "shell",
-            "command": ".vscode/run",
+            "command": "zig build audio",
             "problemMatcher": [],
             "group": {
                 "kind": "build",
@@ -12,9 +12,9 @@
             }
         },
         {
-            "label": "cargo run (force chooser)",
+            "label": "Zig build with runner",
             "type": "shell",
-            "command": ".vscode/run tosser",
+            "command": ".vscode/cargo_runner",
             "problemMatcher": [],
             "group": {
                 "kind": "build",
@@ -22,19 +22,9 @@
             }
         },
         {
-            "label": "cargo run release (last chosen)",
+            "label": "Zig build (force chooser)",
             "type": "shell",
-            "command": ".vscode/run --release",
-            "problemMatcher": [],
-            "group": {
-                "kind": "build",
-                "isDefault": false
-            }
-        },
-        {
-            "label": "cargo run release (force chooser)",
-            "type": "shell",
-            "command": ".vscode/run tosser --release",
+            "command": ".vscode/cargo_runner tosser",
             "problemMatcher": [],
             "group": {
                 "kind": "build",

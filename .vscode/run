@@ -1,9 +1,0 @@
-#!/bin/zsh
-
-clear && printf '\e[3J'
-
-if [[ $# -gt 0 ]]; then
-    `cargo_runner $@`
-else
-	`cargo_runner`
-fi
