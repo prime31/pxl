@@ -14,6 +14,7 @@ pub const sglue = sokol.glue;
 pub const simgui = sokol.imgui;
 pub const sdtx = sokol.sdtx;
 
+pub const api = @import("api.zig");
 pub const gamepad = @import("gamepad");
 pub const stb = @import("stb");
 pub const sgp = @import("painter");
@@ -107,9 +108,7 @@ export fn sokolInit() void {
 
     // initialize sokol-gl
     sgl.setup(.{
-        // .color_format = gpu.offscreen_pixel_format,
-        .depth_format = .NONE, // keep in sync with gpu.createOffscreenAttachments
-        // .sample_count = gpu.offscreen_sample_count,
+        .depth_format = .NONE,
         .logger = .{ .func = slog.func },
     });
 
@@ -124,8 +123,7 @@ export fn sokolInit() void {
 
     sgp.setup(&.{
         .max_vertices = 10000000,
-        // .color_format = gpu.offscreen_pixel_format,
-        .depth_format = .NONE, // keep in sync with gpu.createOffscreenAttachments
+        .depth_format = .NONE,
     });
     if (!sgp.is_valid()) @panic(sgp.get_error_message(sgp.get_last_error()));
 
@@ -175,7 +173,7 @@ export fn sokolFrame() void {
         sg.endPass();
     }
 
-    // sokol debug text, it flickers for some reason...
+    // sokol debug text, this pass for some reasons tanks performance....
     // var pass_action: sg.PassAction = .{};
     // pass_action.colors[0] = .{ .load_action = .LOAD };
     // sg.beginPass(.{ .action = pass_action, .swapchain = sglue.swapchain() });
@@ -199,6 +197,7 @@ export fn sokolCleanup() void {
 
     gpu.deinit();
 
+    sdtx.shutdown();
     sgp.shutdown();
     sgl.shutdown();
     if (has_imgui) simgui.shutdown();

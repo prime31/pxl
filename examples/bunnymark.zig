@@ -102,6 +102,6 @@ fn render() !void {
     }
     pxl.endPass();
 
-    pxl.sdtx.color3b(0, 0, 0);
-    pxl.sdtx.puts("fuck man");
+    // pxl.sdtx.color3b(0, 0, 0);
+    // pxl.sdtx.puts("fuck man");
 }
