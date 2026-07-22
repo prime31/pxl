@@ -11,7 +11,7 @@ const shdc = sokol.shdc;
 
 const examples = [_]Example{
     .{ .name = "check" },
-    .{ .name = "base" },
+    .{ .name = "text" },
     .{ .name = "empty", .has_shader = true },
     .{ .name = "bunnymark" },
 };

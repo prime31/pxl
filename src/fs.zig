@@ -9,11 +9,9 @@ pub fn read(filename: []const u8, allocation_type: mem.AllocationType) ![]u8 {
     const file = try Dir.cwd().openFile(pxl.io, filename, .{});
     defer file.close(pxl.io);
 
-    const file_size = try file.getEndPos();
-    const buffer = mem.alloc(u8, file_size, allocation_type);
-    _ = try file.read(buffer);
-
-    return buffer;
+    const allocator = if (allocation_type == .temp) mem.scratch else mem.allocator;
+    var file_reader = file.reader(pxl.io, &.{});
+    return try file_reader.interface.allocRemainingAlignedSentinel(allocator, .unlimited, .of(u8), null);
 }
 
 pub fn readZ(filename: []const u8, allocation_type: mem.AllocationType) ![:0]u8 {

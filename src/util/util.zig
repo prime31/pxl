@@ -1,6 +1,7 @@
 const std = @import("std");
 
 pub const Vec = @import("vec.zig").Vec;
+pub const SlotMap = @import("slotmap.zig").SlotMap;
 
 /// asserts with a message
 pub fn assertMsg(ok: bool, comptime msg: []const u8, args: anytype) void {

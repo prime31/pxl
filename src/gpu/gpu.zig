@@ -54,8 +54,6 @@ pub fn createOffscreenAttachments(width: i32, height: i32) void {
         .usage = .{ .color_attachment = true },
         .width = width,
         .height = height,
-        // .sample_count = offscreen_sample_count,
-        // .pixel_format = offscreen_pixel_format,
     });
 
     offscreen.pass.attachments.colors[0] = sg.makeView(.{
