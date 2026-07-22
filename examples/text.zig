@@ -52,18 +52,31 @@ fn render() !void {
         pos.y += glyph.yoffset;
     }
 
+    shit(2.5);
+    sgp.translate(pxl.sapp.widthf() * 0.5 - 100, pxl.sapp.heightf() * 0.5 - 100);
     sgp.set_color(0, 0, 0, 1);
     font.drawString("fucking a-right ass\nmother FOOKER____!!!!!!@#$%^&*():;,./?{}", .{ .x = 10, .y = 100 });
     const bounds = font.measureString("fucking a-right ass\nmother FOOKER____!!!!!!@#$%^&*():;,./?{}");
 
     sgp.set_color(1, 0.6, 0.2, 1);
-    sgp.scale_at(2, 2, 10, 100 + bounds.y);
     font.drawString("well shit, let's see if ThIS wORkZ?", .{ .x = 10, .y = 100 + bounds.y });
 
     sgp.reset_color();
-    sgp.reset_transform();
+    // sgp.reset_transform();
     sgp.set_image(0, kiwi_font.texture.img);
     kiwi_font.drawString("tHIz foOnT loOkz WacKy!", .{ .x = 10, .y = 150 });
 
     pxl.endPass();
+}
+
+fn shit(zoom: f32) void {
+    const w = pxl.sapp.widthf();
+    const h = pxl.sapp.heightf();
+
+    const cx = w * 0.5;
+    const cy = h * 0.5;
+    const half_w = w * 0.5 / zoom;
+    const half_h = h * 0.5 / zoom;
+
+    sgp.project(cx - half_w, cx + half_w, cy - half_h, cy + half_h);
 }
