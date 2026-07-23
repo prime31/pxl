@@ -1,5 +1,38 @@
 const std = @import("std");
 const pxl = @import("pxl.zig");
+const sgp = pxl.sgp;
+const math = std.math;
+
+pub fn drawFilledCircle(
+    cx: f32,
+    cy: f32,
+    radius: f32,
+    segments: u32,
+) void {
+    var triangles: [64]sgp.sgp_triangle = undefined;
+    std.debug.assert(segments <= triangles.len);
+
+    const step = 2.0 * math.pi / @as(f32, @floatFromInt(segments));
+
+    for (0..segments) |i| {
+        const a0 = @as(f32, @floatFromInt(i)) * step;
+        const a1 = @as(f32, @floatFromInt(i + 1)) * step;
+
+        triangles[i] = .{
+            .a = .{ .x = cx, .y = cy },
+            .b = .{
+                .x = cx + @cos(a0) * radius,
+                .y = cy + @sin(a0) * radius,
+            },
+            .c = .{
+                .x = cx + @cos(a1) * radius,
+                .y = cy + @sin(a1) * radius,
+            },
+        };
+    }
+
+    sgp.draw_filled_triangles(&triangles, segments);
+}
 
 // /* Custom pipeline creation. */
 // sg_pipeline sgp_make_pipeline(const sgp_pipeline_desc* desc); /* Creates a custom shader pipeline to be used with SGP. */

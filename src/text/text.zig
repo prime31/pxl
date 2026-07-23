@@ -251,7 +251,7 @@ pub const BMFontParser = struct {
             pxl.sgp.draw_textured_rect(
                 0,
                 .{ .x = item.render_x, .y = item.render_y, .w = w, .h = h },
-                .{ .x = @as(f32, @floatFromInt(item.glyph.x)), .y = @as(f32, @floatFromInt(item.glyph.y)), .w = w, .h = h },
+                .{ .x = @floatFromInt(item.glyph.x), .y = @floatFromInt(item.glyph.y), .w = w, .h = h },
             );
         }
     }

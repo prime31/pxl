@@ -63,9 +63,12 @@ fn render() !void {
     font.drawString("well shit, let's see if ThIS wORkZ?", .{ .x = 10, .y = 100 + bounds.y });
 
     sgp.reset_color();
-    // sgp.reset_transform();
     sgp.set_image(0, kiwi_font.texture.img);
     kiwi_font.drawString("tHIz foOnT loOkz WacKy!", .{ .x = 10, .y = 150 });
+
+    sgp.reset_image(0);
+    sgp.reset_project();
+    pxl.api.drawFilledCircle(25, 25, 35, 10);
 
     pxl.endPass();
 }
