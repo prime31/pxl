@@ -13,7 +13,7 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn setup() !void {
-    batcher = try pxl.gpu.Batcher.init(pxl.mem.allocator, 4096, 8192);
+    batcher = try pxl.gpu.Batcher.init(4096, 8192);
 }
 
 fn render() !void {

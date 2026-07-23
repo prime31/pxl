@@ -3,6 +3,8 @@ const pxl = @import("../pxl.zig");
 const sg = pxl.sokol.gfx;
 
 pub const Texture = @import("texture.zig").Texture;
+pub const Batcher = @import("batcher.zig").Batcher;
+pub const Vertex = @import("batcher.zig").Vertex;
 
 pub const offscreen = struct {
     var pass_action: sg.PassAction = .{};

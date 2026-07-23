@@ -5,6 +5,7 @@
 
 @include blit.glsl
 @include shapes.glsl
+@include batcher.glsl
 @include quad.glsl
 @include default.glsl
 @include offscreen.glsl

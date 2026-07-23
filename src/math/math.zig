@@ -3,12 +3,15 @@ const math = std.math;
 
 pub const rand = @import("rand.zig");
 
+pub const Color = @import("color.zig").Color;
+
 pub const Vec2 = @import("vector.zig").Vec2;
 pub const Vec3 = @import("vector.zig").Vec3;
 pub const Vec4 = @import("vector.zig").Vec4;
 
 pub const Quat = @import("quaternion.zig").Quat;
 pub const Mat3 = @import("mat3.zig").Mat3;
+pub const Mat32 = @import("mat32.zig").Mat32;
 pub const Mat4 = @import("mat4.zig").Mat4;
 
 pub const perspective = Mat4.perspective;

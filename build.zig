@@ -11,6 +11,7 @@ const shdc = sokol.shdc;
 
 const examples = [_]Example{
     .{ .name = "check" },
+    .{ .name = "batcher" },
     .{ .name = "text" },
     .{ .name = "ldtk" },
     .{ .name = "microui" },
