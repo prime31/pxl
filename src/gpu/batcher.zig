@@ -40,17 +40,48 @@ const max_circle_segments = 64;
 /// A rectangle in texture pixel space (top-left origin), used for sprite source regions.
 pub const Rect = struct { x: f32 = 0, y: f32 = 0, w: f32 = 0, h: f32 = 0 };
 
+/// A sprite anchor point, center-relative and scaled by the sprite size: center is
+/// `(0,0)`, top-left is `(-0.5,-0.5)`, bottom-right is `(0.5,0.5)` (y-down screen space).
+pub const Anchor = union(enum) {
+    center,
+    top_left,
+    top_center,
+    top_right,
+    center_left,
+    center_right,
+    bottom_left,
+    bottom_center,
+    bottom_right,
+    /// Custom center-relative anchor (same convention as the named ones).
+    custom: Vec2,
+
+    pub fn asVec(self: Anchor) Vec2 {
+        return switch (self) {
+            .center => Vec2.zero,
+            .top_left => .init(-0.5, -0.5),
+            .top_center => .init(0, -0.5),
+            .top_right => .init(0.5, -0.5),
+            .center_left => .init(-0.5, 0),
+            .center_right => .init(0.5, 0),
+            .bottom_left => .init(-0.5, 0.5),
+            .bottom_center => .init(0, 0.5),
+            .bottom_right => .init(0.5, 0.5),
+            .custom => |pt| pt,
+        };
+    }
+};
+
 /// Parameters for `drawSprite`. Sensible defaults: whole texture, white, centered, no rotation.
 pub const Sprite = struct {
     texture: Texture,
-    /// World position where `origin` is placed.
+    /// World position where `anchor` is placed.
     position: Vec2 = Vec2.zero,
     color: Color = Color.white,
-    /// Rotation in radians, about `origin`.
+    /// Rotation in radians, about `anchor`.
     rotation: f32 = 0,
     scale: Vec2 = Vec2.one,
-    /// Pivot as a fraction of the drawn size (0.5,0.5 = center, 0,0 = top-left).
-    origin: Vec2 = .{ .x = 0.5, .y = 0.5 },
+    /// The point of the sprite pinned to `position` (and rotated/scaled about).
+    anchor: Anchor = .center,
     /// Sub-region of the texture in pixels (atlas cell); `null` = the whole texture.
     source: ?Rect = null,
     flip_x: bool = false,
@@ -405,9 +436,14 @@ pub const Batcher = struct {
         const w = src.w * s.scale.x;
         const h = src.h * s.scale.y;
 
+        // anchor is center-relative [-0.5, 0.5]; convert to a pivot in local [0,w]x[0,h]
+        const a = s.anchor.asVec();
+        const px = (0.5 + a.x) * w;
+        const py = (0.5 + a.y) * h;
+
         const model = Mat32.fromTranslation(s.position.x, s.position.y)
             .mul(Mat32.fromRotation(s.rotation))
-            .mul(Mat32.fromTranslation(-s.origin.x * w, -s.origin.y * h));
+            .mul(Mat32.fromTranslation(-px, -py));
 
         const corners = [4]Vec2{
             .init(0, 0),
@@ -435,7 +471,7 @@ pub const Batcher = struct {
 
     /// Draw a texture at its native size with its top-left corner at `position`.
     pub fn drawTexture(self: *Batcher, tex: Texture, position: Vec2) void {
-        self.drawSprite(.{ .texture = tex, .position = position, .origin = Vec2.zero });
+        self.drawSprite(.{ .texture = tex, .position = position, .anchor = .top_left });
     }
 
     /// Draw a filled rectangle centered at `center`.
@@ -451,18 +487,35 @@ pub const Batcher = struct {
         });
     }
 
-    /// Draw the outline of a rectangle centered at `center` (four thick lines).
+    /// Draw the outline of a rectangle centered at `center` as a border ring, so the
+    /// corners are mitered with no gaps or overlap (comfy's inner/outer-rect outline).
     pub fn drawRectOutline(self: *Batcher, center: Vec2, size: Vec2, thickness: f32, color: Color) void {
-        const hw = size.x * 0.5;
-        const hh = size.y * 0.5;
-        const tl = Vec2.init(center.x - hw, center.y - hh);
-        const tr = Vec2.init(center.x + hw, center.y - hh);
-        const br = Vec2.init(center.x + hw, center.y + hh);
-        const bl = Vec2.init(center.x - hw, center.y + hh);
-        self.drawLine(tl, tr, thickness, color);
-        self.drawLine(tr, br, thickness, color);
-        self.drawLine(br, bl, thickness, color);
-        self.drawLine(bl, tl, thickness, color);
+        self.setTexture(self.white);
+        const ht = thickness * 0.5;
+        const ox = size.x * 0.5 + ht; // outer half-extents
+        const oy = size.y * 0.5 + ht;
+        const ix = size.x * 0.5 - ht; // inner half-extents
+        const iy = size.y * 0.5 - ht;
+
+        const verts = [8]Vertex{
+            // outer TL, TR, BR, BL
+            .{ .pos = .init(center.x - ox, center.y - oy), .uv = Vec2.zero, .col = color },
+            .{ .pos = .init(center.x + ox, center.y - oy), .uv = Vec2.zero, .col = color },
+            .{ .pos = .init(center.x + ox, center.y + oy), .uv = Vec2.zero, .col = color },
+            .{ .pos = .init(center.x - ox, center.y + oy), .uv = Vec2.zero, .col = color },
+            // inner TL, TR, BR, BL
+            .{ .pos = .init(center.x - ix, center.y - iy), .uv = Vec2.zero, .col = color },
+            .{ .pos = .init(center.x + ix, center.y - iy), .uv = Vec2.zero, .col = color },
+            .{ .pos = .init(center.x + ix, center.y + iy), .uv = Vec2.zero, .col = color },
+            .{ .pos = .init(center.x - ix, center.y + iy), .uv = Vec2.zero, .col = color },
+        };
+        // four border quads (top, right, bottom, left)
+        self.pushMesh(&verts, &.{
+            0, 1, 5, 0, 5, 4,
+            1, 2, 6, 1, 6, 5,
+            2, 3, 7, 2, 7, 6,
+            3, 0, 4, 3, 4, 7,
+        });
     }
 
     /// Draw a line from `a` to `b` as a thickness-wide quad.
@@ -516,7 +569,8 @@ pub const Batcher = struct {
         self.pushMesh(verts[0 .. segments + 1], indices[0 .. segments * 3]);
     }
 
-    /// Draw a circle outline of the given thickness as a ring of `segments` quads.
+    /// Draw a circle outline of the given thickness as a ring of `segments` quads. Each
+    /// segment's end angle overlaps the next slightly so there is never a crack between them.
     pub fn drawCircleOutline(self: *Batcher, center: Vec2, radius: f32, thickness: f32, color: Color, segments: u32) void {
         std.debug.assert(segments >= 3 and segments <= max_circle_segments);
         self.setTexture(self.white);
@@ -524,30 +578,35 @@ pub const Batcher = struct {
         const inner = radius - thickness * 0.5;
         const outer = radius + thickness * 0.5;
 
-        var verts: [max_circle_segments * 2]Vertex = undefined;
+        var verts: [max_circle_segments * 4]Vertex = undefined;
         var indices: [max_circle_segments * 6]u16 = undefined;
 
         const step = math.tau / @as(f32, @floatFromInt(segments));
-        for (0..segments) |i| {
-            const a = step * @as(f32, @floatFromInt(i));
-            const c = @cos(a);
-            const s = @sin(a);
-            verts[i * 2 + 0] = .{ .pos = .init(center.x + c * inner, center.y + s * inner), .uv = Vec2.zero, .col = color };
-            verts[i * 2 + 1] = .{ .pos = .init(center.x + c * outer, center.y + s * outer), .uv = Vec2.zero, .col = color };
+        const overlap = step * 0.25; // bridge any sub-pixel seam into the next segment
+        for (0..segments) |k| {
+            const a0 = step * @as(f32, @floatFromInt(k));
+            const a1 = step * @as(f32, @floatFromInt(k + 1)) + overlap;
+            const c0 = @cos(a0);
+            const s0 = @sin(a0);
+            const c1 = @cos(a1);
+            const s1 = @sin(a1);
 
-            const in0: u16 = @intCast(i * 2);
-            const out0: u16 = in0 + 1;
-            const in1: u16 = @intCast((i + 1) % segments * 2);
-            const out1: u16 = in1 + 1;
-            indices[i * 6 + 0] = in0;
-            indices[i * 6 + 1] = out0;
-            indices[i * 6 + 2] = out1;
-            indices[i * 6 + 3] = in0;
-            indices[i * 6 + 4] = out1;
-            indices[i * 6 + 5] = in1;
+            const base = k * 4;
+            verts[base + 0] = .{ .pos = .init(center.x + c0 * inner, center.y + s0 * inner), .uv = Vec2.zero, .col = color };
+            verts[base + 1] = .{ .pos = .init(center.x + c0 * outer, center.y + s0 * outer), .uv = Vec2.zero, .col = color };
+            verts[base + 2] = .{ .pos = .init(center.x + c1 * outer, center.y + s1 * outer), .uv = Vec2.zero, .col = color };
+            verts[base + 3] = .{ .pos = .init(center.x + c1 * inner, center.y + s1 * inner), .uv = Vec2.zero, .col = color };
+
+            const b: u16 = @intCast(base);
+            indices[k * 6 + 0] = b;
+            indices[k * 6 + 1] = b + 1;
+            indices[k * 6 + 2] = b + 2;
+            indices[k * 6 + 3] = b;
+            indices[k * 6 + 4] = b + 2;
+            indices[k * 6 + 5] = b + 3;
         }
 
-        self.pushMesh(verts[0 .. segments * 2], indices[0 .. segments * 6]);
+        self.pushMesh(verts[0 .. segments * 4], indices[0 .. segments * 6]);
     }
 
     /// Upload the staged geometry and issue a draw call for the current texture.

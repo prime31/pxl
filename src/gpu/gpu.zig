@@ -5,6 +5,9 @@ const sg = pxl.sokol.gfx;
 pub const Texture = @import("texture.zig").Texture;
 pub const Batcher = @import("batcher.zig").Batcher;
 pub const Vertex = @import("batcher.zig").Vertex;
+pub const Anchor = @import("batcher.zig").Anchor;
+pub const Sprite = @import("batcher.zig").Sprite;
+pub const Rect = @import("batcher.zig").Rect;
 
 pub const offscreen = struct {
     var pass_action: sg.PassAction = .{};

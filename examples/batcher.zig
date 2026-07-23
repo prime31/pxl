@@ -36,31 +36,46 @@ fn render() !void {
 
     batcher.begin(pxl.math.Mat32.orthographic(pxl.sapp.widthf(), pxl.sapp.heightf()));
     batcher.setBlendMode(.blend);
-    batcher.drawTriangle(
-        .init(100, 100),
-        .init(300, 100),
-        .init(200, 300),
-        pxl.math.Color.white,
-    );
 
-    // high-level convenience drawing
-    batcher.drawRect(.init(150, 450), .init(120, 80), pxl.math.Color.red);
-    batcher.drawRectOutline(.init(150, 450), .init(120, 80), 3, pxl.math.Color.white);
-    batcher.drawLine(.init(400, 420), .init(650, 500), 6, pxl.math.Color.sky_blue);
-    batcher.drawPoint(.init(300, 200), pxl.math.Color.lime, 8);
-    batcher.drawCircle(.init(500, 200), 60, pxl.math.Color.gold, 32);
-    batcher.drawCircleOutline(.init(500, 200), 70, 3, pxl.math.Color.white, 48);
+    const t = pxl.util.cast(f32, pxl.time.frame_count) / 60.0;
 
-    const rot = pxl.util.cast(f32, pxl.time.frame_count) / 60.0;
-    // whole texture, spinning about its center, 2x
-    batcher.drawSprite(.{ .texture = ferris, .position = .init(700, 300), .rotation = rot, .scale = .init(2, 2) });
+    // ---- top strip: primitive showcase ----
+    batcher.drawTriangle(.init(80, 60), .init(240, 60), .init(160, 180), pxl.math.Color.white);
+    batcher.drawRect(.init(380, 110), .init(120, 70), pxl.math.Color.red);
+    batcher.drawRectOutline(.init(380, 110), .init(120, 70), 4, pxl.math.Color.white);
+    batcher.drawCircle(.init(560, 110), 45, pxl.math.Color.gold, 48);
+    batcher.drawCircleOutline(.init(560, 110), 45, 4, pxl.math.Color.white, 48);
+    batcher.drawLine(.init(660, 60), .init(940, 170), 6, pxl.math.Color.sky_blue);
+    batcher.drawPoint(.init(620, 110), pxl.math.Color.lime, 8);
     // atlas path: draw only the left half of the texture as a sub-region
-    batcher.drawSprite(.{ .texture = ferris, .position = .init(700, 480), .source = .{
+    batcher.drawSprite(.{ .texture = ferris, .position = .init(970, 110), .source = .{
         .x = 0,
         .y = 0,
         .w = pxl.util.cast(f32, ferris.width) / 2.0,
         .h = pxl.util.cast(f32, ferris.height),
     } });
+
+    // ---- 3x3 sprite alignment / pivot showcase (comfy draw_sprite_pro) ----
+    // Each sprite is anchored at the same grid point via a different origin, and spins
+    // and pulses about that anchor. The red guide rect + dot mark the anchor.
+    const anchors = [9]pxl.gpu.Anchor{
+        .top_left,    .top_center,    .top_right,
+        .center_left, .center,        .center_right,
+        .bottom_left, .bottom_center, .bottom_right,
+    };
+    const pulse = 2.0 + @abs(@sin(t)) * 1.0;
+    const sw = pxl.util.cast(f32, ferris.width) * pulse;
+    const sh = pxl.util.cast(f32, ferris.height) * pulse;
+    const grid_origin = pxl.math.Vec2.init(360, 320);
+    const gstep: f32 = 150;
+    for (anchors, 0..) |anchor, i| {
+        const col: f32 = @floatFromInt(i % 3);
+        const row: f32 = @floatFromInt(i / 3);
+        const pos = pxl.math.Vec2.init(grid_origin.x + col * gstep, grid_origin.y + row * gstep);
+        batcher.drawRectOutline(pos, .init(sw, sh), 2, pxl.math.Color.red);
+        batcher.drawSprite(.{ .texture = ferris, .position = pos, .anchor = anchor, .rotation = t, .scale = .init(pulse, pulse) });
+        batcher.drawPoint(pos, pxl.math.Color.red, 6);
+    }
 
     // exercise the custom-pipeline + uniform API (pipeline is created once, on first press)
     if (pxl.input.keyDown(.P)) {
