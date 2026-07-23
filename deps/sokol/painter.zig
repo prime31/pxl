@@ -172,11 +172,11 @@ pub const struct_sgp_desc = extern struct {
 };
 pub const sgp_desc = struct_sgp_desc;
 pub const struct_sgp_pipeline_desc = extern struct {
-    shader: sg.sg_shader = @import("std").mem.zeroes(sg.sg_shader),
-    primitive_type: sg.sg_primitive_type = @import("std").mem.zeroes(sg.sg_primitive_type),
+    shader: sg.Shader = @import("std").mem.zeroes(sg.Shader),
+    primitive_type: sg.PrimitiveType = @import("std").mem.zeroes(sg.PrimitiveType),
     blend_mode: sgp_blend_mode = @import("std").mem.zeroes(sgp_blend_mode),
-    color_format: sg.sg_pixel_format = @import("std").mem.zeroes(sg.sg_pixel_format),
-    depth_format: sg.sg_pixel_format = @import("std").mem.zeroes(sg.sg_pixel_format),
+    color_format: sg.PixelFormat = @import("std").mem.zeroes(sg.PixelFormat),
+    depth_format: sg.PixelFormat = @import("std").mem.zeroes(sg.PixelFormat),
     sample_count: c_int = 0,
     has_vs_color: bool = false,
     pub const make_pipeline = __root.make_pipeline;
@@ -208,10 +208,10 @@ pub fn get_error_message(@"error": sgp_error) []const u8 {
 }
 extern fn sgp_get_error_message(@"error": sgp_error) [*c]const u8;
 
-pub fn make_pipeline(desc: [*c]const sgp_pipeline_desc) sg.sg_pipeline {
+pub fn make_pipeline(desc: [*c]const sgp_pipeline_desc) sg.Pipeline {
     return sgp_make_pipeline(desc);
 }
-extern fn sgp_make_pipeline(desc: [*c]const sgp_pipeline_desc) sg.sg_pipeline;
+extern fn sgp_make_pipeline(desc: [*c]const sgp_pipeline_desc) sg.Pipeline;
 
 pub fn begin(width: c_int, height: c_int) void {
     sgp_begin(width, height);
@@ -278,10 +278,10 @@ pub fn scale_at(sx: f32, sy: f32, x: f32, y: f32) void {
 }
 extern fn sgp_scale_at(sx: f32, sy: f32, x: f32, y: f32) void;
 
-pub fn set_pipeline(pipeline: sg.sg_pipeline) void {
+pub fn set_pipeline(pipeline: sg.Pipeline) void {
     sgp_set_pipeline(pipeline);
 }
-extern fn sgp_set_pipeline(pipeline: sg.sg_pipeline) void;
+extern fn sgp_set_pipeline(pipeline: sg.Pipeline) void;
 
 pub fn reset_pipeline() void {
     sgp_reset_pipeline();

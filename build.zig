@@ -14,6 +14,7 @@ const examples = [_]Example{
     .{ .name = "text" },
     .{ .name = "ldtk" },
     .{ .name = "microui" },
+    .{ .name = "shader" },
     .{ .name = "empty", .has_shader = true },
     .{ .name = "bunnymark" },
 };
@@ -93,16 +94,7 @@ pub fn build(b: *Build) !void {
         },
     });
 
-    // const mod_pacman = b.createModule(.{
-    //     .root_source_file = b.path("src/pacman.zig"),
-    //     .target = target,
-    //     .optimize = optimize,
-    //     .imports = &.{
-    //         .{ .name = "sokol", .module = dep_sokol.module("sokol") },
-    //         .{ .name = cimgui_conf.module_name, .module = dep_cimgui.module(cimgui_conf.module_name) },
-    //         .{ .name = "shader", .module = try createShaderModule(b, dep_sokol) },
-    //     },
-    // });
+    mod_shader.addImport("pxl", mod_pxl);
 
     if (opt_imgui)
         mod_pxl.addImport("cimgui", dep_sokol_builder.module("cimgui"));

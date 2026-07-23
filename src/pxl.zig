@@ -195,8 +195,6 @@ pub fn beginPass(pass: Pass) void {
 
     sgp.begin(sapp.width(), sapp.height());
     sgp.viewport(0, 0, sapp.width(), sapp.height());
-    const ratio = @as(f32, @floatFromInt(sapp.width())) / @as(f32, @floatFromInt(sapp.height()));
-    sgp.project(-ratio, ratio, -1.0, 1.0);
 }
 
 pub fn endPass() void {
