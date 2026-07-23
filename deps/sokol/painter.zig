@@ -1,4 +1,4 @@
-pub const c = @import("c");
+pub const c = @import("microui_c");
 
 const std = @import("std");
 const sg = @import("sokol").gfx;

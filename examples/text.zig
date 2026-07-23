@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const pxl = @import("gg");
+const pxl = @import("pxl");
 const sgp = pxl.sgp;
 const ig = pxl.ig;
 
@@ -23,10 +23,13 @@ pub fn main(init: std.process.Init) !void {
 fn setup() !void {
     font = try BMFontParser.init("examples/assets/minecraftia.fnt");
     kiwi_font = try BMFontParser.init("examples/assets/kiwisoda.fnt");
+
+    std.debug.print("pxl.microui: {}\n", .{pxl.microui.c});
 }
 
 fn shutdown() !void {
     font.deinit();
+    kiwi_font.deinit();
 }
 
 fn update() !void {}

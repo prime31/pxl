@@ -12,6 +12,7 @@ const shdc = sokol.shdc;
 const examples = [_]Example{
     .{ .name = "check" },
     .{ .name = "text" },
+    .{ .name = "microui" },
     .{ .name = "empty", .has_shader = true },
     .{ .name = "bunnymark" },
 };
@@ -73,8 +74,6 @@ pub fn build(b: *Build) !void {
         .optimize = optimize,
         .with_sokol_imgui = opt_imgui,
     });
-    const mod_sokol = dep_sokol.module("sokol");
-    const mod_painter = dep_sokol_builder.module("painter");
 
     // for now add all shaders in one module
     const mod_shader = try compileShaderModule(b, dep_sokol, shaders.engine_shader_dir ++ shaders.engine_shaders[0]);
@@ -84,10 +83,11 @@ pub fn build(b: *Build) !void {
         .target = target,
         .optimize = optimize,
         .imports = &.{
-            .{ .name = "sokol", .module = mod_sokol },
+            .{ .name = "sokol", .module = dep_sokol.module("sokol") },
             .{ .name = "gamepad", .module = dep_gamepad.module("gamepad") },
             .{ .name = "stb", .module = dep_stb.module("stb") },
-            .{ .name = "painter", .module = mod_painter },
+            .{ .name = "painter", .module = dep_sokol_builder.module("painter") },
+            .{ .name = "microui", .module = dep_sokol_builder.module("microui") },
             .{ .name = "shaders", .module = mod_shader },
         },
     });
@@ -126,7 +126,7 @@ pub fn build(b: *Build) !void {
         try buildNative(b, .{
             .target = target,
             .optimize = optimize,
-            .mod_gg = mod_pxl,
+            .mod_pxl = mod_pxl,
             .dep_sokol = dep_sokol,
         });
     }
@@ -152,7 +152,7 @@ pub fn build(b: *Build) !void {
 const ExeConfig = struct {
     target: ?std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
-    mod_gg: *std.Build.Module,
+    mod_pxl: *std.Build.Module,
     dep_sokol: *Dependency,
 };
 
@@ -168,7 +168,7 @@ fn buildNative(b: *Build, opts: ExeConfig) !void {
                 .target = opts.target,
                 .optimize = opts.optimize,
                 .imports = &.{
-                    .{ .name = "gg", .module = opts.mod_gg },
+                    .{ .name = "pxl", .module = opts.mod_pxl },
                 },
             }),
         });

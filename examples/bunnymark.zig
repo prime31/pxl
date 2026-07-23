@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const pxl = @import("gg");
+const pxl = @import("pxl");
 const sgp = pxl.sgp;
 const ig = pxl.ig;
 
@@ -101,7 +101,4 @@ fn render() !void {
         sgp.draw_filled_rect(crab.pos.x, crab.pos.y, 32, 21);
     }
     pxl.endPass();
-
-    // pxl.sdtx.color3b(0, 0, 0);
-    // pxl.sdtx.puts("fuck man");
 }

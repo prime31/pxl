@@ -12,12 +12,13 @@ pub const sshape = sokol.shape;
 pub const sapp = sokol.app;
 pub const sglue = sokol.glue;
 pub const simgui = sokol.imgui;
-pub const sdtx = sokol.sdtx;
+pub const sdtx = sokol.debugtext;
 
 pub const api = @import("api.zig");
 pub const gamepad = @import("gamepad");
 pub const stb = @import("stb");
 pub const sgp = @import("painter");
+pub const microui = @import("microui");
 pub const shaders = @import("shaders");
 pub var input: Input = undefined;
 pub var time: Time = undefined;
@@ -107,12 +108,6 @@ export fn sokolInit() void {
     });
     if (!sg.isvalid()) @panic("failed to create sokol context");
 
-    // initialize sokol-gl
-    sgl.setup(.{
-        .depth_format = .NONE,
-        .logger = .{ .func = slog.func },
-    });
-
     sdtx.setup(.{
         .fonts = init: {
             var f: [8]sdtx.FontDesc = @splat(.{});
@@ -127,6 +122,8 @@ export fn sokolInit() void {
         .depth_format = .NONE,
     });
     if (!sgp.is_valid()) @panic(sgp.get_error_message(sgp.get_last_error()));
+
+    microui.setup();
 
     // optionally, initialize sokol-imgui
     if (has_imgui) {
@@ -155,8 +152,10 @@ export fn sokolFrame() void {
         });
     }
 
+    microui.begin();
     if (cbs.update) |cb| cb() catch unreachable;
     if (cbs.render) |cb| cb() catch unreachable;
+    microui.end();
 
     gpu.offscreen.pass.action.colors[0] = .{
         .load_action = .CLEAR,
@@ -166,6 +165,7 @@ export fn sokolFrame() void {
     gpu.blitRenderTexture();
 
     if (has_imgui) {
+        std.debug.print("FIX THIS, IT SHOULDNT RENDER INTO THE SWAPCHAIN!!!!\n", .{});
         var pass_action: sg.PassAction = .{};
         pass_action.colors[0] = .{ .load_action = .LOAD };
 
@@ -174,13 +174,6 @@ export fn sokolFrame() void {
         sg.endPass();
     }
 
-    // sokol debug text, this pass for some reasons tanks performance....
-    // var pass_action: sg.PassAction = .{};
-    // pass_action.colors[0] = .{ .load_action = .LOAD };
-    // sg.beginPass(.{ .action = pass_action, .swapchain = sglue.swapchain() });
-    // sdtx.draw();
-    // sg.endPass();
-
     sg.commit();
     input.newFrame();
     time.update();
@@ -188,6 +181,8 @@ export fn sokolFrame() void {
 
 export fn sokolEvent(evt: [*c]const sapp.Event) void {
     if (has_imgui) if (simgui.handleEvent(evt.*)) return;
+
+    microui.handleEvent(evt);
 
     if (evt.*.type == .RESIZED) gpu.createOffscreenAttachments(evt.*.framebuffer_width, evt.*.framebuffer_height);
     input.handleEvent(evt);
@@ -220,7 +215,6 @@ pub fn endPass() void {
 
     gpu.offscreen.pass.action.colors[0].load_action = if (current_pass.?.action == .load) .LOAD else .CLEAR;
     sg.beginPass(gpu.offscreen.pass);
-    sgl.draw();
     sgp.flush();
     sgp.end();
     sg.endPass();
