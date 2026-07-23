@@ -21,6 +21,39 @@ extern fn r_event(ev: [*c]const sg.Event) void;
 extern fn r_frame() void;
 
 // microui
+pub const Icon = enum(c_int) {
+    none,
+    close,
+    check,
+    collapsed,
+    expanded,
+    max,
+};
+
+pub const Result = packed struct(c_int) {
+    active: bool = false,
+    submit: bool = false,
+    change: bool = false,
+    _padding: u29 = 0,
+};
+
+pub const Opt = packed struct(c_int) {
+    align_center: bool = true,
+    align_right: bool = false,
+    no_interact: bool = false,
+    no_frame: bool = false,
+    no_resize: bool = false,
+    no_scroll: bool = false,
+    no_close: bool = false,
+    no_title: bool = false,
+    hold_focus: bool = false,
+    auto_size: bool = false,
+    popup: bool = false,
+    closed: bool = false,
+    expanded: bool = false,
+    _padding: u19 = 0,
+};
+
 const __root = @This();
 pub const MU_CLIP_PART: c_int = 1;
 pub const MU_CLIP_ALL: c_int = 2;
@@ -145,101 +178,6 @@ pub const struct_mu_Context = extern struct {
     key_down: c_int = 0,
     key_pressed: c_int = 0,
     input_text: [32]u8 = @import("std").mem.zeroes([32]u8),
-    pub const mu_init = __root.mu_init;
-    pub const mu_begin = __root.mu_begin;
-    pub const mu_end = __root.mu_end;
-    pub const mu_set_focus = __root.mu_set_focus;
-    pub const mu_get_id = __root.mu_get_id;
-    pub const mu_push_id = __root.mu_push_id;
-    pub const mu_pop_id = __root.mu_pop_id;
-    pub const mu_push_clip_rect = __root.mu_push_clip_rect;
-    pub const mu_pop_clip_rect = __root.mu_pop_clip_rect;
-    pub const mu_get_clip_rect = __root.mu_get_clip_rect;
-    pub const mu_check_clip = __root.mu_check_clip;
-    pub const mu_get_current_container = __root.mu_get_current_container;
-    pub const mu_get_container = __root.mu_get_container;
-    pub const mu_bring_to_front = __root.mu_bring_to_front;
-    pub const mu_pool_init = __root.mu_pool_init;
-    pub const mu_pool_get = __root.mu_pool_get;
-    pub const mu_pool_update = __root.mu_pool_update;
-    pub const mu_input_mousemove = __root.mu_input_mousemove;
-    pub const mu_input_mousedown = __root.mu_input_mousedown;
-    pub const mu_input_mouseup = __root.mu_input_mouseup;
-    pub const mu_input_scroll = __root.mu_input_scroll;
-    pub const mu_input_keydown = __root.mu_input_keydown;
-    pub const mu_input_keyup = __root.mu_input_keyup;
-    pub const mu_input_text = __root.mu_input_text;
-    pub const mu_push_command = __root.mu_push_command;
-    pub const mu_next_command = __root.mu_next_command;
-    pub const mu_set_clip = __root.mu_set_clip;
-    pub const mu_draw_rect = __root.mu_draw_rect;
-    pub const mu_draw_box = __root.mu_draw_box;
-    pub const mu_draw_text = __root.mu_draw_text;
-    pub const mu_draw_icon = __root.mu_draw_icon;
-    pub const mu_layout_row = __root.mu_layout_row;
-    pub const mu_layout_width = __root.mu_layout_width;
-    pub const mu_layout_height = __root.mu_layout_height;
-    pub const mu_layout_begin_column = __root.mu_layout_begin_column;
-    pub const mu_layout_end_column = __root.mu_layout_end_column;
-    pub const mu_layout_set_next = __root.mu_layout_set_next;
-    pub const mu_layout_next = __root.mu_layout_next;
-    pub const mu_draw_control_frame = __root.mu_draw_control_frame;
-    pub const mu_draw_control_text = __root.mu_draw_control_text;
-    pub const mu_mouse_over = __root.mu_mouse_over;
-    pub const mu_update_control = __root.mu_update_control;
-    pub const mu_text = __root.mu_text;
-    pub const mu_label = __root.mu_label;
-    pub const mu_button_ex = __root.mu_button_ex;
-    pub const mu_checkbox = __root.mu_checkbox;
-    pub const mu_textbox_raw = __root.mu_textbox_raw;
-    pub const mu_textbox_ex = __root.mu_textbox_ex;
-    pub const mu_slider_ex = __root.mu_slider_ex;
-    pub const mu_number_ex = __root.mu_number_ex;
-    pub const mu_header_ex = __root.mu_header_ex;
-    pub const mu_begin_treenode_ex = __root.mu_begin_treenode_ex;
-    pub const mu_end_treenode = __root.mu_end_treenode;
-    pub const mu_begin_window_ex = __root.mu_begin_window_ex;
-    pub const mu_end_window = __root.mu_end_window;
-    pub const mu_open_popup = __root.mu_open_popup;
-    pub const mu_begin_popup = __root.mu_begin_popup;
-    pub const mu_end_popup = __root.mu_end_popup;
-    pub const mu_begin_panel_ex = __root.mu_begin_panel_ex;
-    pub const mu_end_panel = __root.mu_end_panel;
-    pub const init = __root.mu_init;
-    pub const begin = __root.mu_begin;
-    pub const end = __root.mu_end;
-    pub const id = __root.mu_get_id;
-    pub const rect = __root.mu_push_clip_rect;
-    pub const clip = __root.mu_check_clip;
-    pub const container = __root.mu_get_current_container;
-    pub const front = __root.mu_bring_to_front;
-    pub const get = __root.mu_pool_get;
-    pub const update = __root.mu_pool_update;
-    pub const mousemove = __root.mu_input_mousemove;
-    pub const mousedown = __root.mu_input_mousedown;
-    pub const mouseup = __root.mu_input_mouseup;
-    pub const scroll = __root.mu_input_scroll;
-    pub const keydown = __root.mu_input_keydown;
-    pub const keyup = __root.mu_input_keyup;
-    pub const text = __root.mu_input_text;
-    pub const command = __root.mu_push_command;
-    pub const box = __root.mu_draw_box;
-    pub const icon = __root.mu_draw_icon;
-    pub const row = __root.mu_layout_row;
-    pub const width = __root.mu_layout_width;
-    pub const height = __root.mu_layout_height;
-    pub const column = __root.mu_layout_begin_column;
-    pub const next = __root.mu_layout_set_next;
-    pub const over = __root.mu_mouse_over;
-    pub const control = __root.mu_update_control;
-    pub const label = __root.mu_label;
-    pub const ex = __root.mu_button_ex;
-    pub const checkbox = __root.mu_checkbox;
-    pub const raw = __root.mu_textbox_raw;
-    pub const treenode = __root.mu_end_treenode;
-    pub const window = __root.mu_end_window;
-    pub const popup = __root.mu_open_popup;
-    pub const panel = __root.mu_end_panel;
 };
 pub const mu_Real = f32;
 pub const mu_Vec2 = extern struct {
@@ -490,8 +428,8 @@ pub fn drawText(font: mu_Font, str: [*c]const u8, len: c_int, pos: mu_Vec2, colo
 }
 extern fn mu_draw_text(ctx: [*c]mu_Context, font: mu_Font, str: [*c]const u8, len: c_int, pos: mu_Vec2, color: mu_Color) void;
 
-pub fn drawIcon(id: c_int, rect: mu_Rect, color: mu_Color) void {
-    mu_draw_icon(&mu_ctx, id, rect, color);
+pub fn drawIcon(id: Icon, rect: mu_Rect, color: mu_Color) void {
+    mu_draw_icon(&mu_ctx, @intFromEnum(id), rect, color);
 }
 extern fn mu_draw_icon(ctx: [*c]mu_Context, id: c_int, rect: mu_Rect, color: mu_Color) void;
 
@@ -520,23 +458,23 @@ pub fn layoutEndColumn() void {
 }
 extern fn mu_layout_end_column(ctx: [*c]mu_Context) void;
 
-pub fn layoutSetNext(r: mu_Rect, relative: c_int) void {
-    mu_layout_set_next(&mu_ctx, r, relative);
+pub fn layoutSetNext(r: mu_Rect, relative: enum { absolute, relative }) void {
+    mu_layout_set_next(&mu_ctx, r, @intFromEnum(relative));
 }
 extern fn mu_layout_set_next(ctx: [*c]mu_Context, r: mu_Rect, relative: c_int) void;
 
 pub fn layoutNext() mu_Rect {
-    mu_layout_next(&mu_ctx);
+    return mu_layout_next(&mu_ctx);
 }
 extern fn mu_layout_next(ctx: [*c]mu_Context) mu_Rect;
 
-pub fn drawControlFrame(id: mu_Id, rect: mu_Rect, colorid: c_int, opt: c_int) void {
-    mu_draw_control_frame(&mu_ctx, id, rect, colorid, opt);
+pub fn drawControlFrame(id: mu_Id, rect: mu_Rect, colorid: c_int, opt: Opt) void {
+    mu_draw_control_frame(&mu_ctx, id, rect, colorid, @bitCast(opt));
 }
 extern fn mu_draw_control_frame(ctx: [*c]mu_Context, id: mu_Id, rect: mu_Rect, colorid: c_int, opt: c_int) void;
 
-pub fn drawControlText(str: [*c]const u8, rect: mu_Rect, colorid: c_int, opt: c_int) void {
-    mu_draw_control_text(&mu_ctx, str, rect, colorid, opt);
+pub fn drawControlText(str: [*c]const u8, rect: mu_Rect, colorid: c_int, opt: Opt) void {
+    mu_draw_control_text(&mu_ctx, str, rect, colorid, @bitCast(opt));
 }
 extern fn mu_draw_control_text(ctx: [*c]mu_Context, str: [*c]const u8, rect: mu_Rect, colorid: c_int, opt: c_int) void;
 
@@ -545,8 +483,8 @@ pub fn mouseOver(rect: mu_Rect) c_int {
 }
 extern fn mu_mouse_over(ctx: [*c]mu_Context, rect: mu_Rect) c_int;
 
-pub fn updateControl(id: mu_Id, rect: mu_Rect, opt: c_int) void {
-    mu_update_control(&mu_ctx, id, rect, opt);
+pub fn updateControl(id: mu_Id, rect: mu_Rect, opt: Opt) void {
+    mu_update_control(&mu_ctx, id, rect, @bitCast(opt));
 }
 extern fn mu_update_control(ctx: [*c]mu_Context, id: mu_Id, rect: mu_Rect, opt: c_int) void;
 
@@ -560,8 +498,8 @@ pub fn label(txt: [*c]const u8) void {
 }
 extern fn mu_label(ctx: [*c]mu_Context, txt: [*c]const u8) void;
 
-pub fn buttonEx(label_txt: [*c]const u8, icon: c_int, opt: c_int) bool {
-    return mu_button_ex(&mu_ctx, label_txt, icon, opt) > 0;
+pub fn buttonEx(label_txt: [*c]const u8, icon: Icon, opt: Opt) bool {
+    return mu_button_ex(&mu_ctx, label_txt, @intFromEnum(icon), @bitCast(opt)) > 0;
 }
 extern fn mu_button_ex(ctx: [*c]mu_Context, label_txt: [*c]const u8, icon: c_int, opt: c_int) c_int;
 
@@ -570,33 +508,33 @@ pub fn checkbox(label_txt: [*c]const u8, state: [*c]c_int) bool {
 }
 extern fn mu_checkbox(ctx: [*c]mu_Context, label_txt: [*c]const u8, state: [*c]c_int) c_int;
 
-pub fn textboxRaw(buf: [*c]u8, bufsz: c_int, id: mu_Id, r: mu_Rect, opt: c_int) c_int {
-    mu_textbox_raw(&mu_ctx, buf, bufsz, id, r, opt);
+pub fn textboxRaw(buf: [*c]u8, bufsz: c_int, id: mu_Id, r: mu_Rect, opt: Opt) Result {
+    return @bitCast(mu_textbox_raw(&mu_ctx, buf, bufsz, id, r, @bitCast(opt)));
 }
 extern fn mu_textbox_raw(ctx: [*c]mu_Context, buf: [*c]u8, bufsz: c_int, id: mu_Id, r: mu_Rect, opt: c_int) c_int;
 
-pub fn textboxEx(buf: [*c]u8, bufsz: c_int, opt: c_int) c_int {
-    mu_textbox_ex(&mu_ctx, buf, bufsz, opt);
+pub fn textboxEx(buf: [*c]u8, bufsz: c_int, opt: Opt) Result {
+    return @bitCast(mu_textbox_ex(&mu_ctx, buf, bufsz, @bitCast(opt)));
 }
 extern fn mu_textbox_ex(ctx: [*c]mu_Context, buf: [*c]u8, bufsz: c_int, opt: c_int) c_int;
 
-pub fn sliderEx(value: [*c]mu_Real, low: mu_Real, high: mu_Real, step: mu_Real, fmt: [*c]const u8, opt: c_int) c_int {
-    return mu_slider_ex(&mu_ctx, value, low, high, step, fmt, opt);
+pub fn sliderEx(value: [*c]mu_Real, low: mu_Real, high: mu_Real, step: mu_Real, fmt: [*c]const u8, opt: Opt) bool {
+    return mu_slider_ex(&mu_ctx, value, low, high, step, fmt, @bitCast(opt)) > 0;
 }
 extern fn mu_slider_ex(ctx: [*c]mu_Context, value: [*c]mu_Real, low: mu_Real, high: mu_Real, step: mu_Real, fmt: [*c]const u8, opt: c_int) c_int;
 
-pub fn numberEx(value: [*c]mu_Real, step: mu_Real, fmt: [*c]const u8, opt: c_int) c_int {
-    return mu_number_ex(&mu_ctx, value, step, fmt, opt);
+pub fn numberEx(value: [*c]mu_Real, step: mu_Real, fmt: [*c]const u8, opt: Opt) c_int {
+    return mu_number_ex(&mu_ctx, value, step, fmt, @bitCast(opt));
 }
 extern fn mu_number_ex(ctx: [*c]mu_Context, value: [*c]mu_Real, step: mu_Real, fmt: [*c]const u8, opt: c_int) c_int;
 
-pub fn headerEx(label_txt: [*c]const u8, opt: c_int) bool {
-    return mu_header_ex(&mu_ctx, label_txt, opt) == 1;
+pub fn headerEx(label_txt: [*c]const u8, opt: Opt) bool {
+    return mu_header_ex(&mu_ctx, label_txt, @bitCast(opt)) == 1;
 }
 extern fn mu_header_ex(ctx: [*c]mu_Context, label_txt: [*c]const u8, opt: c_int) c_int;
 
-pub fn beginTreenodeEx(label_txt: [*c]const u8, opt: c_int) bool {
-    mu_begin_treenode_ex(&mu_ctx, label_txt, opt) == 1;
+pub fn beginTreenodeEx(label_txt: [*c]const u8, opt: Opt) bool {
+    return mu_begin_treenode_ex(&mu_ctx, label_txt, @bitCast(opt)) > 0;
 }
 extern fn mu_begin_treenode_ex(ctx: [*c]mu_Context, label_txt: [*c]const u8, opt: c_int) c_int;
 
@@ -605,8 +543,8 @@ pub fn endTreenode() void {
 }
 extern fn mu_end_treenode(ctx: [*c]mu_Context) void;
 
-pub fn beginWindowEx(title: [*c]const u8, rect: mu_Rect, opt: c_int) bool {
-    return mu_begin_window_ex(&mu_ctx, title, rect, opt) == 1;
+pub fn beginWindowEx(title: [*c]const u8, rect: mu_Rect, opt: Opt) bool {
+    return mu_begin_window_ex(&mu_ctx, title, rect, @bitCast(opt)) == 1;
 }
 extern fn mu_begin_window_ex(ctx: [*c]mu_Context, title: [*c]const u8, rect: mu_Rect, opt: c_int) c_int;
 
@@ -620,8 +558,8 @@ pub fn openPopup(name: [*c]const u8) void {
 }
 extern fn mu_open_popup(ctx: [*c]mu_Context, name: [*c]const u8) void;
 
-pub fn beginPopup(name: [*c]const u8) c_int {
-    return mu_begin_popup(&mu_ctx, name) == 1;
+pub fn beginPopup(name: [*c]const u8) bool {
+    return mu_begin_popup(&mu_ctx, name) > 0;
 }
 extern fn mu_begin_popup(ctx: [*c]mu_Context, name: [*c]const u8) c_int;
 
@@ -630,8 +568,8 @@ pub fn endPopup() void {
 }
 extern fn mu_end_popup(ctx: [*c]mu_Context) void;
 
-pub fn beginPanelEx(name: [*c]const u8, opt: c_int) void {
-    mu_begin_panel_ex(&mu_ctx, name, opt);
+pub fn beginPanelEx(name: [*c]const u8, opt: Opt) void {
+    mu_begin_panel_ex(&mu_ctx, name, @bitCast(opt));
 }
 extern fn mu_begin_panel_ex(ctx: [*c]mu_Context, name: [*c]const u8, opt: c_int) void;
 

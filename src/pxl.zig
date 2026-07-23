@@ -12,13 +12,12 @@ pub const sshape = sokol.shape;
 pub const sapp = sokol.app;
 pub const sglue = sokol.glue;
 pub const simgui = sokol.imgui;
-pub const sdtx = sokol.debugtext;
 
 pub const api = @import("api.zig");
 pub const gamepad = @import("gamepad");
 pub const stb = @import("stb");
 pub const sgp = @import("painter");
-pub const microui = @import("microui");
+pub const mu = @import("microui");
 pub const shaders = @import("shaders");
 pub var input: Input = undefined;
 pub var time: Time = undefined;
@@ -108,22 +107,13 @@ export fn sokolInit() void {
     });
     if (!sg.isvalid()) @panic("failed to create sokol context");
 
-    sdtx.setup(.{
-        .fonts = init: {
-            var f: [8]sdtx.FontDesc = @splat(.{});
-            f[0] = sdtx.fontKc854();
-            break :init f;
-        },
-        .logger = .{ .func = slog.func },
-    });
-
     sgp.setup(&.{
         .max_vertices = 10000000,
         .depth_format = .NONE,
     });
     if (!sgp.is_valid()) @panic(sgp.get_error_message(sgp.get_last_error()));
 
-    microui.setup();
+    mu.setup();
 
     // optionally, initialize sokol-imgui
     if (has_imgui) {
@@ -152,10 +142,10 @@ export fn sokolFrame() void {
         });
     }
 
-    microui.begin();
+    mu.begin();
     if (cbs.update) |cb| cb() catch unreachable;
     if (cbs.render) |cb| cb() catch unreachable;
-    microui.end();
+    mu.end();
 
     gpu.offscreen.pass.action.colors[0] = .{
         .load_action = .CLEAR,
@@ -182,7 +172,7 @@ export fn sokolFrame() void {
 export fn sokolEvent(evt: [*c]const sapp.Event) void {
     if (has_imgui) if (simgui.handleEvent(evt.*)) return;
 
-    microui.handleEvent(evt);
+    mu.handleEvent(evt);
 
     if (evt.*.type == .RESIZED) gpu.createOffscreenAttachments(evt.*.framebuffer_width, evt.*.framebuffer_height);
     input.handleEvent(evt);
@@ -193,7 +183,6 @@ export fn sokolCleanup() void {
 
     gpu.deinit();
 
-    sdtx.shutdown();
     sgp.shutdown();
     sgl.shutdown();
     if (has_imgui) simgui.shutdown();

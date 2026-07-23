@@ -80,8 +80,7 @@ pub fn blitRenderTexture() void {
     sg.applyBindings(offscreen.bind);
     sg.draw(0, 3, 1);
 
-    pxl.sdtx.draw();
-    pxl.microui.render();
+    pxl.mu.render();
 
     sg.endPass();
 }
