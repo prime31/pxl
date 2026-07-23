@@ -24,8 +24,8 @@ pub fn deinit() void {
     assert(mem_allocator != null);
     assert(mem_allocations.?.count() == 0);
 
-    setFlipVerticallyOnLoad(false);
-    setFlipVerticallyOnWrite(false);
+    // setFlipVerticallyOnLoad(false);
+    // setFlipVerticallyOnWrite(false);
 
     mem_allocations.?.deinit();
     mem_allocations = null;
