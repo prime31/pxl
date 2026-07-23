@@ -27,6 +27,12 @@ fn update() !void {
             microui.label("shit");
         }
 
+        if (microui.buttonEx("Click Me", 0, 0)) std.debug.print("clicked\n", .{});
+        const c = struct {
+            var checked: c_int = 0;
+        };
+        _ = microui.checkbox("Checked", &c.checked);
+
         microui.endWindow();
     }
 }

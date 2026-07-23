@@ -560,13 +560,13 @@ pub fn label(txt: [*c]const u8) void {
 }
 extern fn mu_label(ctx: [*c]mu_Context, txt: [*c]const u8) void;
 
-pub fn buttonEx(label_txt: [*c]const u8, icon: c_int, opt: c_int) c_int {
-    mu_button_ex(&mu_ctx, label_txt, icon, opt);
+pub fn buttonEx(label_txt: [*c]const u8, icon: c_int, opt: c_int) bool {
+    return mu_button_ex(&mu_ctx, label_txt, icon, opt) > 0;
 }
 extern fn mu_button_ex(ctx: [*c]mu_Context, label_txt: [*c]const u8, icon: c_int, opt: c_int) c_int;
 
-pub fn checkbox(label_txt: [*c]const u8, state: [*c]c_int) c_int {
-    mu_checkbox(&mu_ctx, label_txt, state);
+pub fn checkbox(label_txt: [*c]const u8, state: [*c]c_int) bool {
+    return mu_checkbox(&mu_ctx, label_txt, state) == 1;
 }
 extern fn mu_checkbox(ctx: [*c]mu_Context, label_txt: [*c]const u8, state: [*c]c_int) c_int;
 
