@@ -63,3 +63,188 @@ const pxl = @import("pxl.zig");
 // void sgp_draw_filled_rect(float x, float y, float w, float h);                                /* Draws a single rectangle. */
 // void sgp_draw_textured_rects(int channel, const sgp_textured_rect* rects, uint32_t count);    /* Draws a batch textured rectangle, each from a source region. */
 // void sgp_draw_textured_rect(int channel, sgp_rect dest_rect, sgp_rect src_rect);              /* Draws a single textured rectangle from a source region. */
+
+// comfy
+// pub fn draw_sprite(
+//     texture: TextureHandle,
+//     position: Vec2,
+//     tint: Color,
+//     z_index: i32,
+//     world_size: Vec2
+// );
+
+// pub fn draw_sprite_rot(
+//     texture: TextureHandle,
+//     position: Vec2,
+//     tint: Color,
+//     z_index: i32,
+//     world_size: Vec2,
+//     rotation: f32,
+// );
+
+// pub fn draw_sprite_ex(
+//     texture: TextureHandle,
+//     position: Vec2,
+//     tint: Color,
+//     z_index: i32,
+//     params: DrawTextureParams,
+// );
+
+// pub fn draw_sprite_pro(
+//     texture: TextureHandle,
+//     position: Vec2,
+//     tint: Color,
+//     z_index: i32,
+//     params: DrawTextureProParams,
+// );
+
+// pub fn draw_rect(
+//     center: Vec2,
+//     size: Vec2,
+//     color: Color,
+//     z_index: i32,
+// );
+
+// pub fn draw_rect_rot(
+//     center: Vec2,
+//     size: Vec2,
+//     rotation: f32,
+//     color: Color,
+//     z_index: i32,
+// );
+
+// pub fn draw_rect_outline(
+//     center: Vec2,
+//     size: Vec2,
+//     thickness: f32,
+//     color: Color,
+//     z_index: i32,
+// );
+
+// pub fn draw_rect_outline_rot(
+//     center: Vec2,
+//     size: Vec2,
+//     rotation: f32,
+//     thickness: f32,
+//     color: Color,
+//     z_index: i32,
+// );
+
+// pub fn draw_rect_corners(
+//     min: Vec2,
+//     max: Vec2,
+//     color: Color,
+//     z_index: i32,
+// );
+
+// pub fn draw_rectangle_z_tex(
+//     /* low-level textured rectangle helper */
+// );
+
+// pub fn draw_circle(
+//     center: Vec2,
+//     radius: f32,
+//     color: Color,
+//     z_index: i32,
+// );
+
+// pub fn draw_circle_outline(
+//     center: Vec2,
+//     radius: f32,
+//     thickness: f32,
+//     color: Color,
+//     z_index: i32,
+// );
+
+// pub fn draw_circle_z(
+//     center: Vec2,
+//     radius: f32,
+//     color: Color,
+//     z_index: i32,
+// );
+
+// pub fn draw_line(
+//     start: Vec2,
+//     end: Vec2,
+//     thickness: f32,
+//     color: Color,
+//     z_index: i32,
+// );
+
+// pub fn draw_arrow(
+//     start: Vec2,
+//     end: Vec2,
+//     thickness: f32,
+//     color: Color,
+//     z_index: i32,
+// );
+
+// pub fn draw_ray(
+//     start: Vec2,
+//     direction: Vec2,
+//     thickness: f32,
+//     color: Color,
+//     z_index: i32,
+// );
+
+// pub fn draw_arc(
+//     center: Vec2,
+//     radius: f32,
+//     start_angle: f32,
+//     end_angle: f32,
+//     thickness: f32,
+//     color: Color,
+//     z_index: i32,
+// );
+
+// pub fn draw_arc_outline(
+//     center: Vec2,
+//     radius: f32,
+//     start_angle: f32,
+//     end_angle: f32,
+//     thickness: f32,
+//     color: Color,
+//     z_index: i32,
+// );
+
+// pub fn draw_arc_wedge(
+//     center: Vec2,
+//     radius: f32,
+//     start_angle: f32,
+//     end_angle: f32,
+//     color: Color,
+//     z_index: i32,
+// );
+
+// pub fn draw_wedge(
+//     center: Vec2,
+//     radius: f32,
+//     start_angle: f32,
+//     end_angle: f32,
+//     color: Color,
+//     z_index: i32,
+// );
+
+// pub fn draw_mesh(
+//     mesh: &Mesh,
+//     transform: Mat4,
+//     z_index: i32,
+// );
+
+// pub fn draw_text(
+//     text: &str,
+//     position: Vec2,
+//     color: Color,
+//     align: TextAlign,
+// );
+
+// pub fn draw_text_ex(
+//     text: &str,
+//     position: Vec2,
+//     color: Color,
+//     params: DrawTextParams,
+// );
+
+// pub fn draw_text_pro_experimental(
+//     /* experimental */
+// );

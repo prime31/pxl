@@ -23,8 +23,6 @@ pub fn main(init: std.process.Init) !void {
 fn setup() !void {
     font = try BMFontParser.init("examples/assets/minecraftia.fnt");
     kiwi_font = try BMFontParser.init("examples/assets/kiwisoda.fnt");
-
-    std.debug.print("pxl.microui: {}\n", .{pxl.microui.c});
 }
 
 fn shutdown() !void {
