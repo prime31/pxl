@@ -1,4 +1,5 @@
 const std = @import("std");
+const math = std.math;
 const pxl = @import("../pxl.zig");
 const sg = pxl.sokol.gfx;
 const shaders = pxl.shaders;
@@ -32,6 +33,29 @@ const UNIFORM_SLOT_VERTEX: u32 = 0;
 const UNIFORM_SLOT_FRAGMENT: u32 = 1;
 
 const blend_mode_count = @typeInfo(BlendMode).@"enum".fields.len;
+
+/// Upper bound on `segments` for `drawCircle`/`drawCircleOutline` (bounds their stack buffers).
+const max_circle_segments = 64;
+
+/// A rectangle in texture pixel space (top-left origin), used for sprite source regions.
+pub const Rect = struct { x: f32 = 0, y: f32 = 0, w: f32 = 0, h: f32 = 0 };
+
+/// Parameters for `drawSprite`. Sensible defaults: whole texture, white, centered, no rotation.
+pub const Sprite = struct {
+    texture: Texture,
+    /// World position where `origin` is placed.
+    position: Vec2 = Vec2.zero,
+    color: Color = Color.white,
+    /// Rotation in radians, about `origin`.
+    rotation: f32 = 0,
+    scale: Vec2 = Vec2.one,
+    /// Pivot as a fraction of the drawn size (0.5,0.5 = center, 0,0 = top-left).
+    origin: Vec2 = .{ .x = 0.5, .y = 0.5 },
+    /// Sub-region of the texture in pixels (atlas cell); `null` = the whole texture.
+    source: ?Rect = null,
+    flip_x: bool = false,
+    flip_y: bool = false,
+};
 
 /// A minimal, fast 2D triangle batcher built directly on sokol-gfx.
 ///
@@ -281,22 +305,23 @@ pub const Batcher = struct {
         self.setPipeline(.{});
     }
 
-    /// Set the uniform data for the current custom pipeline (vertex-stage bytes followed
-    /// by fragment-stage bytes). Mirrors sokol_gp's `sgp_set_uniform`. Flushes the batch.
-    pub fn setUniform(self: *Batcher, vs_data: ?*const anyopaque, vs_size: u32, fs_data: ?*const anyopaque, fs_size: u32) void {
-        std.debug.assert(vs_size + fs_size <= self.uniform_data.len);
+    /// Set the uniform data for the current custom pipeline. Pass a pointer to the
+    /// vertex-stage uniform struct (or `null`) and likewise for the fragment stage; each
+    /// size is derived from the pointee type. Mirrors sokol_gp's `sgp_set_uniform`. Flushes.
+    pub fn setUniform(self: *Batcher, vs: anytype, fs: anytype) void {
         self.flush();
+        self.uniform_vs_size = self.copyUniform(0, vs);
+        self.uniform_fs_size = self.copyUniform(self.uniform_vs_size, fs);
+    }
 
-        if (vs_size > 0) {
-            const src: [*]const u8 = @ptrCast(vs_data.?);
-            @memcpy(self.uniform_data[0..vs_size], src[0..vs_size]);
-        }
-        if (fs_size > 0) {
-            const src: [*]const u8 = @ptrCast(fs_data.?);
-            @memcpy(self.uniform_data[vs_size..][0..fs_size], src[0..fs_size]);
-        }
-        self.uniform_vs_size = vs_size;
-        self.uniform_fs_size = fs_size;
+    /// Copy a uniform struct pointed to by `ptr` into `uniform_data` at `offset`, returning
+    /// its byte size. `null` writes nothing and returns 0.
+    fn copyUniform(self: *Batcher, offset: u32, ptr: anytype) u32 {
+        if (@TypeOf(ptr) == @TypeOf(null)) return 0;
+        const bytes = std.mem.asBytes(ptr);
+        std.debug.assert(offset + bytes.len <= self.uniform_data.len);
+        @memcpy(self.uniform_data[offset..][0..bytes.len], bytes);
+        return @intCast(bytes.len);
     }
 
     /// Bind a texture for subsequent draws. Flushes the current batch if the texture changes.
@@ -346,6 +371,183 @@ pub const Batcher = struct {
     /// Draw a quad from four corner vertices (two triangles).
     pub fn drawQuad(self: *Batcher, verts: [4]Vertex) void {
         self.pushMesh(&verts, &.{ 0, 1, 2, 0, 2, 3 });
+    }
+
+    // ---- high-level 2D drawing ----
+
+    /// Bind `tex`, then push a quad whose local `corners` are transformed by `model`
+    /// composed with the current matrix. The matrix is restored afterwards (no flush).
+    fn drawTexturedQuad(self: *Batcher, tex: Texture, model: Mat32, corners: [4]Vec2, uvs: [4]Vec2, col: Color) void {
+        self.setTexture(tex);
+        const saved = self.matrix;
+        self.matrix = saved.mul(model);
+        self.drawQuad(.{
+            .{ .pos = corners[0], .uv = uvs[0], .col = col },
+            .{ .pos = corners[1], .uv = uvs[1], .col = col },
+            .{ .pos = corners[2], .uv = uvs[2], .col = col },
+            .{ .pos = corners[3], .uv = uvs[3], .col = col },
+        });
+        self.matrix = saved;
+    }
+
+    /// Draw a textured sprite with position, rotation, scale, pivot and an optional
+    /// atlas source region (models comfy's `draw_sprite_pro`).
+    pub fn drawSprite(self: *Batcher, s: Sprite) void {
+        const src = s.source orelse Rect{
+            .x = 0,
+            .y = 0,
+            .w = @floatFromInt(s.texture.width),
+            .h = @floatFromInt(s.texture.height),
+        };
+        const tw: f32 = @floatFromInt(s.texture.width);
+        const th: f32 = @floatFromInt(s.texture.height);
+
+        const w = src.w * s.scale.x;
+        const h = src.h * s.scale.y;
+
+        const model = Mat32.fromTranslation(s.position.x, s.position.y)
+            .mul(Mat32.fromRotation(s.rotation))
+            .mul(Mat32.fromTranslation(-s.origin.x * w, -s.origin.y * h));
+
+        const corners = [4]Vec2{
+            .init(0, 0),
+            .init(w, 0),
+            .init(w, h),
+            .init(0, h),
+        };
+
+        var ul = src.x / tw;
+        var vt = src.y / th;
+        var ur = (src.x + src.w) / tw;
+        var vb = (src.y + src.h) / th;
+        if (s.flip_x) std.mem.swap(f32, &ul, &ur);
+        if (s.flip_y) std.mem.swap(f32, &vt, &vb);
+
+        const uvs = [4]Vec2{
+            .init(ul, vt),
+            .init(ur, vt),
+            .init(ur, vb),
+            .init(ul, vb),
+        };
+
+        self.drawTexturedQuad(s.texture, model, corners, uvs, s.color);
+    }
+
+    /// Draw a texture at its native size with its top-left corner at `position`.
+    pub fn drawTexture(self: *Batcher, tex: Texture, position: Vec2) void {
+        self.drawSprite(.{ .texture = tex, .position = position, .origin = Vec2.zero });
+    }
+
+    /// Draw a filled rectangle centered at `center`.
+    pub fn drawRect(self: *Batcher, center: Vec2, size: Vec2, color: Color) void {
+        self.setTexture(self.white);
+        const hw = size.x * 0.5;
+        const hh = size.y * 0.5;
+        self.drawQuad(.{
+            .{ .pos = .init(center.x - hw, center.y - hh), .uv = Vec2.zero, .col = color },
+            .{ .pos = .init(center.x + hw, center.y - hh), .uv = Vec2.zero, .col = color },
+            .{ .pos = .init(center.x + hw, center.y + hh), .uv = Vec2.zero, .col = color },
+            .{ .pos = .init(center.x - hw, center.y + hh), .uv = Vec2.zero, .col = color },
+        });
+    }
+
+    /// Draw the outline of a rectangle centered at `center` (four thick lines).
+    pub fn drawRectOutline(self: *Batcher, center: Vec2, size: Vec2, thickness: f32, color: Color) void {
+        const hw = size.x * 0.5;
+        const hh = size.y * 0.5;
+        const tl = Vec2.init(center.x - hw, center.y - hh);
+        const tr = Vec2.init(center.x + hw, center.y - hh);
+        const br = Vec2.init(center.x + hw, center.y + hh);
+        const bl = Vec2.init(center.x - hw, center.y + hh);
+        self.drawLine(tl, tr, thickness, color);
+        self.drawLine(tr, br, thickness, color);
+        self.drawLine(br, bl, thickness, color);
+        self.drawLine(bl, tl, thickness, color);
+    }
+
+    /// Draw a line from `a` to `b` as a thickness-wide quad.
+    pub fn drawLine(self: *Batcher, a: Vec2, b: Vec2, thickness: f32, color: Color) void {
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const len = @sqrt(dx * dx + dy * dy);
+        if (len < 1e-6) return;
+
+        const s = thickness * 0.5 / len;
+        const nx = -dy * s;
+        const ny = dx * s;
+
+        self.setTexture(self.white);
+        self.drawQuad(.{
+            .{ .pos = .init(a.x + nx, a.y + ny), .uv = Vec2.zero, .col = color },
+            .{ .pos = .init(b.x + nx, b.y + ny), .uv = Vec2.zero, .col = color },
+            .{ .pos = .init(b.x - nx, b.y - ny), .uv = Vec2.zero, .col = color },
+            .{ .pos = .init(a.x - nx, a.y - ny), .uv = Vec2.zero, .col = color },
+        });
+    }
+
+    /// Draw a filled square of side `size` centered at `center`.
+    pub fn drawPoint(self: *Batcher, center: Vec2, color: Color, size: f32) void {
+        self.drawRect(center, .init(size, size), color);
+    }
+
+    /// Draw a filled circle as a triangle fan with `segments` sides.
+    pub fn drawCircle(self: *Batcher, center: Vec2, radius: f32, color: Color, segments: u32) void {
+        std.debug.assert(segments >= 3 and segments <= max_circle_segments);
+        self.setTexture(self.white);
+
+        var verts: [max_circle_segments + 1]Vertex = undefined;
+        var indices: [max_circle_segments * 3]u16 = undefined;
+
+        verts[0] = .{ .pos = center, .uv = Vec2.zero, .col = color };
+        const step = math.tau / @as(f32, @floatFromInt(segments));
+        for (0..segments) |i| {
+            const a = step * @as(f32, @floatFromInt(i));
+            verts[i + 1] = .{
+                .pos = .init(center.x + @cos(a) * radius, center.y + @sin(a) * radius),
+                .uv = Vec2.zero,
+                .col = color,
+            };
+            const next: u16 = @intCast((i + 1) % segments + 1);
+            indices[i * 3 + 0] = 0;
+            indices[i * 3 + 1] = @intCast(i + 1);
+            indices[i * 3 + 2] = next;
+        }
+
+        self.pushMesh(verts[0 .. segments + 1], indices[0 .. segments * 3]);
+    }
+
+    /// Draw a circle outline of the given thickness as a ring of `segments` quads.
+    pub fn drawCircleOutline(self: *Batcher, center: Vec2, radius: f32, thickness: f32, color: Color, segments: u32) void {
+        std.debug.assert(segments >= 3 and segments <= max_circle_segments);
+        self.setTexture(self.white);
+
+        const inner = radius - thickness * 0.5;
+        const outer = radius + thickness * 0.5;
+
+        var verts: [max_circle_segments * 2]Vertex = undefined;
+        var indices: [max_circle_segments * 6]u16 = undefined;
+
+        const step = math.tau / @as(f32, @floatFromInt(segments));
+        for (0..segments) |i| {
+            const a = step * @as(f32, @floatFromInt(i));
+            const c = @cos(a);
+            const s = @sin(a);
+            verts[i * 2 + 0] = .{ .pos = .init(center.x + c * inner, center.y + s * inner), .uv = Vec2.zero, .col = color };
+            verts[i * 2 + 1] = .{ .pos = .init(center.x + c * outer, center.y + s * outer), .uv = Vec2.zero, .col = color };
+
+            const in0: u16 = @intCast(i * 2);
+            const out0: u16 = in0 + 1;
+            const in1: u16 = @intCast((i + 1) % segments * 2);
+            const out1: u16 = in1 + 1;
+            indices[i * 6 + 0] = in0;
+            indices[i * 6 + 1] = out0;
+            indices[i * 6 + 2] = out1;
+            indices[i * 6 + 3] = in0;
+            indices[i * 6 + 4] = out1;
+            indices[i * 6 + 5] = in1;
+        }
+
+        self.pushMesh(verts[0 .. segments * 2], indices[0 .. segments * 6]);
     }
 
     /// Upload the staged geometry and issue a draw call for the current texture.
