@@ -99,6 +99,10 @@ pub const Color = extern union {
         return fromBytes(@as(u8, @intFromFloat(@round(r * 255))), @as(u8, @intFromFloat(@round(g * 255))), @as(u8, @intFromFloat(@round(b * 255))), @as(u8, 255));
     }
 
+    pub fn fromArray(arr: [4]f32) Color {
+        return fromRgba(arr[0], arr[1], arr[2], arr[3]);
+    }
+
     pub fn fromRgba(r: f32, g: f32, b: f32, a: f32) Color {
         return fromBytes(@as(u8, @intFromFloat(@round(r * 255))), @as(u8, @intFromFloat(@round(g * 255))), @as(u8, @intFromFloat(@round(b * 255))), @as(u8, @intFromFloat(@round(a * 255))));
     }

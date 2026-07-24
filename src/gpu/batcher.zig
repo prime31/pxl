@@ -88,6 +88,12 @@ pub const Sprite = struct {
     flip_y: bool = false,
 };
 
+pub const BatcherConfig = struct {
+    max_verts: u32 = 300_000,
+    max_indices: u32 = 600_000,
+    max_uniform_bytes: u32 = 64,
+};
+
 /// A minimal, fast 2D triangle batcher built directly on sokol-gfx.
 ///
 /// The only primitive is the triangle: every draw is expressed as indexed
@@ -135,22 +141,22 @@ pub const Batcher = struct {
     /// The current 2D affine transform, applied to vertices on the CPU.
     matrix: Mat32 = Mat32.identity(),
 
-    pub fn init(max_verts: u32, max_indices: u32, max_uniform_bytes: u32) !Batcher {
-        const verts = try pxl.mem.allocator.alloc(Vertex, max_verts);
+    pub fn init(config: BatcherConfig) !Batcher {
+        const verts = try pxl.mem.allocator.alloc(Vertex, config.max_verts);
         errdefer pxl.mem.allocator.free(verts);
-        const indices = try pxl.mem.allocator.alloc(u16, max_indices);
+        const indices = try pxl.mem.allocator.alloc(u16, config.max_indices);
         errdefer pxl.mem.allocator.free(indices);
-        const uniform_data = try pxl.mem.allocator.alloc(u8, max_uniform_bytes);
+        const uniform_data = try pxl.mem.allocator.alloc(u8, config.max_uniform_bytes);
         errdefer pxl.mem.allocator.free(uniform_data);
 
         const vbuf = sg.makeBuffer(.{
             .usage = .{ .vertex_buffer = true, .stream_update = true },
-            .size = max_verts * @sizeOf(Vertex),
+            .size = config.max_verts * @sizeOf(Vertex),
             .label = "batcher-vbuf",
         });
         const ibuf = sg.makeBuffer(.{
             .usage = .{ .index_buffer = true, .stream_update = true },
-            .size = max_indices * @sizeOf(u16),
+            .size = config.max_indices * @sizeOf(u16),
             .label = "batcher-ibuf",
         });
 
@@ -302,7 +308,7 @@ pub const Batcher = struct {
         self.index_count = 0;
         self.matrix = matrix;
         self.cur_img = self.white.img;
-        self.blend_mode = .none;
+        self.blend_mode = .blend;
         self.pipeline = .{};
         self.uniform_vs_size = 0;
         self.uniform_fs_size = 0;
@@ -472,6 +478,24 @@ pub const Batcher = struct {
     /// Draw a texture at its native size with its top-left corner at `position`.
     pub fn drawTexture(self: *Batcher, tex: Texture, position: Vec2) void {
         self.drawSprite(.{ .texture = tex, .position = position, .anchor = .top_left });
+    }
+
+    /// Draw the `src` pixel region of `tex` into the `dst` world rect (top-left), tinted by
+    /// `color`. Negative `src.w`/`src.h` flip that axis (matches sokol_gp's textured rects).
+    pub fn drawTexturedRect(self: *Batcher, tex: Texture, dst: Rect, src: Rect, color: Color) void {
+        const tw: f32 = @floatFromInt(tex.width);
+        const th: f32 = @floatFromInt(tex.height);
+        const _u0 = src.x / tw;
+        const v0 = src.y / th;
+        const _u1 = (src.x + src.w) / tw;
+        const v1 = (src.y + src.h) / th;
+        self.setTexture(tex);
+        self.drawQuad(.{
+            .{ .pos = .init(dst.x, dst.y), .uv = .init(_u0, v0), .col = color },
+            .{ .pos = .init(dst.x + dst.w, dst.y), .uv = .init(_u1, v0), .col = color },
+            .{ .pos = .init(dst.x + dst.w, dst.y + dst.h), .uv = .init(_u1, v1), .col = color },
+            .{ .pos = .init(dst.x, dst.y + dst.h), .uv = .init(_u0, v1), .col = color },
+        });
     }
 
     /// Draw a filled rectangle centered at `center`.

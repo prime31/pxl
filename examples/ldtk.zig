@@ -1,8 +1,10 @@
 const std = @import("std");
 const pxl = @import("pxl");
-const sgp = pxl.sgp;
 const LDtk = pxl.util.LDtk;
 const Texture = pxl.gpu.Texture;
+const Rect = pxl.gpu.Rect;
+const Color = pxl.math.Color;
+const Vec2 = pxl.math.Vec2;
 
 var map: LDtk = undefined;
 var textures: std.AutoHashMap(i64, Texture) = undefined;
@@ -36,11 +38,7 @@ fn setup() !void {
 
 fn render() !void {
     pxl.beginPass(.{ .action = .clear });
-    sgp.reset_project();
-    sgp.setBlendMode(.blend);
-
     for (map.root.levels) |level| renderLevel(level);
-
     pxl.endPass();
 }
 
@@ -69,25 +67,22 @@ pub fn renderLevel(level: LDtk.Level) void {
 
         switch (layer.__type) {
             .Entities => {
-                std.debug.print("---------- entities\n", .{});
                 renderEntities(layer, layer_x, layer_y);
             },
             .Tiles, .AutoLayer, .IntGrid => {
                 const grid_size: f32 = @floatFromInt(layer.__gridSize);
                 // Resolve active tileset UID (override instance UID takes precedence if set)
                 const tileset_uid = layer.overrideTilesetUid orelse layer.__tilesetDefUid orelse continue;
-                const tex = textures.get(tileset_uid) orelse continue;
-                sgp.set_image(0, tex.img);
+                const tex = textures.get(tileset_uid) orelse unreachable;
 
                 const opacity: f32 = @floatCast(layer.__opacity);
+                _ = opacity; // autofix
 
                 for (layer.gridTiles) |tile| {
-                    sgp.set_color(1.0, 1.0, 1.0, opacity * @as(f32, @floatCast(tile.a)));
-                    drawTile(tile, grid_size, layer_x, layer_y);
+                    drawTile(tile, tex, grid_size, layer_x, layer_y, layer.__opacity);
                 }
                 for (layer.autoLayerTiles) |tile| {
-                    sgp.set_color(1.0, 1.0, 1.0, opacity * @as(f32, @floatCast(tile.a)));
-                    drawTile(tile, grid_size, layer_x, layer_y);
+                    drawTile(tile, tex, grid_size, layer_x, layer_y, layer.__opacity);
                 }
             },
         }
@@ -95,9 +90,9 @@ pub fn renderLevel(level: LDtk.Level) void {
 }
 
 /// Renders an individual tile instance
-fn drawTile(tile: LDtk.TileInstance, grid_size: f32, layer_x: f32, layer_y: f32) void {
+fn drawTile(tile: LDtk.TileInstance, tex: Texture, grid_size: f32, layer_x: f32, layer_y: f32, layer_opacity: f64) void {
     // Destination rectangle on screen/world
-    const dest_rect = sgp.sgp_rect{
+    const dest_rect = Rect{
         .x = layer_x + @as(f32, @floatFromInt(tile.px[0])),
         .y = layer_y + @as(f32, @floatFromInt(tile.px[1])),
         .w = grid_size,
@@ -121,14 +116,14 @@ fn drawTile(tile: LDtk.TileInstance, grid_size: f32, layer_x: f32, layer_y: f32)
         src_h = -src_h;
     }
 
-    const src_rect = sgp.sgp_rect{
+    const src_rect = Rect{
         .x = src_x,
         .y = src_y,
         .w = src_w,
         .h = src_h,
     };
 
-    sgp.draw_textured_rect(0, dest_rect, src_rect);
+    pxl.batcher.drawTexturedRect(tex, dest_rect, src_rect, Color.fromRgba(1, 1, 1, @floatCast(tile.a * layer_opacity)));
 }
 
 /// Render all entities in an Entity layer
@@ -153,17 +148,16 @@ pub fn renderEntity(entity: LDtk.EntityInstance, layer_x: f32, layer_y: f32) voi
 
     // 1. Draw entity Tile if present
     if (entity.__tile) |tile| {
-        const tex = textures.get(tile.tilesetUid) orelse return;
-        sgp.set_image(0, tex.img);
+        const tex = textures.get(tile.tilesetUid) orelse unreachable;
 
-        const dest_rect = sgp.sgp_rect{
+        const dest_rect = Rect{
             .x = x,
             .y = y,
             .w = width,
             .h = height,
         };
 
-        const src_rect = sgp.sgp_rect{
+        const src_rect = Rect{
             .x = @floatFromInt(tile.x),
             .y = @floatFromInt(tile.y),
             .w = @floatFromInt(tile.w),
@@ -171,15 +165,14 @@ pub fn renderEntity(entity: LDtk.EntityInstance, layer_x: f32, layer_y: f32) voi
         };
 
         // Reset tint color to white for entity graphics
-        sgp.set_color(1.0, 1.0, 1.0, 1.0);
-        sgp.draw_textured_rect(0, dest_rect, src_rect);
+        pxl.batcher.drawTexturedRect(tex, dest_rect, src_rect, Color.white);
     } else {
         // 2. Fallback / Debug: Draw a colored rectangle using __smartColor
-        const color = parseHexColor(entity.__smartColor);
-        sgp.set_color(color[0], color[1], color[2], 0.6);
+        var color = parseHexColor(entity.__smartColor);
+        color[3] = 0.6;
 
-        // If you have a solid fill function in your renderer:
-        sgp.draw_filled_rect(x, y, width, height);
+        const center = Vec2.init(x - width * 0.5, y - height - 0.5);
+        pxl.batcher.drawRect(center, Vec2.init(width, height), Color.fromArray(color));
     }
 }
 

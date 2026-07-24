@@ -2,17 +2,13 @@ const std = @import("std");
 
 const pxl = @import("pxl");
 const mu = pxl.mu;
-const sgp = pxl.sgp;
 
 pub fn main(init: std.process.Init) !void {
     try pxl.run(init, .{
         .update = update,
         .render = render,
-        .shutdown = shutdown,
     });
 }
-
-fn shutdown() !void {}
 
 fn update() !void {
     if (mu.beginWindowEx("Poop Window", .{ .x = 200, .y = 50, .w = 200, .h = 250 }, .{ .no_close = true, .align_center = false })) {
@@ -71,8 +67,5 @@ fn update() !void {
 
 fn render() !void {
     pxl.beginPass(.{ .action = .clear });
-    sgp.reset_project();
-    sgp.setBlendMode(.blend);
-    sgp.draw_filled_rect(10, 40, 200, 100);
     pxl.endPass();
 }

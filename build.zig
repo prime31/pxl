@@ -11,12 +11,10 @@ const shdc = sokol.shdc;
 
 const examples = [_]Example{
     .{ .name = "check" },
-    .{ .name = "batcher" },
     .{ .name = "text" },
     .{ .name = "ldtk" },
     .{ .name = "microui" },
-    .{ .name = "shader" },
-    .{ .name = "empty", .has_shader = true },
+    .{ .name = "shader", .has_shader = true },
     .{ .name = "bunnymark" },
 };
 
@@ -89,7 +87,6 @@ pub fn build(b: *Build) !void {
             .{ .name = "sokol", .module = dep_sokol.module("sokol") },
             .{ .name = "gamepad", .module = dep_gamepad.module("gamepad") },
             .{ .name = "stb", .module = dep_stb.module("stb") },
-            .{ .name = "painter", .module = dep_sokol_builder.module("painter") },
             .{ .name = "microui", .module = dep_sokol_builder.module("microui") },
             .{ .name = "shaders", .module = mod_shader },
         },

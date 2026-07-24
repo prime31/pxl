@@ -38,40 +38,6 @@ pub fn build(b: *Build) !void {
     const emsdk_install_step = sokol.emSdkInstallStep(b, dep_sokol.builder.dependency("emsdk", .{}), .{});
     b.step("install-emsdk-fuckoff", "Install Emscripten SDK in zig-pkg").dependOn(emsdk_install_step);
 
-    // sokol_gp aka painter
-    {
-        const painter_mod = b.addModule("painter", .{
-            .root_source_file = b.path("painter.zig"),
-            .target = target,
-            .optimize = optimize,
-            .link_libc = true,
-        });
-
-        const painter_lib = b.addLibrary(.{
-            .name = "painter_clib",
-            .root_module = painter_mod,
-        });
-
-        painter_lib.root_module.addCSourceFiles(.{
-            .files = &.{"src/sokol_gp.c"},
-            .flags = &.{ "-O3", "-std=c99", "-fno-sanitize=undefined", "-D=IMPL", "-ObjC", resolveSokolBackend(target.result) },
-        });
-
-        painter_mod.addIncludePath(sokol_clib.getEmittedIncludeTree());
-
-        const painter_translate_c = b.addTranslateC(.{
-            .root_source_file = b.path("src/sokol_gp.c"),
-            .target = target,
-            .optimize = optimize,
-        });
-        painter_translate_c.addIncludePath(sokol_clib.getEmittedIncludeTree());
-        painter_mod.addImport("c", painter_translate_c.createModule());
-        painter_mod.addImport("sokol", dep_sokol.module("sokol"));
-
-        b.installArtifact(painter_lib);
-        try b.modules.put(b.allocator, "painter", painter_mod);
-    }
-
     // microui
     {
         const microui_mod = b.addModule("microui", .{

@@ -8,7 +8,6 @@ pub const sokol = @import("sokol");
 pub const slog = sokol.log;
 pub const sg = sokol.gfx;
 pub const sgl = sokol.gl;
-pub const sshape = sokol.shape;
 pub const sapp = sokol.app;
 pub const sglue = sokol.glue;
 pub const simgui = sokol.imgui;
@@ -16,11 +15,13 @@ pub const simgui = sokol.imgui;
 pub const api = @import("api.zig");
 pub const gamepad = @import("gamepad");
 pub const stb = @import("stb");
-pub const sgp = @import("painter");
 pub const mu = @import("microui");
 pub const shaders = @import("shaders");
 pub var input: Input = undefined;
 pub var time: Time = undefined;
+
+/// The engine's 2D batching renderer. Drive it through `pxl.api.*`.
+pub var batcher: gpu.Batcher = undefined;
 
 // top level imports
 pub const fs = @import("fs.zig");
@@ -48,6 +49,9 @@ pub const Config = struct {
     height: i32 = 768,
     window_title: [*c]const u8 = "Zig Render",
     clear_color: sg.Color = .{ .r = 0.8, .g = 0.2, .b = 0.3, .a = 1.0 },
+    /// Batcher staging/GPU buffer capacity. Must hold a whole frame's geometry, since
+    /// vertices accumulate across all flushes in a frame (raise for heavy scenes).
+    batcher: gpu.BatcherConfig = .{},
 };
 
 pub const Pass = struct {
@@ -59,6 +63,7 @@ const cbs = struct {
     pub var update: ?*const fn () anyerror!void = null;
     pub var render: ?*const fn () anyerror!void = null;
     pub var shutdown: ?*const fn () anyerror!void = null;
+    var batcher_config: gpu.BatcherConfig = undefined;
 };
 
 var clear_color: sg.Color = undefined;
@@ -70,6 +75,7 @@ pub fn run(init: std.process.Init, comptime config: Config) !void {
     cbs.update = config.update;
     cbs.render = config.render;
     cbs.shutdown = config.shutdown;
+    cbs.batcher_config = config.batcher;
     clear_color = config.clear_color;
 
     // setup
@@ -107,12 +113,6 @@ export fn sokolInit() void {
     });
     if (!sg.isvalid()) @panic("failed to create sokol context");
 
-    sgp.setup(&.{
-        .max_vertices = 10000000,
-        .depth_format = .NONE,
-    });
-    if (!sgp.is_valid()) @panic(sgp.get_error_message(sgp.get_last_error()));
-
     mu.setup();
 
     // optionally, initialize sokol-imgui
@@ -125,6 +125,7 @@ export fn sokolInit() void {
             ig.igGetIO().*.ConfigFlags |= ig.ImGuiConfigFlags_DockingEnable;
     }
 
+    batcher = gpu.Batcher.init(cbs.batcher_config) catch unreachable;
     gpu.init();
     input = Input.init(1);
     time = Time.init();
@@ -183,7 +184,7 @@ export fn sokolCleanup() void {
 
     gpu.deinit();
 
-    sgp.shutdown();
+    batcher.deinit();
     sgl.shutdown();
     if (has_imgui) simgui.shutdown();
     sg.shutdown();
@@ -193,17 +194,15 @@ pub fn beginPass(pass: Pass) void {
     std.debug.assert(current_pass == null);
     current_pass = pass;
 
-    sgp.begin(sapp.width(), sapp.height());
-    sgp.viewport(0, 0, sapp.width(), sapp.height());
+    gpu.offscreen.pass.action.colors[0].load_action = if (current_pass.?.action == .load) .LOAD else .CLEAR;
+    sg.beginPass(gpu.offscreen.pass);
+    batcher.begin(math.Mat32.orthographic(sapp.widthf(), sapp.heightf()));
 }
 
 pub fn endPass() void {
     std.debug.assert(current_pass != null);
 
-    gpu.offscreen.pass.action.colors[0].load_action = if (current_pass.?.action == .load) .LOAD else .CLEAR;
-    sg.beginPass(gpu.offscreen.pass);
-    sgp.flush();
-    sgp.end();
+    batcher.end();
     sg.endPass();
 
     current_pass = null;
