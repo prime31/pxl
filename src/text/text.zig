@@ -3,6 +3,7 @@ const pxl = @import("../pxl.zig");
 const sg = pxl.sokol.gfx;
 
 const Vec2 = pxl.math.Vec2;
+const Color = pxl.math.Color;
 
 // https://snowb.org/
 
@@ -248,10 +249,11 @@ pub const BMFontParser = struct {
             const w = @as(f32, @floatFromInt(item.glyph.width));
             const h = @as(f32, @floatFromInt(item.glyph.height));
 
-            pxl.sgp.draw_textured_rect(
-                0,
+            pxl.batcher.drawTexturedRect(
+                self.texture,
                 .{ .x = item.render_x, .y = item.render_y, .w = w, .h = h },
                 .{ .x = @floatFromInt(item.glyph.x), .y = @floatFromInt(item.glyph.y), .w = w, .h = h },
+                Color.white,
             );
         }
     }

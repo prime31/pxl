@@ -1,6 +1,5 @@
 const std = @import("std");
 const pxl = @import("pxl");
-const sgp = pxl.sgp;
 
 pub fn main(init: std.process.Init) !void {
     try pxl.run(init, .{
@@ -10,8 +9,6 @@ pub fn main(init: std.process.Init) !void {
 
 fn render() !void {
     pxl.beginPass(.{ .action = .clear });
-    sgp.draw_filled_rect(-0.5, -0.5, 1.0, 1.0);
+    pxl.batcher.drawRect(.init(200, 200), .init(100, 50), pxl.math.Color.aya);
     pxl.endPass();
 }
-
-fn shutdown() !void {}
