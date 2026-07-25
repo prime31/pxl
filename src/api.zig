@@ -231,6 +231,7 @@ pub fn drawLine(a: Vec2, b: Vec2, thickness: f32, color: Color) void {
     const nx = -dy * s;
     const ny = dx * s;
 
+    pxl.batcher.setTexture(pxl.batcher.white);
     drawQuad(.{
         .{ .pos = .init(a.x + nx, a.y + ny), .uv = Vec2.zero, .col = color },
         .{ .pos = .init(b.x + nx, b.y + ny), .uv = Vec2.zero, .col = color },

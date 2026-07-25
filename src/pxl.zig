@@ -163,6 +163,11 @@ export fn sokolFrame() void {
 }
 
 export fn sokolEvent(evt: [*c]const sapp.Event) void {
+    if (evt.*.type == .KEY_DOWN and evt.*.key_code == .Q and evt.*.modifiers > 0 and evt.*.modifiers % sapp.modifier_super == 0) {
+        sapp.requestQuit();
+        return;
+    }
+
     if (has_imgui) if (simgui.handleEvent(evt.*)) return;
 
     mu.handleEvent(evt);
