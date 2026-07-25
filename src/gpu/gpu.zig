@@ -8,6 +8,7 @@ pub const Batcher = @import("batcher.zig").Batcher;
 pub const BatcherConfig = @import("batcher.zig").BatcherConfig;
 pub const Texture = @import("texture.zig").Texture;
 pub const Vertex = @import("batcher.zig").Vertex;
+pub const Mesh = Batcher.Mesh;
 
 pub const sprite = @import("sprite.zig");
 pub const Anchor = sprite.Anchor;

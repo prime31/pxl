@@ -98,7 +98,7 @@ fn render() !void {
             .{ .pos = .init(w, 0), .uv = .init(1, 0), .col = .white },
             .{ .pos = .init(w, h), .uv = .init(1, 1), .col = .white },
             .{ .pos = .init(0, h), .uv = .init(0, 1), .col = .white },
-        });
+        }, null, null);
         api.resetPipeline();
     }
 

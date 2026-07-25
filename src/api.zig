@@ -38,49 +38,40 @@ pub fn setUniform(vs: anytype, fs: anytype) void {
     pxl.batcher.setUniform(vs, fs);
 }
 
-pub fn setTexture(tex: Texture) void {
-    pxl.batcher.setTexture(tex);
-}
-
 pub fn makePipeline(shader: sg.Shader, mode: BlendMode) sg.Pipeline {
     return pxl.gpu.Batcher.makePipeline(shader, mode);
 }
 
-pub fn pushMesh(verts: []const Vertex, indices: []const u16) void {
-    pxl.batcher.pushMesh(verts, indices);
+const Mesh = pxl.gpu.Mesh;
+
+pub fn pushMesh(mesh: Mesh) void {
+    pxl.batcher.pushMesh(mesh);
 }
 
 // ---- High-Level 2D Drawing API ----
 
 /// Draw a filled triangle using the 1x1 white texture (color only).
 pub fn drawTriangle(a: Vec2, b: Vec2, c: Vec2, col: Color) void {
-    pxl.batcher.setTexture(pxl.batcher.white);
     const verts = [_]Vertex{
         .{ .pos = a, .uv = Vec2.zero, .col = col },
         .{ .pos = b, .uv = Vec2.zero, .col = col },
         .{ .pos = c, .uv = Vec2.zero, .col = col },
     };
-    pxl.batcher.pushMesh(&verts, &.{ 0, 1, 2 });
-}
-
-/// Draw a quad from four corner vertices (two triangles).
-pub fn drawQuad(verts: [4]Vertex) void {
-    pxl.batcher.pushMesh(&verts, &.{ 0, 1, 2, 0, 2, 3 });
-}
-
-/// Bind `tex`, then push a quad whose local `corners` are transformed by `model`
-/// composed with the current matrix. The matrix is restored afterwards (no flush).
-fn drawTexturedQuad(tex: Texture, model: Mat32, corners: [4]Vec2, uvs: [4]Vec2, col: Color) void {
-    pxl.batcher.setTexture(tex);
-    const saved = pxl.batcher.matrix;
-    pxl.batcher.matrix = saved.mul(model);
-    drawQuad(.{
-        .{ .pos = corners[0], .uv = uvs[0], .col = col },
-        .{ .pos = corners[1], .uv = uvs[1], .col = col },
-        .{ .pos = corners[2], .uv = uvs[2], .col = col },
-        .{ .pos = corners[3], .uv = uvs[3], .col = col },
+    pushMesh(.{
+        .verts = &verts,
+        .indices = &.{ 0, 1, 2 },
     });
-    pxl.batcher.matrix = saved;
+}
+
+/// Draw a quad from four corner vertices (two triangles), with optional texture (defaults to 1x1 white if null)
+/// and optional model matrix transform.
+pub fn drawQuad(verts: [4]Vertex, tex: ?Texture, model: ?Mat32) void {
+    pushMesh(.{
+        .verts = &verts,
+        .indices = &.{ 0, 1, 2, 0, 2, 3 },
+        .texture = tex,
+        .matrix = model,
+    });
 }
 
 const Transform = pxl.gpu.Transform;
@@ -124,7 +115,12 @@ pub fn drawSprite(s: Sprite) void {
         .init(ul, vb),
     };
 
-    drawTexturedQuad(s.texture, model, corners, uvs, s.color);
+    drawQuad(.{
+        .{ .pos = corners[0], .uv = uvs[0], .col = s.color },
+        .{ .pos = corners[1], .uv = uvs[1], .col = s.color },
+        .{ .pos = corners[2], .uv = uvs[2], .col = s.color },
+        .{ .pos = corners[3], .uv = uvs[3], .col = s.color },
+    }, s.texture, model);
 }
 
 /// Draw a texture at its native size with its top-left corner at `position`.
@@ -146,18 +142,16 @@ pub fn drawTexturedRect(tex: Texture, dst: Rect, src: Rect, color: Color) void {
     const v0 = src.y / th;
     const _u1 = (src.x + src.w) / tw;
     const v1 = (src.y + src.h) / th;
-    pxl.batcher.setTexture(tex);
     drawQuad(.{
         .{ .pos = .init(dst.x, dst.y), .uv = .init(_u0, v0), .col = color },
         .{ .pos = .init(dst.x + dst.w, dst.y), .uv = .init(_u1, v0), .col = color },
         .{ .pos = .init(dst.x + dst.w, dst.y + dst.h), .uv = .init(_u1, v1), .col = color },
         .{ .pos = .init(dst.x, dst.y + dst.h), .uv = .init(_u0, v1), .col = color },
-    });
+    }, tex, null);
 }
 
 /// Draw a filled rectangle with position, size, origin alignment, and tint color.
 pub fn drawRectEx(pos: Vec2, size: Vec2, origin: Anchor, color: Color) void {
-    pxl.batcher.setTexture(pxl.batcher.white);
     const a = origin.asVec(); // center-relative [-0.5, 0.5]
     const ox = (0.5 + a.x) * size.x;
     const oy = (0.5 + a.y) * size.y;
@@ -171,7 +165,7 @@ pub fn drawRectEx(pos: Vec2, size: Vec2, origin: Anchor, color: Color) void {
         .{ .pos = .init(x1, y0), .uv = Vec2.zero, .col = color },
         .{ .pos = .init(x1, y1), .uv = Vec2.zero, .col = color },
         .{ .pos = .init(x0, y1), .uv = Vec2.zero, .col = color },
-    });
+    }, null, null);
 }
 
 /// Draw a filled rectangle with `pos` as its top-left corner.
@@ -181,7 +175,6 @@ pub fn drawRect(pos: Vec2, size: Vec2, color: Color) void {
 
 /// Draw the outline of a rectangle with position, size, origin alignment, thickness, and color.
 pub fn drawRectOutlineEx(pos: Vec2, size: Vec2, origin: Anchor, thickness: f32, color: Color) void {
-    pxl.batcher.setTexture(pxl.batcher.white);
     const a = origin.asVec();
     const ox_offset = (0.5 + a.x) * size.x;
     const oy_offset = (0.5 + a.y) * size.y;
@@ -207,11 +200,14 @@ pub fn drawRectOutlineEx(pos: Vec2, size: Vec2, origin: Anchor, thickness: f32, 
         .{ .pos = .init(center_x - ix, center_y + iy), .uv = Vec2.zero, .col = color },
     };
     // four border quads (top, right, bottom, left)
-    pxl.batcher.pushMesh(&verts, &.{
-        0, 1, 5, 0, 5, 4,
-        1, 2, 6, 1, 6, 5,
-        2, 3, 7, 2, 7, 6,
-        3, 0, 4, 3, 4, 7,
+    pushMesh(.{
+        .verts = &verts,
+        .indices = &.{
+            0, 1, 5, 0, 5, 4,
+            1, 2, 6, 1, 6, 5,
+            2, 3, 7, 2, 7, 6,
+            3, 0, 4, 3, 4, 7,
+        },
     });
 }
 
@@ -231,13 +227,12 @@ pub fn drawLine(a: Vec2, b: Vec2, thickness: f32, color: Color) void {
     const nx = -dy * s;
     const ny = dx * s;
 
-    pxl.batcher.setTexture(pxl.batcher.white);
     drawQuad(.{
         .{ .pos = .init(a.x + nx, a.y + ny), .uv = Vec2.zero, .col = color },
         .{ .pos = .init(b.x + nx, b.y + ny), .uv = Vec2.zero, .col = color },
         .{ .pos = .init(b.x - nx, b.y - ny), .uv = Vec2.zero, .col = color },
         .{ .pos = .init(a.x - nx, a.y - ny), .uv = Vec2.zero, .col = color },
-    });
+    }, null, null);
 }
 
 /// Draw a filled square of side `size` centered at `center`.
@@ -248,7 +243,6 @@ pub fn drawPoint(center: Vec2, color: Color, size: f32) void {
 /// Draw a filled circle as a triangle fan with `segments` sides.
 pub fn drawCircle(center: Vec2, radius: f32, color: Color, segments: u32) void {
     std.debug.assert(segments >= 3 and segments <= max_circle_segments);
-    pxl.batcher.setTexture(pxl.batcher.white);
 
     var verts: [max_circle_segments + 1]Vertex = undefined;
     var indices: [max_circle_segments * 3]u16 = undefined;
@@ -268,14 +262,16 @@ pub fn drawCircle(center: Vec2, radius: f32, color: Color, segments: u32) void {
         indices[i * 3 + 2] = next;
     }
 
-    pxl.batcher.pushMesh(verts[0 .. segments + 1], indices[0 .. segments * 3]);
+    pushMesh(.{
+        .verts = verts[0 .. segments + 1],
+        .indices = indices[0 .. segments * 3],
+    });
 }
 
 /// Draw a circle outline of the given thickness as a ring of `segments` quads. Each
 /// segment's end angle overlaps the next slightly so there is never a crack between them.
 pub fn drawCircleOutline(center: Vec2, radius: f32, thickness: f32, color: Color, segments: u32) void {
     std.debug.assert(segments >= 3 and segments <= max_circle_segments);
-    pxl.batcher.setTexture(pxl.batcher.white);
 
     const inner = radius - thickness * 0.5;
     const outer = radius + thickness * 0.5;
@@ -308,5 +304,8 @@ pub fn drawCircleOutline(center: Vec2, radius: f32, thickness: f32, color: Color
         indices[k * 6 + 5] = b + 3;
     }
 
-    pxl.batcher.pushMesh(verts[0 .. segments * 4], indices[0 .. segments * 6]);
+    pushMesh(.{
+        .verts = verts[0 .. segments * 4],
+        .indices = indices[0 .. segments * 6],
+    });
 }

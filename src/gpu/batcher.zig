@@ -325,30 +325,43 @@ pub const Batcher = struct {
         self.cur_img = tex.img;
     }
 
-    /// Append a mesh of triangles. Each vertex position is transformed by the current
-    /// matrix. Indices are relative to `verts` (0-based). Flushes first if it won't fit.
-    pub fn pushMesh(self: *Batcher, verts: []const Vertex, indices: []const u16) void {
-        std.debug.assert(verts.len <= self.verts.len and indices.len <= self.indices.len);
+pub const Mesh = struct {
+    verts: []const Vertex,
+    indices: []const u16,
+    texture: ?Texture = null,
+    matrix: ?Mat32 = null,
+};
 
-        const would_overflow = self.vert_count + verts.len > self.verts.len or
-            self.index_count + indices.len > self.indices.len or
-            self.vert_count + verts.len > std.math.maxInt(u16);
+    /// Append a mesh of triangles. Each vertex position is transformed by the current
+    /// matrix (or `mesh.matrix` composed with current matrix if provided).
+    /// `mesh.texture` sets the batch texture (defaults to 1x1 white texture if null).
+    pub fn pushMesh(self: *Batcher, mesh: Mesh) void {
+        const target_tex = mesh.texture orelse self.white;
+        self.setTexture(target_tex);
+
+        const current_mat = if (mesh.matrix) |m| self.matrix.mul(m) else self.matrix;
+
+        std.debug.assert(mesh.verts.len <= self.verts.len and mesh.indices.len <= self.indices.len);
+
+        const would_overflow = self.vert_count + mesh.verts.len > self.verts.len or
+            self.index_count + mesh.indices.len > self.indices.len or
+            self.vert_count + mesh.verts.len > std.math.maxInt(u16);
         if (would_overflow) self.flush();
 
         const base: u16 = @intCast(self.vert_count);
-        for (verts, 0..) |v, i| {
+        for (mesh.verts, 0..) |v, i| {
             self.verts[self.vert_count + i] = .{
-                .pos = self.matrix.transformVec2(v.pos),
+                .pos = current_mat.transformVec2(v.pos),
                 .uv = v.uv,
                 .col = v.col,
             };
         }
-        self.vert_count += @intCast(verts.len);
+        self.vert_count += @intCast(mesh.verts.len);
 
-        for (indices, 0..) |idx, i| {
+        for (mesh.indices, 0..) |idx, i| {
             self.indices[self.index_count + i] = base + idx;
         }
-        self.index_count += @intCast(indices.len);
+        self.index_count += @intCast(mesh.indices.len);
     }
 
     /// Upload the staged geometry and issue a draw call for the current texture.
