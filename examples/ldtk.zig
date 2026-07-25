@@ -172,8 +172,8 @@ pub fn renderEntity(entity: LDtk.EntityInstance, layer_x: f32, layer_y: f32) voi
         var color = parseHexColor(entity.__smartColor);
         color[3] = 0.6;
 
-        const center = Vec2.init(x - width * 0.5, y - height - 0.5);
-        api.drawRect(center, Vec2.init(width, height), Color.fromArray(color));
+        const pos = Vec2.init(x, y - height);
+        api.drawRect(pos, Vec2.init(width, height), Color.fromArray(color));
     }
 }
 

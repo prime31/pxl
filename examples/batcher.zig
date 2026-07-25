@@ -29,8 +29,8 @@ fn render() !void {
 
     // ---- top strip: primitive showcase ----
     api.drawTriangle(.init(80, 60), .init(240, 60), .init(160, 180), pxl.math.Color.white);
-    api.drawRect(.init(380, 110), .init(120, 70), pxl.math.Color.red);
-    api.drawRectOutline(.init(380, 110), .init(120, 70), 4, pxl.math.Color.white);
+    api.drawRectEx(.init(380, 110), .init(120, 70), .center, pxl.math.Color.red);
+    api.drawRectOutlineEx(.init(380, 110), .init(120, 70), .center, 4, pxl.math.Color.white);
     api.drawCircle(.init(560, 110), 45, pxl.math.Color.gold, 48);
     api.drawCircleOutline(.init(560, 110), 45, 4, pxl.math.Color.white, 48);
     api.drawLine(.init(660, 60), .init(940, 170), 6, pxl.math.Color.sky_blue);
@@ -64,7 +64,7 @@ fn render() !void {
         const col: f32 = @floatFromInt(i % 3);
         const row: f32 = @floatFromInt(i / 3);
         const pos = pxl.math.Vec2.init(grid_origin.x + col * gstep, grid_origin.y + row * gstep);
-        api.drawRectOutline(pos, .init(sw, sh), 2, pxl.math.Color.red);
+        api.drawRectOutlineEx(pos, .init(sw, sh), anchor, 2, pxl.math.Color.red);
         api.drawSprite(.{
             .texture = ferris,
             .transform = .{ .pos = pos, .origin = anchor, .rotation = t, .scale = .init(pulse, pulse) },

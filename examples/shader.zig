@@ -29,7 +29,7 @@ fn render() !void {
     fs_uniform.iTime = pxl.util.cast(f32, pxl.time.frame_count) / 60.0;
     api.setUniform(&vs_uniform, &fs_uniform);
 
-    api.drawRect(.init(pxl.sapp.widthf() * 0.5, pxl.sapp.heightf() * 0.5), .init(pxl.sapp.widthf(), pxl.sapp.heightf()), Color.white);
+    api.drawRect(.init(0, 0), .init(pxl.sapp.widthf(), pxl.sapp.heightf()), Color.white);
     api.resetPipeline();
 
     pxl.endPass();

@@ -182,16 +182,14 @@ fn render() !void {
         api.drawLine(.init(0, y), .init(320, y), 1, Color.fromRgba(0.25, 0.25, 0.25, 1));
     }
 
-    // Draw solid blocks (api.drawRect expects center position!)
+    // Draw solid blocks (api.drawRect defaults to top-left!)
     for (blocks) |b| {
-        const center = Vec2.init(b.x + b.w * 0.5, b.y + b.h * 0.5);
-        const size = Vec2.init(b.w, b.h);
-        api.drawRect(center, size, Color.dark_gray);
-        api.drawRectOutline(center, size, 1, Color.light_gray);
+        api.drawRect(.init(b.x, b.y), .init(b.w, b.h), Color.dark_gray);
+        api.drawRectOutline(.init(b.x, b.y), .init(b.w, b.h), 1, Color.light_gray);
     }
 
     // Draw center rect & pixel art ferris
-    api.drawRect(.init(160, 90), .init(40, 40), Color.sky_blue);
+    api.drawRectEx(.init(160, 90), .init(40, 40), .center, Color.sky_blue);
     api.drawSprite(.{
         .texture = ferris,
         .transform = .{

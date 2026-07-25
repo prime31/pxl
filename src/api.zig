@@ -155,23 +155,39 @@ pub fn drawTexturedRect(tex: Texture, dst: Rect, src: Rect, color: Color) void {
     });
 }
 
-/// Draw a filled rectangle centered at `center`.
-pub fn drawRect(center: Vec2, size: Vec2, color: Color) void {
+/// Draw a filled rectangle with position, size, origin alignment, and tint color.
+pub fn drawRectEx(pos: Vec2, size: Vec2, origin: Anchor, color: Color) void {
     pxl.batcher.setTexture(pxl.batcher.white);
-    const hw = size.x * 0.5;
-    const hh = size.y * 0.5;
+    const a = origin.asVec(); // center-relative [-0.5, 0.5]
+    const ox = (0.5 + a.x) * size.x;
+    const oy = (0.5 + a.y) * size.y;
+    const x0 = pos.x - ox;
+    const y0 = pos.y - oy;
+    const x1 = x0 + size.x;
+    const y1 = y0 + size.y;
+
     drawQuad(.{
-        .{ .pos = .init(center.x - hw, center.y - hh), .uv = Vec2.zero, .col = color },
-        .{ .pos = .init(center.x + hw, center.y - hh), .uv = Vec2.zero, .col = color },
-        .{ .pos = .init(center.x + hw, center.y + hh), .uv = Vec2.zero, .col = color },
-        .{ .pos = .init(center.x - hw, center.y + hh), .uv = Vec2.zero, .col = color },
+        .{ .pos = .init(x0, y0), .uv = Vec2.zero, .col = color },
+        .{ .pos = .init(x1, y0), .uv = Vec2.zero, .col = color },
+        .{ .pos = .init(x1, y1), .uv = Vec2.zero, .col = color },
+        .{ .pos = .init(x0, y1), .uv = Vec2.zero, .col = color },
     });
 }
 
-/// Draw the outline of a rectangle centered at `center` as a border ring, so the
-/// corners are mitered with no gaps or overlap (comfy's inner/outer-rect outline).
-pub fn drawRectOutline(center: Vec2, size: Vec2, thickness: f32, color: Color) void {
+/// Draw a filled rectangle with `pos` as its top-left corner.
+pub fn drawRect(pos: Vec2, size: Vec2, color: Color) void {
+    drawRectEx(pos, size, .top_left, color);
+}
+
+/// Draw the outline of a rectangle with position, size, origin alignment, thickness, and color.
+pub fn drawRectOutlineEx(pos: Vec2, size: Vec2, origin: Anchor, thickness: f32, color: Color) void {
     pxl.batcher.setTexture(pxl.batcher.white);
+    const a = origin.asVec();
+    const ox_offset = (0.5 + a.x) * size.x;
+    const oy_offset = (0.5 + a.y) * size.y;
+    const center_x = pos.x - ox_offset + size.x * 0.5;
+    const center_y = pos.y - oy_offset + size.y * 0.5;
+
     const ht = thickness * 0.5;
     const ox = size.x * 0.5 + ht; // outer half-extents
     const oy = size.y * 0.5 + ht;
@@ -180,15 +196,15 @@ pub fn drawRectOutline(center: Vec2, size: Vec2, thickness: f32, color: Color) v
 
     const verts = [8]Vertex{
         // outer TL, TR, BR, BL
-        .{ .pos = .init(center.x - ox, center.y - oy), .uv = Vec2.zero, .col = color },
-        .{ .pos = .init(center.x + ox, center.y - oy), .uv = Vec2.zero, .col = color },
-        .{ .pos = .init(center.x + ox, center.y + oy), .uv = Vec2.zero, .col = color },
-        .{ .pos = .init(center.x - ox, center.y + oy), .uv = Vec2.zero, .col = color },
+        .{ .pos = .init(center_x - ox, center_y - oy), .uv = Vec2.zero, .col = color },
+        .{ .pos = .init(center_x + ox, center_y - oy), .uv = Vec2.zero, .col = color },
+        .{ .pos = .init(center_x + ox, center_y + oy), .uv = Vec2.zero, .col = color },
+        .{ .pos = .init(center_x - ox, center_y + oy), .uv = Vec2.zero, .col = color },
         // inner TL, TR, BR, BL
-        .{ .pos = .init(center.x - ix, center.y - iy), .uv = Vec2.zero, .col = color },
-        .{ .pos = .init(center.x + ix, center.y - iy), .uv = Vec2.zero, .col = color },
-        .{ .pos = .init(center.x + ix, center.y + iy), .uv = Vec2.zero, .col = color },
-        .{ .pos = .init(center.x - ix, center.y + iy), .uv = Vec2.zero, .col = color },
+        .{ .pos = .init(center_x - ix, center_y - iy), .uv = Vec2.zero, .col = color },
+        .{ .pos = .init(center_x + ix, center_y - iy), .uv = Vec2.zero, .col = color },
+        .{ .pos = .init(center_x + ix, center_y + iy), .uv = Vec2.zero, .col = color },
+        .{ .pos = .init(center_x - ix, center_y + iy), .uv = Vec2.zero, .col = color },
     };
     // four border quads (top, right, bottom, left)
     pxl.batcher.pushMesh(&verts, &.{
@@ -197,6 +213,11 @@ pub fn drawRectOutline(center: Vec2, size: Vec2, thickness: f32, color: Color) v
         2, 3, 7, 2, 7, 6,
         3, 0, 4, 3, 4, 7,
     });
+}
+
+/// Draw the outline of a rectangle with `pos` as its top-left corner.
+pub fn drawRectOutline(pos: Vec2, size: Vec2, thickness: f32, color: Color) void {
+    drawRectOutlineEx(pos, size, .top_left, thickness, color);
 }
 
 /// Draw a line from `a` to `b` as a thickness-wide quad.
@@ -210,7 +231,6 @@ pub fn drawLine(a: Vec2, b: Vec2, thickness: f32, color: Color) void {
     const nx = -dy * s;
     const ny = dx * s;
 
-    pxl.batcher.setTexture(pxl.batcher.white);
     drawQuad(.{
         .{ .pos = .init(a.x + nx, a.y + ny), .uv = Vec2.zero, .col = color },
         .{ .pos = .init(b.x + nx, b.y + ny), .uv = Vec2.zero, .col = color },
@@ -221,7 +241,7 @@ pub fn drawLine(a: Vec2, b: Vec2, thickness: f32, color: Color) void {
 
 /// Draw a filled square of side `size` centered at `center`.
 pub fn drawPoint(center: Vec2, color: Color, size: f32) void {
-    drawRect(center, .init(size, size), color);
+    drawRectEx(center, .init(size, size), .center, color);
 }
 
 /// Draw a filled circle as a triangle fan with `segments` sides.
