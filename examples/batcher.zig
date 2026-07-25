@@ -20,7 +20,7 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn setup() !void {
-    batcher = try pxl.gpu.Batcher.init(4096, 8192, 64);
+    batcher = try pxl.gpu.Batcher.init(.{ .max_verts = 4096, .max_indices = 8192, .max_uniform_bytes = 64 });
     ferris = try pxl.gpu.Texture.initFromFile("examples/assets/ferris_smol.png");
 }
 

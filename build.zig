@@ -16,6 +16,7 @@ const examples = [_]Example{
     .{ .name = "microui" },
     .{ .name = "shader", .has_shader = true },
     .{ .name = "bunnymark" },
+    .{ .name = "batcher" },
 };
 
 const shaders = struct {
