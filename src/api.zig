@@ -138,7 +138,7 @@ pub fn drawTextureEx(tex: Texture, transform: Transform, color: Color) void {
 }
 
 /// Draw the `src` pixel region of `tex` into the `dst` world rect (top-left), tinted by
-/// `color`. Negative `src.w`/`src.h` flip that axis (matches sokol_gp's textured rects).
+/// `color`. Negative `src.w`/`src.h` flip that axis
 pub fn drawTexturedRect(tex: Texture, dst: Rect, src: Rect, color: Color) void {
     const tw: f32 = @floatFromInt(tex.width);
     const th: f32 = @floatFromInt(tex.height);

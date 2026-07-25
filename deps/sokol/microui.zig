@@ -21,6 +21,7 @@ extern fn r_event(ev: [*c]const sg.Event) void;
 extern fn r_frame() void;
 
 // microui
+
 pub const Icon = enum(c_int) {
     none,
     close,
@@ -38,7 +39,7 @@ pub const Result = packed struct(c_int) {
 };
 
 pub const Opt = packed struct(c_int) {
-    align_center: bool = true,
+    align_center: bool = false,
     align_right: bool = false,
     no_interact: bool = false,
     no_frame: bool = false,
@@ -498,6 +499,10 @@ pub fn label(txt: [*c]const u8) void {
 }
 extern fn mu_label(ctx: [*c]mu_Context, txt: [*c]const u8) void;
 
+pub fn button(label_txt: [*c]const u8, icon: Icon) bool {
+    return buttonEx(label_txt, icon, .{ .align_center = true });
+}
+
 pub fn buttonEx(label_txt: [*c]const u8, icon: Icon, opt: Opt) bool {
     return mu_button_ex(&mu_ctx, label_txt, @intFromEnum(icon), @bitCast(opt)) > 0;
 }
@@ -513,25 +518,46 @@ pub fn textboxRaw(buf: [*c]u8, bufsz: c_int, id: mu_Id, r: mu_Rect, opt: Opt) Re
 }
 extern fn mu_textbox_raw(ctx: [*c]mu_Context, buf: [*c]u8, bufsz: c_int, id: mu_Id, r: mu_Rect, opt: c_int) c_int;
 
+pub fn textbox(buf: [*c]u8, bufsz: c_int, opt: Opt) Result {
+    _ = opt; // autofix
+    return textboxEx(&mu_ctx, buf, bufsz, .{});
+}
+
 pub fn textboxEx(buf: [*c]u8, bufsz: c_int, opt: Opt) Result {
     return @bitCast(mu_textbox_ex(&mu_ctx, buf, bufsz, @bitCast(opt)));
 }
 extern fn mu_textbox_ex(ctx: [*c]mu_Context, buf: [*c]u8, bufsz: c_int, opt: c_int) c_int;
+
+pub fn slider(value: [*c]mu_Real, low: mu_Real, high: mu_Real, step: mu_Real) bool {
+    return sliderEx(value, low, high, step, "%.2f", .{ .align_center = true }) > 0;
+}
 
 pub fn sliderEx(value: [*c]mu_Real, low: mu_Real, high: mu_Real, step: mu_Real, fmt: [*c]const u8, opt: Opt) bool {
     return mu_slider_ex(&mu_ctx, value, low, high, step, fmt, @bitCast(opt)) > 0;
 }
 extern fn mu_slider_ex(ctx: [*c]mu_Context, value: [*c]mu_Real, low: mu_Real, high: mu_Real, step: mu_Real, fmt: [*c]const u8, opt: c_int) c_int;
 
+pub fn number(value: [*c]mu_Real, step: mu_Real) c_int {
+    return numberEx(value, step, "%.2f", .{ .align_center = true });
+}
+
 pub fn numberEx(value: [*c]mu_Real, step: mu_Real, fmt: [*c]const u8, opt: Opt) c_int {
     return mu_number_ex(&mu_ctx, value, step, fmt, @bitCast(opt));
 }
 extern fn mu_number_ex(ctx: [*c]mu_Context, value: [*c]mu_Real, step: mu_Real, fmt: [*c]const u8, opt: c_int) c_int;
 
+pub fn header(label_txt: [*c]const u8) bool {
+    return headerEx(label_txt, .{});
+}
+
 pub fn headerEx(label_txt: [*c]const u8, opt: Opt) bool {
     return mu_header_ex(&mu_ctx, label_txt, @bitCast(opt)) == 1;
 }
 extern fn mu_header_ex(ctx: [*c]mu_Context, label_txt: [*c]const u8, opt: c_int) c_int;
+
+pub fn beginTreenode(label_txt: [*c]const u8) bool {
+    return beginTreenodeEx(label_txt, .{});
+}
 
 pub fn beginTreenodeEx(label_txt: [*c]const u8, opt: Opt) bool {
     return mu_begin_treenode_ex(&mu_ctx, label_txt, @bitCast(opt)) > 0;
@@ -542,6 +568,10 @@ pub fn endTreenode() void {
     mu_end_treenode(&mu_ctx);
 }
 extern fn mu_end_treenode(ctx: [*c]mu_Context) void;
+
+pub fn beginWindow(title: [*c]const u8, rect: mu_Rect) bool {
+    return beginWindowEx(&mu_ctx, title, rect, .{});
+}
 
 pub fn beginWindowEx(title: [*c]const u8, rect: mu_Rect, opt: Opt) bool {
     return mu_begin_window_ex(&mu_ctx, title, rect, @bitCast(opt)) == 1;
@@ -567,6 +597,10 @@ pub fn endPopup() void {
     mu_end_popup(&mu_ctx);
 }
 extern fn mu_end_popup(ctx: [*c]mu_Context) void;
+
+pub fn beginPanel(name: [*c]const u8) void {
+    beginPanelEx(name, .{});
+}
 
 pub fn beginPanelEx(name: [*c]const u8, opt: Opt) void {
     mu_begin_panel_ex(&mu_ctx, name, @bitCast(opt));

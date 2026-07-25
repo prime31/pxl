@@ -76,9 +76,6 @@ pub fn renderLevel(level: LDtk.Level) void {
                 const tileset_uid = layer.overrideTilesetUid orelse layer.__tilesetDefUid orelse continue;
                 const tex = textures.get(tileset_uid) orelse unreachable;
 
-                const opacity: f32 = @floatCast(layer.__opacity);
-                _ = opacity; // autofix
-
                 for (layer.gridTiles) |tile| {
                     drawTile(tile, tex, grid_size, layer_x, layer_y, layer.__opacity);
                 }
