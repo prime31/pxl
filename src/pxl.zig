@@ -119,7 +119,7 @@ export fn sokolInit() void {
 
     batcher = gpu.Batcher.init(cfg.gfx.batcher) catch unreachable;
     gpu.init(cfg.gfx);
-    input = Input.init(1);
+    input = Input.init();
     time = Time.init();
 
     if (cfg.setup) |cb| cb() catch unreachable;

@@ -2,6 +2,8 @@ const std = @import("std");
 const pxl = @import("pxl.zig");
 const sapp = pxl.sapp;
 const math = @import("math/math.zig");
+const gamepad = pxl.gamepad;
+
 const FixedList = @import("util/fixed_list.zig").FixedList;
 
 const released: u3 = 1; // true only the frame the key is released
@@ -24,15 +26,11 @@ pub const Input = struct {
     mouse_y: f32 = 0,
     mouse_rel_x: f32 = 0,
     mouse_rel_y: f32 = 0,
-    window_scale: i32 = 0,
-    // res_scaler: gfx.ResolutionScaler = undefined,
 
-    pub fn init(win_scale: f32) Input {
+    pub fn init() Input {
         return .{
             .dirty_keys = FixedList(i32, 10).init(),
             .dirty_mouse_buttons = FixedList(u2, 3).init(),
-            .window_scale = @intFromFloat(win_scale),
-            // .res_scaler = gfx.getResolutionScaler(),
         };
     }
 

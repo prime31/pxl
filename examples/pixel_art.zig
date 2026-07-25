@@ -13,6 +13,7 @@ var camera: pxl.Camera = .{
 pub fn main(init: std.process.Init) !void {
     try pxl.run(init, .{
         .setup = setup,
+        .update = update,
         .render = render,
         .shutdown = shutdown,
         .gfx = .{
@@ -29,6 +30,26 @@ fn setup() !void {
 
 fn shutdown() !void {
     ferris.deinit();
+}
+
+fn update() !void {
+    if (mu.beginWindowEx("Camera Controls", .{ .x = 10, .y = 10, .w = 200, .h = 160 }, .{ .align_center = false })) {
+        mu.layoutRow(2, &[_]c_int{ 75, -1 }, 0);
+
+        mu.label("Pos X:");
+        _ = mu.sliderEx(&camera.position.x, 0, 320, 1, "%.0f", .{});
+
+        mu.label("Pos Y:");
+        _ = mu.sliderEx(&camera.position.y, 0, 180, 1, "%.0f", .{});
+
+        mu.label("Zoom:");
+        _ = mu.sliderEx(&camera.zoom, 0.5, 4.0, 0.1, "%.1f", .{});
+
+        mu.label("Rotation:");
+        _ = mu.sliderEx(&camera.rotation, -3.14, 3.14, 0.05, "%.2f", .{});
+
+        mu.endWindow();
+    }
 }
 
 fn render() !void {
@@ -57,24 +78,10 @@ fn render() !void {
         },
     });
 
+    // Draw a point in world space under mouse cursor using screenToWorld
+    const mouse_design = pxl.input.mousePosScaledVec();
+    const mouse_world = camera.screenToWorld(mouse_design);
+    api.drawPoint(mouse_world, pxl.math.Color.lime, 4);
+
     pxl.endPass();
-
-    // MicroUI Controls Window
-    if (mu.beginWindowEx("Camera Controls", .{ .x = 10, .y = 10, .w = 200, .h = 160 }, .{ .align_center = false })) {
-        mu.layoutRow(2, &[_]c_int{ 75, -1 }, 0);
-
-        mu.label("Pos X:");
-        _ = mu.sliderEx(&camera.position.x, 0, 320, 1, "%.0f", .{});
-
-        mu.label("Pos Y:");
-        _ = mu.sliderEx(&camera.position.y, 0, 180, 1, "%.0f", .{});
-
-        mu.label("Zoom:");
-        _ = mu.sliderEx(&camera.zoom, 0.5, 4.0, 0.1, "%.1f", .{});
-
-        mu.label("Rotation:");
-        _ = mu.sliderEx(&camera.rotation, -3.14, 3.14, 0.05, "%.2f", .{});
-
-        mu.endWindow();
-    }
 }
