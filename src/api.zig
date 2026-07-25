@@ -83,6 +83,9 @@ fn drawTexturedQuad(tex: Texture, model: Mat32, corners: [4]Vec2, uvs: [4]Vec2, 
     pxl.batcher.matrix = saved;
 }
 
+const Transform = pxl.gpu.Transform;
+const Camera = pxl.gpu.Camera;
+
 /// Draw a textured sprite with position, rotation, scale, pivot and an optional
 /// atlas source region (models comfy's `draw_sprite_pro`).
 pub fn drawSprite(s: Sprite) void {
@@ -95,17 +98,10 @@ pub fn drawSprite(s: Sprite) void {
     const tw: f32 = @floatFromInt(s.texture.width);
     const th: f32 = @floatFromInt(s.texture.height);
 
-    const w = src.w * s.scale.x;
-    const h = src.h * s.scale.y;
+    const w = src.w * s.transform.scale.x;
+    const h = src.h * s.transform.scale.y;
 
-    // anchor is center-relative [-0.5, 0.5]; convert to a pivot in local [0,w]x[0,h]
-    const a = s.anchor.asVec();
-    const px = (0.5 + a.x) * w;
-    const py = (0.5 + a.y) * h;
-
-    const model = Mat32.fromTranslation(s.position.x, s.position.y)
-        .mul(Mat32.fromRotation(s.rotation))
-        .mul(Mat32.fromTranslation(-px, -py));
+    const model = s.transform.toMatrix(src.w, src.h);
 
     const corners = [4]Vec2{
         .init(0, 0),
@@ -133,7 +129,12 @@ pub fn drawSprite(s: Sprite) void {
 
 /// Draw a texture at its native size with its top-left corner at `position`.
 pub fn drawTexture(tex: Texture, position: Vec2) void {
-    drawSprite(.{ .texture = tex, .position = position, .anchor = .top_left });
+    drawSprite(.{ .texture = tex, .transform = .{ .pos = position, .origin = .top_left } });
+}
+
+/// Draw a texture using a Transform and color tint.
+pub fn drawTextureEx(tex: Texture, transform: Transform, color: Color) void {
+    drawSprite(.{ .texture = tex, .transform = transform, .color = color });
 }
 
 /// Draw the `src` pixel region of `tex` into the `dst` world rect (top-left), tinted by

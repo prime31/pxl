@@ -3,7 +3,7 @@ const math = std.math;
 
 const Vec2 = @import("vector.zig").Vec2;
 
-pub const TransformParams = struct { x: f32 = 0, y: f32 = 0, angle: f32 = 0, sx: f32 = 1, sy: f32 = 1, ox: f32 = 0, oy: f32 = 0 };
+const Transform = @import("../gpu/sprite.zig").Transform;
 
 /// A 2D affine transform stored as 6 floats (2 rows x 3 columns), This is all a 2D renderer needs:
 /// a 2x2 linear part plus a translation. Transforming a point maps
@@ -15,10 +15,8 @@ pub const TransformParams = struct { x: f32 = 0, y: f32 = 0, angle: f32 = 0, sx:
 pub const Mat32 = extern struct {
     data: [6]f32 = .{ 1, 0, 0, 1, 0, 0 },
 
-    pub fn initTransform(vals: TransformParams) Mat32 {
-        var mat = Mat32{};
-        mat.setTransform(vals);
-        return mat;
+    pub fn fromTransform(t: Transform, width: f32, height: f32) Mat32 {
+        return t.toMatrix(width, height);
     }
 
     /// The identity transform.
@@ -71,22 +69,6 @@ pub const Mat32 = extern struct {
         const w = right - left;
         const h = top - bottom;
         return .{ .data = .{ 2.0 / w, 0, 0, 2.0 / h, -(right + left) / w, -(top + bottom) / h } };
-    }
-
-    pub fn setTransform(self: *Mat32, vals: TransformParams) void {
-        const c = math.cos(vals.angle);
-        const s = math.sin(vals.angle);
-
-        // matrix multiplication carried out on paper:
-        // |1    x| |c -s  | |sx     | |1   -ox|
-        // |  1  y| |s  c  | |   sy  | |  1 -oy|
-        //   move    rotate    scale     origin
-        self.data[0] = c * vals.sx;
-        self.data[1] = s * vals.sx;
-        self.data[2] = -s * vals.sy;
-        self.data[3] = c * vals.sy;
-        self.data[4] = vals.x - vals.ox * self.data[0] - vals.oy * self.data[2];
-        self.data[5] = vals.y - vals.ox * self.data[1] - vals.oy * self.data[3];
     }
 };
 

@@ -20,9 +20,11 @@ pub fn main(init: std.process.Init) !void {
         .update = update,
         .render = render,
         .shutdown = shutdown,
-        .batcher = .{
-            .max_verts = 3_000_000,
-            .max_indices = 3_000_000,
+        .gfx = .{
+            .batcher = .{
+                .max_verts = 3_000_000,
+                .max_indices = 3_000_000,
+            },
         },
     });
 }

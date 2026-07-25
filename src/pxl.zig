@@ -51,8 +51,14 @@ pub const Config = struct {
     gfx: gpu.Config = .{},
 };
 
+pub const Camera = gpu.Camera;
+pub const Transform = gpu.Transform;
+pub const Anchor = gpu.Anchor;
+pub const Sprite = gpu.Sprite;
+
 pub const Pass = struct {
     action: enum { load, clear } = .load,
+    camera: ?Camera = null,
 };
 
 var clear_color: sg.Color = undefined;
@@ -161,7 +167,7 @@ export fn sokolEvent(evt: [*c]const sapp.Event) void {
 
     mu.handleEvent(evt);
 
-    if (evt.*.type == .RESIZED) gpu.createOffscreenAttachments(evt.*.framebuffer_width, evt.*.framebuffer_height);
+    if (evt.*.type == .RESIZED) gpu.createOffscreenAttachments();
     input.handleEvent(evt);
 }
 
@@ -182,7 +188,15 @@ pub fn beginPass(pass: Pass) void {
 
     gpu.offscreen.pass.action.colors[0].load_action = if (current_pass.?.action == .load) .LOAD else .CLEAR;
     sg.beginPass(gpu.offscreen.pass);
-    batcher.begin(math.Mat32.orthographic(sapp.widthf(), sapp.heightf()));
+
+    const target_w = gpu.renderWidthf();
+    const target_h = gpu.renderHeightf();
+    const mat = if (pass.camera) |cam|
+        cam.getMatrix(target_w, target_h)
+    else
+        math.Mat32.orthographic(target_w, target_h);
+
+    batcher.begin(mat);
 }
 
 pub fn endPass() void {

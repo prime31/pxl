@@ -10,8 +10,7 @@ pub const ResolutionScaler = struct {
 };
 
 pub const ResolutionPolicy = enum {
-    none, // here be dragons: if you use this no faux backbuffer will be created and you must always call gfx.beginNullPass first!
-    /// RenderTarget matches the sceen size
+    /// RenderTarget matches the screen size
     default,
     /// The entire application fills the specified area, without distortion but possibly with some cropping
     no_border,
@@ -27,13 +26,11 @@ pub const ResolutionPolicy = enum {
     best_fit,
 
     pub fn getScaler(self: ResolutionPolicy, design_w: i32, design_h: i32) ResolutionScaler {
-        if (self == .none) return .{ .w = 0, .h = 0 };
-
         // non-default policy requires a design size
         std.debug.assert((self != .default and design_w > 0 and design_h > 0) or self == .default);
 
         // common config
-        const win_size = pxl.window.sizeInPixels();
+        const win_size = struct { w: i32, h: i32 }{ .w = pxl.sapp.width(), .h = pxl.sapp.height() };
 
         // our render target size will be full screen for .default
         const rt_w = if (self == .default) win_size.w else design_w;
@@ -57,7 +54,7 @@ pub const ResolutionPolicy = enum {
 
         switch (self) {
             .default => {
-                const win_scale = pxl.window.scale();
+                const win_scale = pxl.sapp.dpiScale();
                 const width = @as(i32, @intFromFloat(@as(f32, @floatFromInt(win_size.w)) / win_scale));
                 const height = @as(i32, @intFromFloat(@as(f32, @floatFromInt(win_size.h)) / win_scale));
                 return ResolutionScaler{
@@ -103,7 +100,6 @@ pub const ResolutionPolicy = enum {
                 };
             },
             .best_fit => {
-                // TODO: move this into some sort of safe area config
                 const bleed_x: i32 = 0;
                 const bleed_y: i32 = 0;
                 const safe_sx = @as(f32, @floatFromInt(win_size.w)) / @as(f32, @floatFromInt(rt_w - bleed_x));
@@ -124,12 +120,6 @@ pub const ResolutionPolicy = enum {
                     .scale = final_scale,
                 };
             },
-            else => unreachable,
         }
-
-        return ResolutionScaler{
-            .w = design_w,
-            .h = design_h,
-        };
     }
 };

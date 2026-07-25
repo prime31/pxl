@@ -37,56 +37,11 @@ const blend_mode_count = @typeInfo(BlendMode).@"enum".fields.len;
 /// Upper bound on `segments` for `drawCircle`/`drawCircleOutline` (bounds their stack buffers).
 const max_circle_segments = 64;
 
-/// A rectangle in texture pixel space (top-left origin), used for sprite source regions.
-pub const Rect = struct { x: f32 = 0, y: f32 = 0, w: f32 = 0, h: f32 = 0 };
-
-/// A sprite anchor point, center-relative and scaled by the sprite size: center is
-/// `(0,0)`, top-left is `(-0.5,-0.5)`, bottom-right is `(0.5,0.5)` (y-down screen space).
-pub const Anchor = union(enum) {
-    center,
-    top_left,
-    top_center,
-    top_right,
-    center_left,
-    center_right,
-    bottom_left,
-    bottom_center,
-    bottom_right,
-    /// Custom center-relative anchor (same convention as the named ones).
-    custom: Vec2,
-
-    pub fn asVec(self: Anchor) Vec2 {
-        return switch (self) {
-            .center => Vec2.zero,
-            .top_left => .init(-0.5, -0.5),
-            .top_center => .init(0, -0.5),
-            .top_right => .init(0.5, -0.5),
-            .center_left => .init(-0.5, 0),
-            .center_right => .init(0.5, 0),
-            .bottom_left => .init(-0.5, 0.5),
-            .bottom_center => .init(0, 0.5),
-            .bottom_right => .init(0.5, 0.5),
-            .custom => |pt| pt,
-        };
-    }
-};
-
-/// Parameters for `drawSprite`. Sensible defaults: whole texture, white, centered, no rotation.
-pub const Sprite = struct {
-    texture: Texture,
-    /// World position where `anchor` is placed.
-    position: Vec2 = Vec2.zero,
-    color: Color = Color.white,
-    /// Rotation in radians, about `anchor`.
-    rotation: f32 = 0,
-    scale: Vec2 = Vec2.one,
-    /// The point of the sprite pinned to `position` (and rotated/scaled about).
-    anchor: Anchor = .center,
-    /// Sub-region of the texture in pixels (atlas cell); `null` = the whole texture.
-    source: ?Rect = null,
-    flip_x: bool = false,
-    flip_y: bool = false,
-};
+pub const sprite = @import("sprite.zig");
+pub const Rect = sprite.Rect;
+pub const Anchor = sprite.Anchor;
+pub const Sprite = sprite.Sprite;
+pub const Transform = sprite.Transform;
 
 pub const BatcherConfig = struct {
     max_verts: u32 = 300_000,

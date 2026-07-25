@@ -151,22 +151,20 @@ pub const Input = struct {
         y.* = self.mouse_y;
     }
 
-    // gets the scaled mouse position based on the currently bound render texture scale and offset
-    // as calcuated in OffscreenPass. scale should be scale and offset_n is the calculated x, y value.
-    pub fn mousePosScaled(self: Input, x: *i32, y: *i32) void {
-        self.mousePos(x, y);
-
-        const xf = @as(f32, @floatFromInt(x.*)) - @as(f32, @floatFromInt(self.res_scaler.x));
-        const yf = @as(f32, @floatFromInt(y.*)) - @as(f32, @floatFromInt(self.res_scaler.y));
-        x.* = @intFromFloat(xf / self.res_scaler.scale);
-        y.* = @intFromFloat(yf / self.res_scaler.scale);
+    /// Gets the scaled mouse position in design/render-target coordinates, taking into account
+    /// the currently active ResolutionPolicy scale and letterbox offset.
+    pub fn mousePosScaled(self: Input, x: *f32, y: *f32) void {
+        const scaler = pxl.gpu.gfx_config.resolution_policy.getScaler(pxl.gpu.gfx_config.design_width, pxl.gpu.gfx_config.design_height);
+        const scale_val = if (scaler.scale == 0) 1.0 else scaler.scale;
+        x.* = (self.mouse_x - @as(f32, @floatFromInt(scaler.x))) / scale_val;
+        y.* = (self.mouse_y - @as(f32, @floatFromInt(scaler.y))) / scale_val;
     }
 
     pub fn mousePosScaledVec(self: Input) math.Vec2 {
-        var x: i32 = undefined;
-        var y: i32 = undefined;
+        var x: f32 = 0;
+        var y: f32 = 0;
         self.mousePosScaled(&x, &y);
-        return .{ .x = @floatFromInt(x), .y = @floatFromInt(y) };
+        return .{ .x = x, .y = y };
     }
 
     pub fn mouseRelMotion(self: Input) math.Vec2 {
