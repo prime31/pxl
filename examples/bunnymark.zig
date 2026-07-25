@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const pxl = @import("pxl");
+const api = pxl.api;
 const ig = pxl.ig;
 
 const Vec2 = pxl.math.Vec2;
@@ -68,7 +69,7 @@ fn update() !void {
 fn render() !void {
     pxl.beginPass(.{ .action = .clear });
     for (crabs.items) |*crab| {
-        pxl.batcher.drawTexture(texture, crab.pos);
+        api.drawTexture(texture, crab.pos);
     }
     pxl.endPass();
 }

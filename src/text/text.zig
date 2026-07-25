@@ -249,7 +249,7 @@ pub const BMFontParser = struct {
             const w = @as(f32, @floatFromInt(item.glyph.width));
             const h = @as(f32, @floatFromInt(item.glyph.height));
 
-            pxl.batcher.drawTexturedRect(
+            pxl.api.drawTexturedRect(
                 self.texture,
                 .{ .x = item.render_x, .y = item.render_y, .w = w, .h = h },
                 .{ .x = @floatFromInt(item.glyph.x), .y = @floatFromInt(item.glyph.y), .w = w, .h = h },

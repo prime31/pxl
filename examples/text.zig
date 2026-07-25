@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const pxl = @import("pxl");
+const api = pxl.api;
 
 const Vec2 = pxl.math.Vec2;
 const Color = pxl.math.Color;
@@ -39,7 +40,7 @@ fn render() !void {
     while (i < font.chars_count) : (i += 1) {
         const glyph = font.getChar(i);
 
-        pxl.batcher.drawTexturedRect(
+        api.drawTexturedRect(
             font.texture,
             .{ .x = pos.x, .y = pos.y, .w = glyph.width, .h = glyph.height },
             .{ .x = glyph.x, .y = glyph.y, .w = glyph.width, .h = glyph.height },

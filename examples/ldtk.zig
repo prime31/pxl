@@ -1,5 +1,6 @@
 const std = @import("std");
 const pxl = @import("pxl");
+const api = pxl.api;
 const LDtk = pxl.util.LDtk;
 const Texture = pxl.gpu.Texture;
 const Rect = pxl.gpu.Rect;
@@ -123,7 +124,7 @@ fn drawTile(tile: LDtk.TileInstance, tex: Texture, grid_size: f32, layer_x: f32,
         .h = src_h,
     };
 
-    pxl.batcher.drawTexturedRect(tex, dest_rect, src_rect, Color.fromRgba(1, 1, 1, @floatCast(tile.a * layer_opacity)));
+    api.drawTexturedRect(tex, dest_rect, src_rect, Color.fromRgba(1, 1, 1, @floatCast(tile.a * layer_opacity)));
 }
 
 /// Render all entities in an Entity layer
@@ -165,14 +166,14 @@ pub fn renderEntity(entity: LDtk.EntityInstance, layer_x: f32, layer_y: f32) voi
         };
 
         // Reset tint color to white for entity graphics
-        pxl.batcher.drawTexturedRect(tex, dest_rect, src_rect, Color.white);
+        api.drawTexturedRect(tex, dest_rect, src_rect, Color.white);
     } else {
         // 2. Fallback / Debug: Draw a colored rectangle using __smartColor
         var color = parseHexColor(entity.__smartColor);
         color[3] = 0.6;
 
         const center = Vec2.init(x - width * 0.5, y - height - 0.5);
-        pxl.batcher.drawRect(center, Vec2.init(width, height), Color.fromArray(color));
+        api.drawRect(center, Vec2.init(width, height), Color.fromArray(color));
     }
 }
 

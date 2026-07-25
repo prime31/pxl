@@ -2,250 +2,293 @@ const std = @import("std");
 const pxl = @import("pxl.zig");
 const math = std.math;
 
-// /* Custom pipeline creation. */
-// sg_pipeline sgp_make_pipeline(const sgp_pipeline_desc* desc); /* Creates a custom shader pipeline to be used with SGP. */
+const Vec2 = pxl.math.Vec2;
+const Color = pxl.math.Color;
+const Mat32 = pxl.math.Mat32;
+const sg = pxl.sg;
 
-// /* Draw command queue management. */
-// void sgp_begin(int width, int height);    /* Begins a new SGP draw command queue. */
-// void sgp_flush(void);                     /* Dispatch current Sokol GFX draw commands. */
-// void sgp_end(void);                       /* End current draw command queue, discarding it. */
+const Vertex = pxl.gpu.Vertex;
+const BlendMode = pxl.gpu.BlendMode;
+const Rect = pxl.gpu.Rect;
+const Anchor = pxl.gpu.Anchor;
+const Sprite = pxl.gpu.Sprite;
+const Texture = pxl.gpu.Texture;
 
-// /* 2D coordinate space projection */
-// void sgp_project(float left, float right, float top, float bottom); /* Set the coordinate space boundary in the current viewport. */
-// void sgp_reset_project(void);                                       /* Resets the coordinate space to default (coordinate of the viewport). */
+const max_circle_segments = 64;
 
-// /* 2D coordinate space transformation. */
-// void sgp_push_transform(void);                            /* Saves current transform matrix, to be restored later with a pop. */
-// void sgp_pop_transform(void);                             /* Restore transform matrix to the same value of the last push. */
-// void sgp_reset_transform(void);                           /* Resets the transform matrix to identity (no transform). */
-// void sgp_translate(float x, float y);                     /* Translates the 2D coordinate space. */
-// void sgp_rotate(float theta);                             /* Rotates the 2D coordinate space around the origin. */
-// void sgp_rotate_at(float theta, float x, float y);        /* Rotates the 2D coordinate space around a point. */
-// void sgp_scale(float sx, float sy);                       /* Scales the 2D coordinate space around the origin. */
-// void sgp_scale_at(float sx, float sy, float x, float y);  /* Scales the 2D coordinate space around a point. */
+// ---- Pipeline & Batcher State API ----
 
-// /* State change for custom pipelines. */
-// void sgp_set_pipeline(sg_pipeline pipeline);              /* Sets current draw pipeline. */
-// void sgp_reset_pipeline(void);                            /* Resets to the current draw pipeline to default (builtin pipelines). */
-// void sgp_set_uniform(const void* vs_data, uint32_t vs_size, const void *fs_data, uint32_t fs_size); /* Sets uniform buffer for a custom pipeline. */
-// void sgp_reset_uniform(void);                             /* Resets uniform buffer to default (current state color). */
+pub fn setMatrix(matrix: Mat32) void {
+    pxl.batcher.setMatrix(matrix);
+}
 
-// /* State change functions for the common pipelines. */
-// void sgp_set_blend_mode(sgp_blend_mode blend_mode);       /* Sets current blend mode. */
-// void sgp_reset_blend_mode(void);                          /* Resets current blend mode to default (no blending). */
-// void sgp_set_color(float r, float g, float b, float a);   /* Sets current color modulation. */
-// void sgp_reset_color(void);                               /* Resets current color modulation to default (white). */
-// void sgp_set_image(int channel, sg_image image);          /* Sets current bound image in a texture channel. */
-// void sgp_unset_image(int channel);                        /* Remove current bound image in a texture channel (no texture). */
-// void sgp_reset_image(int channel);                        /* Resets current bound image in a texture channel to default (white texture). */
-// void sgp_set_sampler(int channel, sg_sampler sampler);    /* Sets current bound sampler in a texture channel. */
-// void sgp_unset_sampler(int channel);                      /* Remove current bound sampler in a texture channel (no sampler). */
-// void sgp_reset_sampler(int channel);                      /* Resets current bound sampler in a texture channel to default (nearest sampler). */
+pub fn setBlendMode(mode: BlendMode) void {
+    pxl.batcher.setBlendMode(mode);
+}
 
-// /* State change functions for all pipelines. */
-// void sgp_viewport(int x, int y, int w, int h);            /* Sets the screen area to draw into. */
-// void sgp_reset_viewport(void);                            /* Reset viewport to default values (0, 0, width, height). */
-// void sgp_scissor(int x, int y, int w, int h);             /* Set clip rectangle in the viewport. */
-// void sgp_reset_scissor(void);                             /* Resets clip rectangle to default (viewport bounds). */
-// void sgp_reset_state(void);                               /* Reset all state to default values. */
+pub fn setPipeline(pipeline: sg.Pipeline) void {
+    pxl.batcher.setPipeline(pipeline);
+}
 
-// /* Drawing functions. */
-// void sgp_clear(void);                                                                         /* Clears the current viewport using the current state color. */
-// void sgp_draw(sg_primitive_type primitive_type, const sgp_vertex* vertices, uint32_t count);  /* Low level drawing function, capable of drawing any primitive. */
-// void sgp_draw_points(const sgp_point* points, uint32_t count);                                /* Draws points in a batch. */
-// void sgp_draw_point(float x, float y);                                                        /* Draws a single point. */
-// void sgp_draw_lines(const sgp_line* lines, uint32_t count);                                   /* Draws lines in a batch. */
-// void sgp_draw_line(float ax, float ay, float bx, float by);                                   /* Draws a single line. */
-// void sgp_draw_lines_strip(const sgp_point* points, uint32_t count);                           /* Draws a strip of lines. */
-// void sgp_draw_filled_triangles(const sgp_triangle* triangles, uint32_t count);                /* Draws triangles in a batch. */
-// void sgp_draw_filled_triangle(float ax, float ay, float bx, float by, float cx, float cy);    /* Draws a single triangle. */
-// void sgp_draw_filled_triangles_strip(const sgp_point* points, uint32_t count);                /* Draws strip of triangles. */
-// void sgp_draw_filled_rects(const sgp_rect* rects, uint32_t count);                            /* Draws a batch of rectangles. */
-// void sgp_draw_filled_rect(float x, float y, float w, float h);                                /* Draws a single rectangle. */
-// void sgp_draw_textured_rects(int channel, const sgp_textured_rect* rects, uint32_t count);    /* Draws a batch textured rectangle, each from a source region. */
-// void sgp_draw_textured_rect(int channel, sgp_rect dest_rect, sgp_rect src_rect);              /* Draws a single textured rectangle from a source region. */
+pub fn resetPipeline() void {
+    pxl.batcher.resetPipeline();
+}
 
-// comfy
-// pub fn draw_sprite(
-//     texture: TextureHandle,
-//     position: Vec2,
-//     tint: Color,
-//     z_index: i32,
-//     world_size: Vec2
-// );
+pub fn setUniform(vs: anytype, fs: anytype) void {
+    pxl.batcher.setUniform(vs, fs);
+}
 
-// pub fn draw_sprite_rot(
-//     texture: TextureHandle,
-//     position: Vec2,
-//     tint: Color,
-//     z_index: i32,
-//     world_size: Vec2,
-//     rotation: f32,
-// );
+pub fn setTexture(tex: Texture) void {
+    pxl.batcher.setTexture(tex);
+}
 
-// pub fn draw_sprite_ex(
-//     texture: TextureHandle,
-//     position: Vec2,
-//     tint: Color,
-//     z_index: i32,
-//     params: DrawTextureParams,
-// );
+pub fn makePipeline(shader: sg.Shader, mode: BlendMode) sg.Pipeline {
+    return pxl.gpu.Batcher.makePipeline(shader, mode);
+}
 
-// pub fn draw_sprite_pro(
-//     texture: TextureHandle,
-//     position: Vec2,
-//     tint: Color,
-//     z_index: i32,
-//     params: DrawTextureProParams,
-// );
+pub fn getShader() sg.Shader {
+    return pxl.batcher.shader;
+}
 
-// pub fn draw_rect(
-//     center: Vec2,
-//     size: Vec2,
-//     color: Color,
-//     z_index: i32,
-// );
+pub fn pushMesh(verts: []const Vertex, indices: []const u16) void {
+    pxl.batcher.pushMesh(verts, indices);
+}
 
-// pub fn draw_rect_rot(
-//     center: Vec2,
-//     size: Vec2,
-//     rotation: f32,
-//     color: Color,
-//     z_index: i32,
-// );
+// ---- High-Level 2D Drawing API ----
 
-// pub fn draw_rect_outline(
-//     center: Vec2,
-//     size: Vec2,
-//     thickness: f32,
-//     color: Color,
-//     z_index: i32,
-// );
+/// Draw a filled triangle using the 1x1 white texture (color only).
+pub fn drawTriangle(a: Vec2, b: Vec2, c: Vec2, col: Color) void {
+    pxl.batcher.setTexture(pxl.batcher.white);
+    const verts = [_]Vertex{
+        .{ .pos = a, .uv = Vec2.zero, .col = col },
+        .{ .pos = b, .uv = Vec2.zero, .col = col },
+        .{ .pos = c, .uv = Vec2.zero, .col = col },
+    };
+    pxl.batcher.pushMesh(&verts, &.{ 0, 1, 2 });
+}
 
-// pub fn draw_rect_outline_rot(
-//     center: Vec2,
-//     size: Vec2,
-//     rotation: f32,
-//     thickness: f32,
-//     color: Color,
-//     z_index: i32,
-// );
+/// Draw a quad from four corner vertices (two triangles).
+pub fn drawQuad(verts: [4]Vertex) void {
+    pxl.batcher.pushMesh(&verts, &.{ 0, 1, 2, 0, 2, 3 });
+}
 
-// pub fn draw_rect_corners(
-//     min: Vec2,
-//     max: Vec2,
-//     color: Color,
-//     z_index: i32,
-// );
+/// Bind `tex`, then push a quad whose local `corners` are transformed by `model`
+/// composed with the current matrix. The matrix is restored afterwards (no flush).
+fn drawTexturedQuad(tex: Texture, model: Mat32, corners: [4]Vec2, uvs: [4]Vec2, col: Color) void {
+    pxl.batcher.setTexture(tex);
+    const saved = pxl.batcher.matrix;
+    pxl.batcher.matrix = saved.mul(model);
+    drawQuad(.{
+        .{ .pos = corners[0], .uv = uvs[0], .col = col },
+        .{ .pos = corners[1], .uv = uvs[1], .col = col },
+        .{ .pos = corners[2], .uv = uvs[2], .col = col },
+        .{ .pos = corners[3], .uv = uvs[3], .col = col },
+    });
+    pxl.batcher.matrix = saved;
+}
 
-// pub fn draw_rectangle_z_tex(
-//     /* low-level textured rectangle helper */
-// );
+/// Draw a textured sprite with position, rotation, scale, pivot and an optional
+/// atlas source region (models comfy's `draw_sprite_pro`).
+pub fn drawSprite(s: Sprite) void {
+    const src = s.source orelse Rect{
+        .x = 0,
+        .y = 0,
+        .w = @floatFromInt(s.texture.width),
+        .h = @floatFromInt(s.texture.height),
+    };
+    const tw: f32 = @floatFromInt(s.texture.width);
+    const th: f32 = @floatFromInt(s.texture.height);
 
-// pub fn draw_circle(
-//     center: Vec2,
-//     radius: f32,
-//     color: Color,
-//     z_index: i32,
-// );
+    const w = src.w * s.scale.x;
+    const h = src.h * s.scale.y;
 
-// pub fn draw_circle_outline(
-//     center: Vec2,
-//     radius: f32,
-//     thickness: f32,
-//     color: Color,
-//     z_index: i32,
-// );
+    // anchor is center-relative [-0.5, 0.5]; convert to a pivot in local [0,w]x[0,h]
+    const a = s.anchor.asVec();
+    const px = (0.5 + a.x) * w;
+    const py = (0.5 + a.y) * h;
 
-// pub fn draw_circle_z(
-//     center: Vec2,
-//     radius: f32,
-//     color: Color,
-//     z_index: i32,
-// );
+    const model = Mat32.fromTranslation(s.position.x, s.position.y)
+        .mul(Mat32.fromRotation(s.rotation))
+        .mul(Mat32.fromTranslation(-px, -py));
 
-// pub fn draw_line(
-//     start: Vec2,
-//     end: Vec2,
-//     thickness: f32,
-//     color: Color,
-//     z_index: i32,
-// );
+    const corners = [4]Vec2{
+        .init(0, 0),
+        .init(w, 0),
+        .init(w, h),
+        .init(0, h),
+    };
 
-// pub fn draw_arrow(
-//     start: Vec2,
-//     end: Vec2,
-//     thickness: f32,
-//     color: Color,
-//     z_index: i32,
-// );
+    var ul = src.x / tw;
+    var vt = src.y / th;
+    var ur = (src.x + src.w) / tw;
+    var vb = (src.y + src.h) / th;
+    if (s.flip_x) std.mem.swap(f32, &ul, &ur);
+    if (s.flip_y) std.mem.swap(f32, &vt, &vb);
 
-// pub fn draw_ray(
-//     start: Vec2,
-//     direction: Vec2,
-//     thickness: f32,
-//     color: Color,
-//     z_index: i32,
-// );
+    const uvs = [4]Vec2{
+        .init(ul, vt),
+        .init(ur, vt),
+        .init(ur, vb),
+        .init(ul, vb),
+    };
 
-// pub fn draw_arc(
-//     center: Vec2,
-//     radius: f32,
-//     start_angle: f32,
-//     end_angle: f32,
-//     thickness: f32,
-//     color: Color,
-//     z_index: i32,
-// );
+    drawTexturedQuad(s.texture, model, corners, uvs, s.color);
+}
 
-// pub fn draw_arc_outline(
-//     center: Vec2,
-//     radius: f32,
-//     start_angle: f32,
-//     end_angle: f32,
-//     thickness: f32,
-//     color: Color,
-//     z_index: i32,
-// );
+/// Draw a texture at its native size with its top-left corner at `position`.
+pub fn drawTexture(tex: Texture, position: Vec2) void {
+    drawSprite(.{ .texture = tex, .position = position, .anchor = .top_left });
+}
 
-// pub fn draw_arc_wedge(
-//     center: Vec2,
-//     radius: f32,
-//     start_angle: f32,
-//     end_angle: f32,
-//     color: Color,
-//     z_index: i32,
-// );
+/// Draw the `src` pixel region of `tex` into the `dst` world rect (top-left), tinted by
+/// `color`. Negative `src.w`/`src.h` flip that axis (matches sokol_gp's textured rects).
+pub fn drawTexturedRect(tex: Texture, dst: Rect, src: Rect, color: Color) void {
+    const tw: f32 = @floatFromInt(tex.width);
+    const th: f32 = @floatFromInt(tex.height);
+    const _u0 = src.x / tw;
+    const v0 = src.y / th;
+    const _u1 = (src.x + src.w) / tw;
+    const v1 = (src.y + src.h) / th;
+    pxl.batcher.setTexture(tex);
+    drawQuad(.{
+        .{ .pos = .init(dst.x, dst.y), .uv = .init(_u0, v0), .col = color },
+        .{ .pos = .init(dst.x + dst.w, dst.y), .uv = .init(_u1, v0), .col = color },
+        .{ .pos = .init(dst.x + dst.w, dst.y + dst.h), .uv = .init(_u1, v1), .col = color },
+        .{ .pos = .init(dst.x, dst.y + dst.h), .uv = .init(_u0, v1), .col = color },
+    });
+}
 
-// pub fn draw_wedge(
-//     center: Vec2,
-//     radius: f32,
-//     start_angle: f32,
-//     end_angle: f32,
-//     color: Color,
-//     z_index: i32,
-// );
+/// Draw a filled rectangle centered at `center`.
+pub fn drawRect(center: Vec2, size: Vec2, color: Color) void {
+    pxl.batcher.setTexture(pxl.batcher.white);
+    const hw = size.x * 0.5;
+    const hh = size.y * 0.5;
+    drawQuad(.{
+        .{ .pos = .init(center.x - hw, center.y - hh), .uv = Vec2.zero, .col = color },
+        .{ .pos = .init(center.x + hw, center.y - hh), .uv = Vec2.zero, .col = color },
+        .{ .pos = .init(center.x + hw, center.y + hh), .uv = Vec2.zero, .col = color },
+        .{ .pos = .init(center.x - hw, center.y + hh), .uv = Vec2.zero, .col = color },
+    });
+}
 
-// pub fn draw_mesh(
-//     mesh: &Mesh,
-//     transform: Mat4,
-//     z_index: i32,
-// );
+/// Draw the outline of a rectangle centered at `center` as a border ring, so the
+/// corners are mitered with no gaps or overlap (comfy's inner/outer-rect outline).
+pub fn drawRectOutline(center: Vec2, size: Vec2, thickness: f32, color: Color) void {
+    pxl.batcher.setTexture(pxl.batcher.white);
+    const ht = thickness * 0.5;
+    const ox = size.x * 0.5 + ht; // outer half-extents
+    const oy = size.y * 0.5 + ht;
+    const ix = size.x * 0.5 - ht; // inner half-extents
+    const iy = size.y * 0.5 - ht;
 
-// pub fn draw_text(
-//     text: &str,
-//     position: Vec2,
-//     color: Color,
-//     align: TextAlign,
-// );
+    const verts = [8]Vertex{
+        // outer TL, TR, BR, BL
+        .{ .pos = .init(center.x - ox, center.y - oy), .uv = Vec2.zero, .col = color },
+        .{ .pos = .init(center.x + ox, center.y - oy), .uv = Vec2.zero, .col = color },
+        .{ .pos = .init(center.x + ox, center.y + oy), .uv = Vec2.zero, .col = color },
+        .{ .pos = .init(center.x - ox, center.y + oy), .uv = Vec2.zero, .col = color },
+        // inner TL, TR, BR, BL
+        .{ .pos = .init(center.x - ix, center.y - iy), .uv = Vec2.zero, .col = color },
+        .{ .pos = .init(center.x + ix, center.y - iy), .uv = Vec2.zero, .col = color },
+        .{ .pos = .init(center.x + ix, center.y + iy), .uv = Vec2.zero, .col = color },
+        .{ .pos = .init(center.x - ix, center.y + iy), .uv = Vec2.zero, .col = color },
+    };
+    // four border quads (top, right, bottom, left)
+    pxl.batcher.pushMesh(&verts, &.{
+        0, 1, 5, 0, 5, 4,
+        1, 2, 6, 1, 6, 5,
+        2, 3, 7, 2, 7, 6,
+        3, 0, 4, 3, 4, 7,
+    });
+}
 
-// pub fn draw_text_ex(
-//     text: &str,
-//     position: Vec2,
-//     color: Color,
-//     params: DrawTextParams,
-// );
+/// Draw a line from `a` to `b` as a thickness-wide quad.
+pub fn drawLine(a: Vec2, b: Vec2, thickness: f32, color: Color) void {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = @sqrt(dx * dx + dy * dy);
+    if (len < 1e-6) return;
 
-// pub fn draw_text_pro_experimental(
-//     /* experimental */
-// );
+    const s = thickness * 0.5 / len;
+    const nx = -dy * s;
+    const ny = dx * s;
+
+    pxl.batcher.setTexture(pxl.batcher.white);
+    drawQuad(.{
+        .{ .pos = .init(a.x + nx, a.y + ny), .uv = Vec2.zero, .col = color },
+        .{ .pos = .init(b.x + nx, b.y + ny), .uv = Vec2.zero, .col = color },
+        .{ .pos = .init(b.x - nx, b.y - ny), .uv = Vec2.zero, .col = color },
+        .{ .pos = .init(a.x - nx, a.y - ny), .uv = Vec2.zero, .col = color },
+    });
+}
+
+/// Draw a filled square of side `size` centered at `center`.
+pub fn drawPoint(center: Vec2, color: Color, size: f32) void {
+    drawRect(center, .init(size, size), color);
+}
+
+/// Draw a filled circle as a triangle fan with `segments` sides.
+pub fn drawCircle(center: Vec2, radius: f32, color: Color, segments: u32) void {
+    std.debug.assert(segments >= 3 and segments <= max_circle_segments);
+    pxl.batcher.setTexture(pxl.batcher.white);
+
+    var verts: [max_circle_segments + 1]Vertex = undefined;
+    var indices: [max_circle_segments * 3]u16 = undefined;
+
+    verts[0] = .{ .pos = center, .uv = Vec2.zero, .col = color };
+    const step = math.tau / @as(f32, @floatFromInt(segments));
+    for (0..segments) |i| {
+        const a = step * @as(f32, @floatFromInt(i));
+        verts[i + 1] = .{
+            .pos = .init(center.x + @cos(a) * radius, center.y + @sin(a) * radius),
+            .uv = Vec2.zero,
+            .col = color,
+        };
+        const next: u16 = @intCast((i + 1) % segments + 1);
+        indices[i * 3 + 0] = 0;
+        indices[i * 3 + 1] = @intCast(i + 1);
+        indices[i * 3 + 2] = next;
+    }
+
+    pxl.batcher.pushMesh(verts[0 .. segments + 1], indices[0 .. segments * 3]);
+}
+
+/// Draw a circle outline of the given thickness as a ring of `segments` quads. Each
+/// segment's end angle overlaps the next slightly so there is never a crack between them.
+pub fn drawCircleOutline(center: Vec2, radius: f32, thickness: f32, color: Color, segments: u32) void {
+    std.debug.assert(segments >= 3 and segments <= max_circle_segments);
+    pxl.batcher.setTexture(pxl.batcher.white);
+
+    const inner = radius - thickness * 0.5;
+    const outer = radius + thickness * 0.5;
+
+    var verts: [max_circle_segments * 4]Vertex = undefined;
+    var indices: [max_circle_segments * 6]u16 = undefined;
+
+    const step = math.tau / @as(f32, @floatFromInt(segments));
+    const overlap = step * 0.25; // bridge any sub-pixel seam into the next segment
+    for (0..segments) |k| {
+        const a0 = step * @as(f32, @floatFromInt(k));
+        const a1 = step * @as(f32, @floatFromInt(k + 1)) + overlap;
+        const c0 = @cos(a0);
+        const s0 = @sin(a0);
+        const c1 = @cos(a1);
+        const s1 = @sin(a1);
+
+        const base = k * 4;
+        verts[base + 0] = .{ .pos = .init(center.x + c0 * inner, center.y + s0 * inner), .uv = Vec2.zero, .col = color };
+        verts[base + 1] = .{ .pos = .init(center.x + c0 * outer, center.y + s0 * outer), .uv = Vec2.zero, .col = color };
+        verts[base + 2] = .{ .pos = .init(center.x + c1 * outer, center.y + s1 * outer), .uv = Vec2.zero, .col = color };
+        verts[base + 3] = .{ .pos = .init(center.x + c1 * inner, center.y + s1 * inner), .uv = Vec2.zero, .col = color };
+
+        const b: u16 = @intCast(base);
+        indices[k * 6 + 0] = b;
+        indices[k * 6 + 1] = b + 1;
+        indices[k * 6 + 2] = b + 2;
+        indices[k * 6 + 3] = b;
+        indices[k * 6 + 4] = b + 2;
+        indices[k * 6 + 5] = b + 3;
+    }
+
+    pxl.batcher.pushMesh(verts[0 .. segments * 4], indices[0 .. segments * 6]);
+}
