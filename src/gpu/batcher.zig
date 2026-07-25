@@ -144,8 +144,10 @@ pub const Batcher = struct {
     pub fn init(config: BatcherConfig) !Batcher {
         const verts = try pxl.mem.allocator.alloc(Vertex, config.max_verts);
         errdefer pxl.mem.allocator.free(verts);
+
         const indices = try pxl.mem.allocator.alloc(u16, config.max_indices);
         errdefer pxl.mem.allocator.free(indices);
+
         const uniform_data = try pxl.mem.allocator.alloc(u8, config.max_uniform_bytes);
         errdefer pxl.mem.allocator.free(uniform_data);
 

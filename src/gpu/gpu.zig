@@ -2,9 +2,10 @@ const std = @import("std");
 const pxl = @import("../pxl.zig");
 const sg = pxl.sokol.gfx;
 
-pub const Texture = @import("texture.zig").Texture;
+pub const ResolutionPolicy = @import("resolution_policy.zig").ResolutionPolicy;
 pub const Batcher = @import("batcher.zig").Batcher;
 pub const BatcherConfig = @import("batcher.zig").BatcherConfig;
+pub const Texture = @import("texture.zig").Texture;
 pub const Vertex = @import("batcher.zig").Vertex;
 pub const Anchor = @import("batcher.zig").Anchor;
 pub const Sprite = @import("batcher.zig").Sprite;

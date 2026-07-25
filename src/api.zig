@@ -46,10 +46,6 @@ pub fn makePipeline(shader: sg.Shader, mode: BlendMode) sg.Pipeline {
     return pxl.gpu.Batcher.makePipeline(shader, mode);
 }
 
-pub fn getShader() sg.Shader {
-    return pxl.batcher.shader;
-}
-
 pub fn pushMesh(verts: []const Vertex, indices: []const u16) void {
     pxl.batcher.pushMesh(verts, indices);
 }

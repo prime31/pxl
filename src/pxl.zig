@@ -47,36 +47,28 @@ pub const Config = struct {
     fullscreen: bool = false,
     width: i32 = 1024,
     height: i32 = 768,
-    window_title: [*c]const u8 = "Zig Render",
+    window_title: [*c]const u8 = "Pxl",
     clear_color: sg.Color = .{ .r = 0.8, .g = 0.2, .b = 0.3, .a = 1.0 },
     /// Batcher staging/GPU buffer capacity. Must hold a whole frame's geometry, since
     /// vertices accumulate across all flushes in a frame (raise for heavy scenes).
     batcher: gpu.BatcherConfig = .{},
+    design_width: i32 = 0, // the width of the main offscreen render texture when the policy is not .default
+    design_height: i32 = 0, // the height of the main offscreen render texture when the policy is not .default
+    resolution_policy: gpu.ResolutionPolicy = .default, // defines how the main render texture should be blitted to the backbuffer
 };
 
 pub const Pass = struct {
     action: enum { load, clear } = .load,
 };
 
-const cbs = struct {
-    pub var init: ?*const fn () anyerror!void = null;
-    pub var update: ?*const fn () anyerror!void = null;
-    pub var render: ?*const fn () anyerror!void = null;
-    pub var shutdown: ?*const fn () anyerror!void = null;
-    var batcher_config: gpu.BatcherConfig = undefined;
-};
-
 var clear_color: sg.Color = undefined;
 var current_pass: ?Pass = null;
+var cfg: Config = undefined;
 
 pub fn run(init: std.process.Init, comptime config: Config) !void {
     io = init.io;
-    cbs.init = config.setup;
-    cbs.update = config.update;
-    cbs.render = config.render;
-    cbs.shutdown = config.shutdown;
-    cbs.batcher_config = config.batcher;
     clear_color = config.clear_color;
+    cfg = config;
 
     // setup
     mem.init();
@@ -125,12 +117,12 @@ export fn sokolInit() void {
             ig.igGetIO().*.ConfigFlags |= ig.ImGuiConfigFlags_DockingEnable;
     }
 
-    batcher = gpu.Batcher.init(cbs.batcher_config) catch unreachable;
+    batcher = gpu.Batcher.init(cfg.batcher) catch unreachable;
     gpu.init();
     input = Input.init(1);
     time = Time.init();
 
-    if (cbs.init) |cb| cb() catch unreachable;
+    if (cfg.setup) |cb| cb() catch unreachable;
 }
 
 export fn sokolFrame() void {
@@ -144,8 +136,8 @@ export fn sokolFrame() void {
     }
 
     mu.begin();
-    if (cbs.update) |cb| cb() catch unreachable;
-    if (cbs.render) |cb| cb() catch unreachable;
+    if (cfg.update) |cb| cb() catch unreachable;
+    if (cfg.render) |cb| cb() catch unreachable;
     mu.end();
 
     gpu.offscreen.pass.action.colors[0] = .{
@@ -180,7 +172,7 @@ export fn sokolEvent(evt: [*c]const sapp.Event) void {
 }
 
 export fn sokolCleanup() void {
-    if (cbs.shutdown) |cb| cb() catch {};
+    if (cfg.shutdown) |cb| cb() catch {};
 
     gpu.deinit();
 
