@@ -12,6 +12,19 @@ pub const Sprite = @import("batcher.zig").Sprite;
 pub const Rect = @import("batcher.zig").Rect;
 pub const BlendMode = @import("batcher.zig").BlendMode;
 
+pub const Config = struct {
+    clear_color: sg.Color = .{ .r = 0.8, .g = 0.2, .b = 0.3, .a = 1.0 },
+    /// Batcher staging/GPU buffer capacity. Must hold a whole frame's geometry, since
+    /// vertices accumulate across all flushes in a frame (raise for heavy scenes).
+    batcher: BatcherConfig = .{},
+    // the width of the main offscreen render texture when the policy is not .default
+    design_width: i32 = 0,
+    // the height of the main offscreen render texture when the policy is not .default
+    design_height: i32 = 0,
+    // defines how the main render texture should be blitted to the backbuffer
+    resolution_policy: ResolutionPolicy = .default,
+};
+
 pub const offscreen = struct {
     var pass_action: sg.PassAction = .{};
     pub var attachments: sg.Attachments = .{};
@@ -24,12 +37,12 @@ pub const offscreen = struct {
     var bind: sg.Bindings = .{};
 };
 
-pub fn init() void {
+pub fn init(config: Config) void {
     createOffscreenAttachments(pxl.sapp.width(), pxl.sapp.height());
 
     offscreen.smp = sg.makeSampler(.{
-        .min_filter = .LINEAR,
-        .mag_filter = .LINEAR,
+        .min_filter = .NEAREST,
+        .mag_filter = .NEAREST,
         .wrap_u = .CLAMP_TO_EDGE,
         .wrap_v = .CLAMP_TO_EDGE,
     });
@@ -38,7 +51,7 @@ pub fn init() void {
 
     offscreen.pass_action.colors[0] = .{
         .load_action = .CLEAR,
-        .clear_value = .{ .r = 1, .g = 0.5, .b = 0, .a = 1 },
+        .clear_value = config.clear_color,
     };
 
     offscreen.pip = sg.makePipeline(.{

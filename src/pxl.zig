@@ -48,13 +48,7 @@ pub const Config = struct {
     width: i32 = 1024,
     height: i32 = 768,
     window_title: [*c]const u8 = "Pxl",
-    clear_color: sg.Color = .{ .r = 0.8, .g = 0.2, .b = 0.3, .a = 1.0 },
-    /// Batcher staging/GPU buffer capacity. Must hold a whole frame's geometry, since
-    /// vertices accumulate across all flushes in a frame (raise for heavy scenes).
-    batcher: gpu.BatcherConfig = .{},
-    design_width: i32 = 0, // the width of the main offscreen render texture when the policy is not .default
-    design_height: i32 = 0, // the height of the main offscreen render texture when the policy is not .default
-    resolution_policy: gpu.ResolutionPolicy = .default, // defines how the main render texture should be blitted to the backbuffer
+    gfx: gpu.Config = .{},
 };
 
 pub const Pass = struct {
@@ -67,7 +61,7 @@ var cfg: Config = undefined;
 
 pub fn run(init: std.process.Init, comptime config: Config) !void {
     io = init.io;
-    clear_color = config.clear_color;
+    clear_color = config.gfx.clear_color;
     cfg = config;
 
     // setup
@@ -117,8 +111,8 @@ export fn sokolInit() void {
             ig.igGetIO().*.ConfigFlags |= ig.ImGuiConfigFlags_DockingEnable;
     }
 
-    batcher = gpu.Batcher.init(cfg.batcher) catch unreachable;
-    gpu.init();
+    batcher = gpu.Batcher.init(cfg.gfx.batcher) catch unreachable;
+    gpu.init(cfg.gfx);
     input = Input.init(1);
     time = Time.init();
 
@@ -148,7 +142,7 @@ export fn sokolFrame() void {
     gpu.blitRenderTexture();
 
     if (has_imgui) {
-        std.debug.print("FIX THIS, IT SHOULDNT RENDER INTO THE SWAPCHAIN!!!!\n", .{});
+        std.debug.print("FIX THIS, IT SHOULDNT RENDER INTO THE SWAPCHAIN, it needs to render with the gpu offscreen blit!!!!\n", .{});
         var pass_action: sg.PassAction = .{};
         pass_action.colors[0] = .{ .load_action = .LOAD };
 
