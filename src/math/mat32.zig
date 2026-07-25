@@ -3,9 +3,8 @@ const math = std.math;
 
 const Vec2 = @import("vector.zig").Vec2;
 
-/// A 2D affine transform stored as 6 floats (2 rows x 3 columns), the same shape
-/// as sokol_gp's `sgp_mat2x3`. This is all a 2D renderer needs: a 2x2 linear part
-/// plus a translation. Transforming a point maps
+/// A 2D affine transform stored as 6 floats (2 rows x 3 columns), This is all a 2D renderer needs:
+/// a 2x2 linear part plus a translation. Transforming a point maps
 ///     (x, y) -> (x*data[0] + y*data[2] + data[4], x*data[1] + y*data[3] + data[5])
 ///
 /// Layout:
@@ -31,7 +30,7 @@ pub const Mat32 = extern struct {
         } };
     }
 
-    /// Transform a point by this matrix (mirrors `_sgp_mat3_vec2_mul`).
+    /// Transform a point by this matrix
     pub fn transformVec2(self: Mat32, v: Vec2) Vec2 {
         return .{
             .x = v.x * self.data[0] + v.y * self.data[2] + self.data[4],
@@ -54,13 +53,12 @@ pub const Mat32 = extern struct {
     }
 
     /// Screen -> clip-space projection for a `width` x `height` framebuffer with the
-    /// origin at the top-left and +y pointing down. Matches sokol_gp's `_sgp_default_proj`.
+    /// origin at the top-left and +y pointing down.
     pub fn orthographic(width: f32, height: f32) Mat32 {
         return .{ .data = .{ 2.0 / width, 0, 0, -2.0 / height, -1, 1 } };
     }
 
     /// General orthographic projection mapping the given rectangle to clip space.
-    /// Matches sokol_gp's `sgp_project`.
     pub fn ortho(left: f32, right: f32, bottom: f32, top: f32) Mat32 {
         const w = right - left;
         const h = top - bottom;

@@ -45,11 +45,6 @@ fn render() !void {
             .{ .x = glyph.x, .y = glyph.y, .w = glyph.width, .h = glyph.height },
             Color.white,
         );
-        // sgp.draw_textured_rect(
-        //     0,
-        //     .{ .x = pos.x, .y = pos.y, .w = glyph.width, .h = glyph.height },
-        //     .{ .x = glyph.x, .y = glyph.y, .w = glyph.width, .h = glyph.height },
-        // );
 
         pos.x += glyph.xadvance;
         pos.y += glyph.yoffset;
@@ -64,7 +59,6 @@ fn render() !void {
     );
     const bounds = font.measureString("fucking a-right ass\nmother FOOKER____!!!!!!@#$%^&*():;,./?{}");
 
-    // sgp.set_color(1, 0.6, 0.2, 1);
     font.drawString("well shit, let's see if ThIS wORkZ?", .{ .x = 10, .y = 100 + bounds.y });
 
     kiwi_font.drawString("tHIz foOnT loOkz WacKy!", .{ .x = 10, .y = 150 });
