@@ -1,6 +1,7 @@
 const std = @import("std");
 const pxl = @import("pxl");
 const api = pxl.api;
+const mu = pxl.mu;
 const LDtk = pxl.util.LDtk;
 const Texture = pxl.gpu.Texture;
 const Rect = pxl.gpu.Rect;
@@ -9,11 +10,24 @@ const Vec2 = pxl.math.Vec2;
 
 var map: LDtk = undefined;
 var textures: std.AutoHashMap(i64, Texture) = undefined;
+var camera: pxl.Camera = .{
+    .position = .init(160, 90),
+    .zoom = 1.0,
+    .rotation = 0,
+};
 
 pub fn main(init: std.process.Init) !void {
     try pxl.run(init, .{
         .setup = setup,
+        .update = update,
         .render = render,
+        .width = 640 * 2,
+        .height = 360 * 2,
+        .gfx = .{
+            .design_width = 640,
+            .design_height = 360,
+            .resolution_policy = .show_all_pixel_perfect,
+        },
     });
 }
 
@@ -37,8 +51,26 @@ fn setup() !void {
     }
 }
 
+fn update() !void {
+    // MicroUI Controls Window
+    if (mu.beginWindowEx("Camera Controls", .{ .x = 10, .y = 10, .w = 200, .h = 160 }, .{ .align_center = false })) {
+        mu.layoutRow(2, &[_]c_int{ 75, -1 }, 0);
+
+        mu.label("Pos X:");
+        _ = mu.slider(&camera.position.x, 0, 700, 1);
+
+        mu.label("Pos Y:");
+        _ = mu.slider(&camera.position.y, -175, 500, 1);
+
+        mu.label("Zoom:");
+        _ = mu.slider(&camera.zoom, 0.5, 4.0, 0.1);
+
+        mu.endWindow();
+    }
+}
+
 fn render() !void {
-    pxl.beginPass(.{ .action = .clear });
+    pxl.beginPass(.{ .clear_color = Color.aya, .camera = camera });
     for (map.root.levels) |level| renderLevel(level);
     pxl.endPass();
 }
@@ -162,15 +194,13 @@ pub fn renderEntity(entity: LDtk.EntityInstance, layer_x: f32, layer_y: f32) voi
             .h = @floatFromInt(tile.h),
         };
 
-        // Reset tint color to white for entity graphics
         api.drawTexturedRect(tex, dest_rect, src_rect, Color.white);
     } else {
-        // 2. Fallback / Debug: Draw a colored rectangle using __smartColor
+        // Fallback / Debug: Draw a colored rectangle using __smartColor
         var color = parseHexColor(entity.__smartColor);
         color[3] = 0.6;
 
-        const pos = Vec2.init(x, y - height);
-        api.drawRect(pos, Vec2.init(width, height), Color.fromArray(color));
+        api.drawRect(.init(x, y - height), .init(width, height), Color.fromArray(color));
     }
 }
 
