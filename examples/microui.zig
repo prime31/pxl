@@ -23,35 +23,35 @@ fn update() !void {
             mu.label("shit");
         }
 
-        if (mu.buttonEx("Click Me", .none, .{})) std.debug.print("clicked\n", .{});
+        if (mu.button("Click Me", .none)) std.debug.print("clicked\n", .{});
         const c = struct {
-            var checked: c_int = 0;
+            var checked: bool = false;
             var buffer: [256]u8 = undefined;
             var buffer2: [128]u8 = undefined;
             var floaty: f32 = 6;
         };
         _ = mu.checkbox("Checked", &c.checked);
-        _ = mu.textboxEx(&c.buffer, c.buffer.len, .{});
+        _ = mu.textbox(&c.buffer, c.buffer.len);
 
         mu.layoutRow(3, &[_]c_int{ 30, -90, -1 }, 0);
-        _ = mu.buttonEx("X", .none, .{});
-        _ = mu.textboxEx(&c.buffer2, c.buffer2.len, .{ .align_center = false });
-        _ = mu.buttonEx("Submit", .none, .{});
+        _ = mu.button("X", .none);
+        _ = mu.textbox(&c.buffer2, c.buffer2.len);
+        _ = mu.button("Submit", .none);
 
         mu.layoutRow(0, &[_]c_int{}, 0);
-        _ = mu.sliderEx(&c.floaty, 0, 50, 1, "%.2f", .{});
+        _ = mu.slider(&c.floaty, 0, 50, 1);
 
-        if (mu.buttonEx("Open Popup", .none, .{}))
+        if (mu.button("Open Popup", .none))
             mu.openPopup("Popup");
 
         if (mu.beginPopup("Popup")) {
-            _ = mu.buttonEx("Fook", .none, .{});
-            _ = mu.buttonEx("You", .none, .{});
+            _ = mu.button("Fook", .none);
+            _ = mu.button("You", .none);
             mu.endPopup();
         }
 
         if (mu.beginTreenodeEx("The Tree", .{})) {
-            _ = mu.buttonEx("In Tree", .none, .{});
+            _ = mu.button("In Tree", .none);
             mu.endTreenode();
         }
 
@@ -66,6 +66,6 @@ fn update() !void {
 }
 
 fn render() !void {
-    pxl.beginPass(.{ .action = .clear });
+    pxl.beginPass(.{ .clear_color = pxl.math.Color.aya });
     pxl.endPass();
 }

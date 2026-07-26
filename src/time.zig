@@ -35,6 +35,11 @@ pub const Time = struct {
         return @as(f32, @floatFromInt(ms)) / 1_000_000_000.0;
     }
 
+    pub fn dt(self: *const Time) f32 {
+        const ms = self.curr_time - self.prev_time;
+        return @as(f32, @floatFromInt(ms)) / 1_000_000_000.0;
+    }
+
     pub fn deltaTimeF64(self: *const Time) f64 {
         const ms = self.curr_time - self.prev_time;
         return @as(f64, @floatFromInt(ms)) / 1_000_000_000.0;

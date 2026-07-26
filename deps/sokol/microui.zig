@@ -8,8 +8,8 @@ pub fn setup() void {
     r_init();
 }
 
-pub fn handleEvent(ev: [*c]const sg.Event) void {
-    r_event(ev);
+pub fn handleEvent(ev: [*c]const sg.Event) bool {
+    return r_event(ev);
 }
 
 pub fn render() void {
@@ -17,11 +17,10 @@ pub fn render() void {
 }
 
 extern fn r_init() void;
-extern fn r_event(ev: [*c]const sg.Event) void;
+extern fn r_event(ev: [*c]const sg.Event) bool;
 extern fn r_frame() void;
 
 // microui
-
 pub const Icon = enum(c_int) {
     none,
     close,
@@ -508,8 +507,16 @@ pub fn buttonEx(label_txt: [*c]const u8, icon: Icon, opt: Opt) bool {
 }
 extern fn mu_button_ex(ctx: [*c]mu_Context, label_txt: [*c]const u8, icon: c_int, opt: c_int) c_int;
 
-pub fn checkbox(label_txt: [*c]const u8, state: [*c]c_int) bool {
-    return mu_checkbox(&mu_ctx, label_txt, state) == 1;
+pub fn checkbox(label_txt: [*c]const u8, state: *bool) bool {
+    pushId(state, @sizeOf(bool));
+    defer popId();
+
+    var value: c_int = if (state.*) 1 else 0;
+    if (mu_checkbox(&mu_ctx, label_txt, &value) > 0) {
+        state.* = value != 0;
+        return true;
+    }
+    return false;
 }
 extern fn mu_checkbox(ctx: [*c]mu_Context, label_txt: [*c]const u8, state: [*c]c_int) c_int;
 
@@ -518,9 +525,8 @@ pub fn textboxRaw(buf: [*c]u8, bufsz: c_int, id: mu_Id, r: mu_Rect, opt: Opt) Re
 }
 extern fn mu_textbox_raw(ctx: [*c]mu_Context, buf: [*c]u8, bufsz: c_int, id: mu_Id, r: mu_Rect, opt: c_int) c_int;
 
-pub fn textbox(buf: [*c]u8, bufsz: c_int, opt: Opt) Result {
-    _ = opt; // autofix
-    return textboxEx(&mu_ctx, buf, bufsz, .{});
+pub fn textbox(buf: [*c]u8, bufsz: c_int) Result {
+    return textboxEx(buf, bufsz, .{});
 }
 
 pub fn textboxEx(buf: [*c]u8, bufsz: c_int, opt: Opt) Result {

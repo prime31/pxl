@@ -55,6 +55,9 @@ pub const Camera = gpu.Camera;
 pub const Transform = gpu.Transform;
 pub const Anchor = gpu.Anchor;
 pub const Sprite = gpu.Sprite;
+pub const ParticleSystem = gpu.ParticleSystem;
+pub const Particle = gpu.Particle;
+pub const EmitterParams = gpu.EmitterParams;
 
 pub const Pass = struct {
     /// if null performs a .load else a .clear with clear_color
@@ -164,7 +167,7 @@ export fn sokolEvent(evt: [*c]const sapp.Event) void {
 
     if (has_imgui) if (simgui.handleEvent(evt.*)) return;
 
-    mu.handleEvent(evt);
+    if (mu.handleEvent(evt)) return;
 
     if (evt.*.type == .RESIZED) gpu.createOffscreenAttachments();
     input.handleEvent(evt);

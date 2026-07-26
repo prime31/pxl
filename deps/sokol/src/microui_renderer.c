@@ -10,6 +10,7 @@
 #include <stdio.h>
 
 mu_Context mu_ctx;
+static bool mu_mouse_captured = false;
 static sg_image atlas_img;
 static sg_view atlas_view;
 static sg_sampler atlas_smp;
@@ -22,6 +23,7 @@ static void r_draw_icon(int id, mu_Rect rect, mu_Color color);
 static int r_get_text_width(const char* text, int len);
 static int r_get_text_height(void);
 static void r_set_clip_rect(mu_Rect rect);
+static bool mu_mouse_over_ui(mu_Context *ctx, int mouse_x, int mouse_y);
 
 static const char key_map[512] = {
     [SAPP_KEYCODE_LEFT_SHIFT]       = MU_KEY_SHIFT,
@@ -100,36 +102,95 @@ void r_init(void) {
     mu_ctx.text_height = text_height_cb;
 }
 
-void r_event(const sapp_event* ev) {
+bool r_event(const sapp_event *ev) {
     switch (ev->type) {
-        case SAPP_EVENTTYPE_MOUSE_DOWN:
-            mu_input_mousedown(&mu_ctx, (int)ev->mouse_x, (int)ev->mouse_y, (1<<ev->mouse_button));
-            break;
-        case SAPP_EVENTTYPE_MOUSE_UP:
-            mu_input_mouseup(&mu_ctx, (int)ev->mouse_x, (int)ev->mouse_y, (1<<ev->mouse_button));
-            break;
-        case SAPP_EVENTTYPE_MOUSE_MOVE:
-            mu_input_mousemove(&mu_ctx, (int)ev->mouse_x, (int)ev->mouse_y);
-            break;
-        case SAPP_EVENTTYPE_MOUSE_SCROLL:
-            mu_input_scroll(&mu_ctx, 0, (int)ev->scroll_y);
-            break;
-        case SAPP_EVENTTYPE_KEY_DOWN:
-            mu_input_keydown(&mu_ctx, key_map[ev->key_code & 511]);
-            break;
-        case SAPP_EVENTTYPE_KEY_UP:
-            mu_input_keyup(&mu_ctx, key_map[ev->key_code & 511]);
-            break;
-        case SAPP_EVENTTYPE_CHAR:
-            {
-                // don't input Backspace as character (required to make Backspace work in text input fields)
-                if (ev->char_code == 127) { break; }
-                char txt[2] = { (char)(ev->char_code & 255), 0 };
-                mu_input_text(&mu_ctx, txt);
+        case SAPP_EVENTTYPE_MOUSE_DOWN: {
+            const int x = (int)ev->mouse_x;
+            const int y = (int)ev->mouse_y;
+            const int btn = (1 << ev->mouse_button);
+
+            const bool over_ui = mu_mouse_over_ui(&mu_ctx, x, y);
+
+            mu_input_mousedown(&mu_ctx, x, y, btn);
+
+            if (over_ui) {
+                mu_mouse_captured = true;
+                return true;
             }
-            break;
+
+            return false;
+        }
+
+        case SAPP_EVENTTYPE_MOUSE_UP: {
+            const int x = (int)ev->mouse_x;
+            const int y = (int)ev->mouse_y;
+            const int btn = (1 << ev->mouse_button);
+
+            mu_input_mouseup(&mu_ctx, x, y, btn);
+
+            if (mu_mouse_captured) {
+                mu_mouse_captured = false;
+                return true;
+            }
+
+            return false;
+        }
+
+        case SAPP_EVENTTYPE_MOUSE_MOVE:
+            mu_input_mousemove(
+                &mu_ctx,
+                (int)ev->mouse_x,
+                (int)ev->mouse_y
+            );
+
+            return mu_mouse_captured;
+
+        case SAPP_EVENTTYPE_MOUSE_SCROLL: {
+            const bool over_ui =
+                mu_mouse_over_ui(
+                    &mu_ctx,
+                    (int)ev->mouse_x,
+                    (int)ev->mouse_y
+                );
+
+            mu_input_scroll(
+                &mu_ctx,
+                0,
+                (int)ev->scroll_y
+            );
+
+            return over_ui;
+        }
+
+        case SAPP_EVENTTYPE_KEY_DOWN: {
+            const int key = key_map[ev->key_code & 511];
+            mu_input_keydown(&mu_ctx, key);
+            return mu_ctx.focus != 0;
+        }
+
+        case SAPP_EVENTTYPE_KEY_UP: {
+            const int key = key_map[ev->key_code & 511];
+            mu_input_keyup(&mu_ctx, key);
+            return mu_ctx.focus != 0;
+        }
+
+        case SAPP_EVENTTYPE_CHAR: {
+            // Don't input Backspace as a character.
+            if (ev->char_code == 127)
+                return mu_ctx.focus != 0;
+
+            char txt[2] = {
+                (char)(ev->char_code & 255),
+                0,
+            };
+
+            mu_input_text(&mu_ctx, txt);
+
+            return mu_ctx.focus != 0;
+        }
+
         default:
-            break;
+            return false;
     }
 }
 
@@ -225,4 +286,24 @@ void r_set_clip_rect(mu_Rect rect) {
     sgl_end();
     sgl_scissor_rect(rect.x, rect.y, rect.w, rect.h, true);
     sgl_begin_quads();
+}
+
+static bool mu_mouse_over_ui(mu_Context *ctx, int mouse_x, int mouse_y) {
+    for (int i = 0; i < MU_CONTAINERPOOL_SIZE; i++) {
+        if (ctx->container_pool[i].last_update != ctx->frame)
+            continue;
+
+        mu_Container *container = &ctx->containers[i];
+        if (!container->open) continue;
+
+        if (mouse_x >= container->rect.x &&
+            mouse_x <  container->rect.x + container->rect.w &&
+            mouse_y >= container->rect.y &&
+            mouse_y <  container->rect.y + container->rect.h)
+        {
+            return true;
+        }
+    }
+
+    return false;
 }

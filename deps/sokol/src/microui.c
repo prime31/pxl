@@ -749,7 +749,9 @@ int mu_button_ex(mu_Context *ctx, const char *label, int icon, int opt) {
 
 int mu_checkbox(mu_Context *ctx, const char *label, int *state) {
   int res = 0;
-  mu_Id id = mu_get_id(ctx, &state, sizeof(state));
+  // use the pushed ID here because we use a bool on the zig side
+  // mu_Id id = mu_get_id(ctx, &state, sizeof(state));
+  mu_Id id = ctx->id_stack.items[ctx->id_stack.idx - 1];
   mu_Rect r = mu_layout_next(ctx);
   mu_Rect box = mu_rect(r.x, r.y, r.h, r.h);
   mu_update_control(ctx, id, r, 0);

@@ -18,6 +18,7 @@ const examples = [_]Example{
     .{ .name = "bunnymark" },
     .{ .name = "batcher" },
     .{ .name = "pixel_art" },
+    .{ .name = "particle_systems" },
 };
 
 const shaders = struct {

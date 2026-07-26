@@ -18,6 +18,11 @@ pub const Transform = sprite.Transform;
 pub const BlendMode = @import("batcher.zig").BlendMode;
 pub const Camera = @import("camera.zig").Camera;
 
+pub const particle = @import("particle.zig");
+pub const ParticleSystem = particle.ParticleSystem;
+pub const Particle = particle.Particle;
+pub const EmitterParams = particle.EmitterParams;
+
 pub const Config = struct {
     clear_color: pxl.math.Color = pxl.math.Color.aya,
     /// Batcher staging/GPU buffer capacity. Must hold a whole frame's geometry, since
