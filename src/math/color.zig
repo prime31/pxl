@@ -1,4 +1,5 @@
 const std = @import("std");
+const pxl = @import("../pxl.zig");
 
 const Vec4 = @import("math.zig").Vec4;
 
@@ -153,6 +154,15 @@ pub const Color = extern union {
             .y = @as(f32, @floatFromInt(self.comps.g)) / 255,
             .z = @as(f32, @floatFromInt(self.comps.b)) / 255,
             .w = @as(f32, @floatFromInt(self.comps.a)) / 255,
+        };
+    }
+
+    pub fn asSokol(self: Color) pxl.sg.Color {
+        return .{
+            .r = @as(f32, @floatFromInt(self.comps.r)) / 255,
+            .g = @as(f32, @floatFromInt(self.comps.g)) / 255,
+            .b = @as(f32, @floatFromInt(self.comps.b)) / 255,
+            .a = @as(f32, @floatFromInt(self.comps.a)) / 255,
         };
     }
 

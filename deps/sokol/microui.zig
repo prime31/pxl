@@ -529,7 +529,7 @@ pub fn textboxEx(buf: [*c]u8, bufsz: c_int, opt: Opt) Result {
 extern fn mu_textbox_ex(ctx: [*c]mu_Context, buf: [*c]u8, bufsz: c_int, opt: c_int) c_int;
 
 pub fn slider(value: [*c]mu_Real, low: mu_Real, high: mu_Real, step: mu_Real) bool {
-    return sliderEx(value, low, high, step, "%.2f", .{ .align_center = true }) > 0;
+    return sliderEx(value, low, high, step, "%.2f", .{ .align_center = true });
 }
 
 pub fn sliderEx(value: [*c]mu_Real, low: mu_Real, high: mu_Real, step: mu_Real, fmt: [*c]const u8, opt: Opt) bool {

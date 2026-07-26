@@ -57,17 +57,16 @@ pub const Anchor = gpu.Anchor;
 pub const Sprite = gpu.Sprite;
 
 pub const Pass = struct {
-    action: enum { load, clear } = .load,
+    /// if null performs a .load else a .clear with clear_color
+    clear_color: ?math.Color = null,
     camera: ?Camera = null,
 };
 
-var clear_color: sg.Color = undefined;
 var current_pass: ?Pass = null;
 var cfg: Config = undefined;
 
 pub fn run(init: std.process.Init, comptime config: Config) !void {
     io = init.io;
-    clear_color = config.gfx.clear_color;
     cfg = config;
 
     // setup
@@ -140,11 +139,6 @@ export fn sokolFrame() void {
     if (cfg.render) |cb| cb() catch unreachable;
     mu.end();
 
-    gpu.offscreen.pass.action.colors[0] = .{
-        .load_action = .CLEAR,
-        .clear_value = .{ .r = 0.75, .g = 0.25, .b = 0.25, .a = 1.0 },
-    };
-
     gpu.blitRenderTexture();
 
     if (has_imgui) {
@@ -191,7 +185,8 @@ pub fn beginPass(pass: Pass) void {
     std.debug.assert(current_pass == null);
     current_pass = pass;
 
-    gpu.offscreen.pass.action.colors[0].load_action = if (current_pass.?.action == .load) .LOAD else .CLEAR;
+    gpu.offscreen.pass.action.colors[0].load_action = if (pass.clear_color == null) .LOAD else .CLEAR;
+    if (pass.clear_color) |col| gpu.offscreen.pass.action.colors[0].clear_value = col.asSokol();
     sg.beginPass(gpu.offscreen.pass);
 
     const target_w = gpu.renderWidthf();

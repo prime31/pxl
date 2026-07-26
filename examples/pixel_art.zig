@@ -6,6 +6,7 @@ const Vec2 = pxl.math.Vec2;
 const Color = pxl.math.Color;
 const Rect = pxl.gpu.Rect;
 
+var worm: Worm = .{};
 var ferris: pxl.gpu.Texture = undefined;
 var camera: pxl.Camera = .{
     .position = .init(160, 90),
@@ -116,8 +117,6 @@ const Worm = struct {
     }
 };
 
-var worm: Worm = .{};
-
 pub fn main(init: std.process.Init) !void {
     try pxl.run(init, .{
         .setup = setup,
@@ -146,16 +145,16 @@ fn update() !void {
         mu.layoutRow(2, &[_]c_int{ 75, -1 }, 0);
 
         mu.label("Pos X:");
-        _ = mu.sliderEx(&camera.position.x, 0, 320, 1, "%.0f", .{});
+        _ = mu.slider(&camera.position.x, 0, 320, 1);
 
         mu.label("Pos Y:");
-        _ = mu.sliderEx(&camera.position.y, 0, 180, 1, "%.0f", .{});
+        _ = mu.slider(&camera.position.y, 0, 180, 1);
 
         mu.label("Zoom:");
-        _ = mu.sliderEx(&camera.zoom, 0.5, 4.0, 0.1, "%.1f", .{});
+        _ = mu.slider(&camera.zoom, 0.5, 4.0, 0.1);
 
         mu.label("Rotation:");
-        _ = mu.sliderEx(&camera.rotation, -3.14, 3.14, 0.05, "%.2f", .{});
+        _ = mu.slider(&camera.rotation, -3.14, 3.14, 0.05);
 
         mu.endWindow();
     }
@@ -168,7 +167,7 @@ fn update() !void {
 
 fn render() !void {
     pxl.beginPass(.{
-        .action = .clear,
+        .clear_color = Color.aya,
         .camera = camera,
     });
 

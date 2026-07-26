@@ -19,7 +19,7 @@ pub const BlendMode = @import("batcher.zig").BlendMode;
 pub const Camera = @import("camera.zig").Camera;
 
 pub const Config = struct {
-    clear_color: sg.Color = .{ .r = 0.8, .g = 0.2, .b = 0.3, .a = 1.0 },
+    clear_color: pxl.math.Color = pxl.math.Color.aya,
     /// Batcher staging/GPU buffer capacity. Must hold a whole frame's geometry, since
     /// vertices accumulate across all flushes in a frame (raise for heavy scenes).
     batcher: BatcherConfig = .{},
@@ -34,7 +34,6 @@ pub const Config = struct {
 pub var gfx_config: Config = .{};
 
 pub const offscreen = struct {
-    var pass_action: sg.PassAction = .{};
     pub var attachments: sg.Attachments = .{};
     pub var img: sg.Image = .{};
     pub var smp: sg.Sampler = .{};
@@ -57,11 +56,6 @@ pub fn init(config: Config) void {
 
     offscreen.bind.samplers[pxl.shaders.SMP_blit_smp] = offscreen.smp;
 
-    offscreen.pass_action.colors[0] = .{
-        .load_action = .CLEAR,
-        .clear_value = gfx_config.clear_color,
-    };
-
     offscreen.pip = sg.makePipeline(.{
         .shader = sg.makeShader(pxl.shaders.blitShaderDesc(sg.queryBackend())),
         .label = "blit",
@@ -72,6 +66,8 @@ pub fn deinit() void {
     sg.destroyPipeline(offscreen.pip);
     sg.destroyImage(offscreen.img);
     sg.destroySampler(offscreen.smp);
+    sg.destroyView(offscreen.pass.attachments.colors[0]);
+    sg.destroyView(offscreen.bind.views[pxl.shaders.VIEW_tex]);
 }
 
 pub fn renderWidth() i32 {
@@ -114,11 +110,6 @@ pub fn createOffscreenAttachments() void {
     offscreen.bind.views[pxl.shaders.VIEW_tex] = sg.makeView(.{
         .texture = .{ .image = offscreen.img },
     });
-}
-
-pub fn clearRenderTexture() void {
-    sg.beginPass(offscreen.pass);
-    sg.endPass();
 }
 
 pub fn blitRenderTexture() void {
