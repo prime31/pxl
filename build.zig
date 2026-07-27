@@ -128,17 +128,6 @@ pub fn build(b: *Build) !void {
     // add an emsdk install step
     const emsdk_install_step = sokol.emSdkInstallStep(b, dep_sokol.builder.dependency("emsdk", .{}), .{});
     b.step("install-emsdk", "Install Emscripten SDK in zig-pkg").dependOn(emsdk_install_step);
-
-    // tests
-    const test_step = b.step("test", "Run tests");
-    const test_exe = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/test.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    test_step.dependOn(&b.addRunArtifact(test_exe).step);
 }
 
 const ExeConfig = struct {

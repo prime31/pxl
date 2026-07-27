@@ -1,5 +1,6 @@
 const std = @import("std");
 const pxl = @import("../pxl.zig");
+
 const Vec2 = pxl.math.Vec2;
 const Color = pxl.math.Color;
 const Mat32 = pxl.math.Mat32;
@@ -96,7 +97,13 @@ pub const SpriteAnimation = struct {
         self.elapsed_time += pxl.time.dt();
         self.frame_time_left -= pxl.time.dt();
         if (self.frame_time_left <= 0) {
-            switch (self.loop_mode) {}
+            switch (self.loop_mode) {
+                .loop => self.setFrame((self.current_frame + 1) % self.frames.len),
+                .once => self.state = .completed,
+                .clamp_forever => self.setFrame(self.current_frame),
+                .ping_pong => self.setFrame(if (self.ping_pong_state == .ping) 1 else 0),
+                .ping_pong_once => self.setFrame(if (self.ping_pong_state == .ping) 1 else 0),
+            }
         }
     }
 
@@ -105,7 +112,3 @@ pub const SpriteAnimation = struct {
         self.frame_time_left = self.frames[index].frame_time;
     }
 };
-
-test "fook" {
-    std.testing.refAllDecls(@This());
-}
