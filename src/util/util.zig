@@ -2,6 +2,7 @@ const std = @import("std");
 
 pub const Vec = @import("vec.zig").Vec;
 pub const SlotMap = @import("slotmap.zig").SlotMap;
+pub const FixedList = @import("fixed_list.zig").FixedList;
 
 /// asserts with a message
 pub fn assertMsg(ok: bool, comptime msg: []const u8, args: anytype) void {
