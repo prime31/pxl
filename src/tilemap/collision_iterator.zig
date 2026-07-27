@@ -77,3 +77,8 @@ pub const CollisionIterator = struct {
 fn worldToTile(map: *tilemap.Map, pos: i32, axis: math.Axis) i32 {
     return if (axis == .x) map.worldToTileX(@as(f32, @floatFromInt(pos))) else map.worldToTileY(@as(f32, @floatFromInt(pos)));
 }
+
+fn worldToTileX(map: *tilemap.Map, x: f32) i32 {
+    const tile_x = math.ifloor(i32, x / @as(f32, @floatFromInt(map.tile_size)));
+    return math.iclamp(tile_x, 0, map.width - 1);
+}
