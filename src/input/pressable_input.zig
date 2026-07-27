@@ -3,11 +3,9 @@ const pxl = @import("../pxl.zig");
 
 const MouseButton = @import("mouse.zig").MouseButton;
 const Keycode = @import("keycode.zig").Keycode;
-const GamepadButton = @import("gamepad.zig").GamepadButton;
 
 pub const MouseButtons = PressableInput(MouseButton);
 pub const Keys = PressableInput(Keycode);
-pub const GamepadButtons = PressableInput(GamepadButton);
 
 /// A pressable input of type `T`. When adding this resource for a new input type, you should:
 /// * Call the `clear` method at each frame start, before processing events.

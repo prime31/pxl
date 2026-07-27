@@ -51,7 +51,7 @@ pub fn recordState() void {
 }
 
 pub fn getGamepadState(index: c_uint, pstate: *GamepadState) bool {
-    return sgamepad_get_gamepad_state(index, pstate) != 0;
+    return sgamepad_get_gamepad_state(index, pstate) != index;
 }
 
 pub fn isConnected(index: c_uint) bool {

@@ -11,7 +11,6 @@ pub const simgui = sokol.imgui;
 
 pub const api = @import("api.zig");
 pub const dbg = @import("util/debug.zig");
-pub const gamepad = @import("gamepad");
 pub const input = @import("input/input.zig");
 pub const mu = @import("microui");
 pub const shaders = @import("shaders");
@@ -181,6 +180,9 @@ export fn sokolCleanup() void {
     dbg.deinit();
     if (has_imgui) simgui.shutdown();
     sg.shutdown();
+
+    stb.deinit();
+    mem.deinit();
 }
 
 pub fn beginPass(pass: Pass) void {

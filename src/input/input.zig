@@ -2,7 +2,7 @@ const std = @import("std");
 const pxl = @import("../pxl.zig");
 const sapp = pxl.sapp;
 const math = pxl.math;
-const gamepad = pxl.gamepad;
+const gamepad = @import("gamepad");
 
 const kb = @import("keyboard.zig");
 const mouse = @import("mouse.zig");
@@ -13,6 +13,7 @@ const Keycode = @import("keycode.zig").Keycode;
 pub fn newFrame() void {
     mouse.newFrame();
     kb.newFrame();
+    gamepad.recordState();
 }
 
 pub fn handleEvent(evt: *const sapp.Event) void {
@@ -49,6 +50,7 @@ pub fn handleEvent(evt: *const sapp.Event) void {
     }
 }
 
+// keyboard
 /// only true if down this frame and not down the previous frame
 pub fn keyPressed(keycode: Keycode) bool {
     return kb.justPressed(keycode);
@@ -64,6 +66,27 @@ pub fn keyUp(keycode: Keycode) bool {
     return kb.justReleased(keycode);
 }
 
+pub fn anyKeyPressed(keycodes: []const Keycode) bool {
+    return kb.anyJustPressed(keycodes);
+}
+pub fn anyKeyDown(keycodes: []const Keycode) bool {
+    return kb.anyPressed(keycodes);
+}
+pub fn anyKeyReleased(keycodes: []const Keycode) bool {
+    return kb.anyJustReleased(keycodes);
+}
+
+pub fn getNextKeyDown() ?Keycode {
+    return kb.getNextPressed();
+}
+pub fn getNextKeyJustPressed() ?Keycode {
+    return kb.getNextJustPressed();
+}
+pub fn getNextKeyReleased() ?Keycode {
+    return kb.getNextJustReleased();
+}
+
+// mouse
 /// only true if down this frame and not down the previous frame
 pub fn mousePressed(button: MouseButton) bool {
     return mouse.justPressed(button);
@@ -105,4 +128,19 @@ pub fn mousePosScaled() math.Vec2 {
 
 pub fn mouseRelMotion() math.Vec2 {
     return .{ .x = mouse.mouse_rel_x, .y = mouse.mouse_rel_y };
+}
+
+// Gamepads
+pub fn getMaxSupportedGamepads() usize {
+    return gamepad.getMaxSupportedGamepads();
+}
+
+pub fn isGamepadConnected(index: usize) bool {
+    return gamepad.isConnected(index);
+}
+
+pub fn getGamepadState(index: usize) ?gamepad.GamepadState {
+    var state: *gamepad.GamepadState = undefined;
+    if (gamepad.getGamepadState(index, &state)) return state;
+    return null;
 }

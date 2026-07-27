@@ -24,6 +24,7 @@ pub fn main(init: std.process.Init) !void {
         .setup = setup,
         .update = update,
         .render = render,
+        .shutdown = shutdown,
         .width = 640 * 2,
         .height = 360 * 2,
         .gfx = .{
@@ -38,7 +39,7 @@ fn setup() !void {
     textures = std.AutoHashMap(i64, Texture).init(pxl.mem.allocator);
 
     // map = try LDtk.parse(try pxl.fs.read("examples/assets/ldtk.ldtk", .persistent));
-    map = try LDtk.parse(try pxl.fs.read("examples/assets/tiny_tiles.ldtk", .persistent));
+    map = try LDtk.parse(try pxl.fs.read("examples/assets/tiny_tiles.ldtk", .temp));
     if (map.root.defs) |defs| {
         for (defs.tilesets) |tileset| {
             if (tileset.relPath) |rel_path| {
