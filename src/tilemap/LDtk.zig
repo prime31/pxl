@@ -151,6 +151,14 @@ pub const LayerInstance = struct {
     pxTilesetOffsetX: i64 = 0,
     pxTilesetOffsetY: i64 = 0,
     visible: bool = true,
+
+    pub fn isCellSolid(self: LayerInstance, x: u32, y: u32) bool {
+        const index = x + (y * pxl.util.cast(u32, self.__cWid));
+        if (index < 0 or index >= self.intGridCsv.len)
+            return false;
+
+        return self.intGridCsv[index] > 0;
+    }
 };
 
 pub const LayerType = enum {
