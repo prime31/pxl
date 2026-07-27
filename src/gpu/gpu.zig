@@ -13,7 +13,9 @@ pub const Mesh = Batcher.Mesh;
 pub const sprite = @import("sprite.zig");
 pub const Anchor = sprite.Anchor;
 pub const Sprite = sprite.Sprite;
-pub const Rect = sprite.Rect;
+pub const SpriteAnimation = sprite.SpriteAnimation;
+
+pub const Rect = pxl.math.Rect;
 pub const Transform = sprite.Transform;
 pub const BlendMode = @import("batcher.zig").BlendMode;
 pub const Camera = @import("camera.zig").Camera;

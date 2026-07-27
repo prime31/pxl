@@ -69,3 +69,43 @@ pub const Sprite = struct {
     flip_x: bool = false,
     flip_y: bool = false,
 };
+
+pub const LoopMode = enum(u8) { loop, once, clamp_forever, ping_pong, ping_pong_once };
+pub const PingPongState = enum(u2) { ping, pong };
+pub const State = enum(u8) { none, running, paused, completed };
+
+pub const SpriteAnimationFrame = struct {
+    texture: Texture,
+    source: Rect,
+    frame_time: f32,
+};
+
+pub const SpriteAnimation = struct {
+    name: []const u8,
+    frames: []SpriteAnimationFrame,
+    loop_mode: LoopMode,
+    state: State,
+    ping_pong_state: PingPongState,
+    current_frame: usize,
+    elapsed_time: f32,
+    frame_time_left: f32,
+
+    pub fn update(self: *SpriteAnimation) void {
+        if (self.state != .running) return;
+
+        self.elapsed_time += pxl.time.dt();
+        self.frame_time_left -= pxl.time.dt();
+        if (self.frame_time_left <= 0) {
+            switch (self.loop_mode) {}
+        }
+    }
+
+    fn setFrame(self: *SpriteAnimation, index: usize) void {
+        self.current_frame = index;
+        self.frame_time_left = self.frames[index].frame_time;
+    }
+};
+
+test "fook" {
+    std.testing.refAllDecls(@This());
+}

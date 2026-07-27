@@ -27,17 +27,12 @@ pub fn update() void {
     }
 }
 
-pub fn deltaTime() f32 {
-    const ms = curr_time - prev_time;
-    return @as(f32, @floatFromInt(ms)) / 1_000_000_000.0;
-}
-
 pub fn dt() f32 {
     const ms = curr_time - prev_time;
     return @as(f32, @floatFromInt(ms)) / 1_000_000_000.0;
 }
 
-pub fn deltaTimeF64() f64 {
+pub fn dt64() f64 {
     const ms = curr_time - prev_time;
     return @as(f64, @floatFromInt(ms)) / 1_000_000_000.0;
 }

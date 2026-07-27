@@ -220,22 +220,22 @@ test "test color" {
     // const c = @bitCast(Color, @as(u32, 0xFF9900FF));
     // const cc = @bitCast(Color, [4]u8{ 10, 45, 34, 255 });
     // const ccc = @bitCast(Color, ColorConverter{ .r = 10, .g = 45, .b = 34, .a = 255 });
-    std.testing.expectEqual(cc.value, ccc.value);
+    try std.testing.expectEqual(cc.value, ccc.value);
 
     // const c2 = Color.fromBytes(10, 45, 34, 255);
     const c3 = Color.fromRgb(0.2, 0.4, 0.3);
     const c4 = Color.fromRgba(0.2, 0.4, 0.3, 1.0);
-    std.testing.expectEqual(c3.value, c4.value);
+    try std.testing.expectEqual(c3.value, c4.value);
 
     var c5 = Color.fromI32(10, 45, 34, 255);
-    std.testing.expectEqual(c5.r_val(), 10);
-    std.testing.expectEqual(c5.g_val(), 45);
-    std.testing.expectEqual(c5.b_val(), 34);
-    std.testing.expectEqual(c5.a_val(), 255);
+    try std.testing.expectEqual(c5.r_val(), 10);
+    try std.testing.expectEqual(c5.g_val(), 45);
+    try std.testing.expectEqual(c5.b_val(), 34);
+    try std.testing.expectEqual(c5.a_val(), 255);
 
     c5.set_r(100);
-    std.testing.expectEqual(c5.r_val(), 100);
+    try std.testing.expectEqual(c5.r_val(), 100);
 
     const scaled = c5.scale(2);
-    std.testing.expectEqual(scaled.r_val(), 200);
+    try std.testing.expectEqual(scaled.r_val(), 200);
 }
