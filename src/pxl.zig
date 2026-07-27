@@ -10,14 +10,13 @@ pub const sapp = sokol.app;
 pub const simgui = sokol.imgui;
 
 pub const api = @import("api.zig");
+pub const dbg = @import("util/debug.zig");
 pub const gamepad = @import("gamepad");
-pub const stb = @import("stb");
+pub const input = @import("input.zig");
 pub const mu = @import("microui");
 pub const shaders = @import("shaders");
-pub const dbg = @import("util/debug.zig");
-
-pub var input: Input = undefined;
-pub var time: Time = undefined;
+pub const stb = @import("stb");
+pub const time = @import("time.zig");
 
 /// The engine's 2D batching renderer. Drive it through `pxl.api.*`.
 pub var batcher: gpu.Batcher = undefined;
@@ -32,9 +31,6 @@ pub const text = @import("text/text.zig");
 pub const tilemap = @import("tilemap/tilemap.zig");
 
 pub var io: std.Io = undefined;
-
-const Input = @import("input.zig").Input;
-const Time = @import("time.zig").Time;
 
 pub const Config = struct {
     setup: ?*const fn () anyerror!void = null,
@@ -123,8 +119,7 @@ export fn sokolInit() void {
     batcher = gpu.Batcher.init(cfg.gfx.batcher) catch unreachable;
     font = text.BMFont.init("examples/assets/minecraftia.fnt") catch unreachable;
     gpu.init(cfg.gfx);
-    input = Input.init();
-    time = Time.init();
+    time.init();
 
     if (cfg.setup) |cb| cb() catch unreachable;
 }

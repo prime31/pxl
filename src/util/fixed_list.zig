@@ -6,8 +6,10 @@ pub fn FixedList(comptime T: type, comptime len: usize) type {
     return struct {
         const Self = @This();
 
-        items: [len]T = undefined,
+        items: [len]T = [_]T{0} ** len,
         len: usize = 0,
+
+        pub const empty: Self = .{};
 
         pub const Iterator = struct {
             list: Self,

@@ -2,6 +2,7 @@ const std = @import("std");
 const pxl = @import("pxl");
 const api = pxl.api;
 const mu = pxl.mu;
+const input = pxl.input;
 
 const LDtk = pxl.tilemap.LDtk;
 const Texture = pxl.gpu.Texture;
@@ -62,15 +63,15 @@ fn update() !void {
     var move = Vec2{};
     const speed: f32 = 1.0;
 
-    if (pxl.input.keyDown(.RIGHT)) {
+    if (input.keyDown(.right)) {
         move.x += speed;
-    } else if (pxl.input.keyDown(.LEFT)) {
+    } else if (input.keyDown(.left)) {
         move.x -= speed;
     }
 
-    if (pxl.input.keyDown(.UP)) {
+    if (input.keyDown(.up)) {
         move.y -= speed;
-    } else if (pxl.input.keyDown(.DOWN)) {
+    } else if (input.keyDown(.down)) {
         move.y += speed;
     }
 
