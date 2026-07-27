@@ -9,7 +9,7 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn render() !void {
-    pxl.beginPass(.{ .action = .clear });
+    pxl.beginPass(.{ .clear_color = pxl.math.Color.aya });
     api.drawRect(.init(200, 200), .init(100, 50), pxl.math.Color.aya);
     pxl.endPass();
 }

@@ -3,10 +3,8 @@ const pxl = @import("../pxl.zig");
 const Vec2 = pxl.math.Vec2;
 const Color = pxl.math.Color;
 const Mat32 = pxl.math.Mat32;
+const Rect = pxl.math.Rect;
 const Texture = @import("texture.zig").Texture;
-
-/// A rectangle in texture pixel space (top-left origin), used for sprite source regions.
-pub const Rect = struct { x: f32 = 0, y: f32 = 0, w: f32 = 0, h: f32 = 0 };
 
 /// A sprite anchor point, center-relative and scaled by the sprite size: center is
 /// `(0,0)`, top-left is `(-0.5,-0.5)`, bottom-right is `(0.5,0.5)` (y-down screen space).

@@ -7,6 +7,7 @@ const shaders = pxl.shaders;
 const Vec2 = pxl.math.Vec2;
 const Color = pxl.math.Color;
 const Mat32 = pxl.math.Mat32;
+const Rect = pxl.math.Rect;
 const Texture = @import("texture.zig").Texture;
 
 /// A single interleaved vertex: position, texture coordinate and packed RGBA color.
@@ -38,7 +39,6 @@ const blend_mode_count = @typeInfo(BlendMode).@"enum".fields.len;
 const max_circle_segments = 64;
 
 pub const sprite = @import("sprite.zig");
-pub const Rect = sprite.Rect;
 pub const Anchor = sprite.Anchor;
 pub const Sprite = sprite.Sprite;
 pub const Transform = sprite.Transform;
@@ -325,12 +325,12 @@ pub const Batcher = struct {
         self.cur_img = tex.img;
     }
 
-pub const Mesh = struct {
-    verts: []const Vertex,
-    indices: []const u16,
-    texture: ?Texture = null,
-    matrix: ?Mat32 = null,
-};
+    pub const Mesh = struct {
+        verts: []const Vertex,
+        indices: []const u16,
+        texture: ?Texture = null,
+        matrix: ?Mat32 = null,
+    };
 
     /// Append a mesh of triangles. Each vertex position is transformed by the current
     /// matrix (or `mesh.matrix` composed with current matrix if provided).

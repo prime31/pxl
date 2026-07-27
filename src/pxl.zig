@@ -17,6 +17,7 @@ pub const gamepad = @import("gamepad");
 pub const stb = @import("stb");
 pub const mu = @import("microui");
 pub const shaders = @import("shaders");
+
 pub var input: Input = undefined;
 pub var time: Time = undefined;
 
@@ -30,6 +31,7 @@ pub const mem = @import("mem.zig");
 pub const util = @import("util/util.zig");
 pub const gpu = @import("gpu/gpu.zig");
 pub const text = @import("text/text.zig");
+pub const tilemap = @import("tilemap/tilemap.zig");
 
 pub var io: std.Io = undefined;
 
@@ -213,5 +215,4 @@ pub fn endPass() void {
 
 test {
     std.testing.refAllDecls(@This());
-    // std.testing.refAllDecls(math);
 }

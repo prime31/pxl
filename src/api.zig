@@ -9,7 +9,7 @@ const sg = pxl.sg;
 
 const Vertex = pxl.gpu.Vertex;
 const BlendMode = pxl.gpu.BlendMode;
-const Rect = pxl.gpu.Rect;
+const Rect = pxl.math.Rect;
 const Anchor = pxl.gpu.Anchor;
 const Sprite = pxl.gpu.Sprite;
 const Texture = pxl.gpu.Texture;

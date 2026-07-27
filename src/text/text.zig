@@ -64,7 +64,7 @@ pub const FontKerning = struct {
     amount: i16,
 };
 
-pub const BMFontParser = struct {
+pub const BMFont = struct {
     buffer: []const u8,
     texture: pxl.gpu.Texture,
     info: FontInfo = undefined,
@@ -77,7 +77,7 @@ pub const BMFontParser = struct {
     chars_count: usize = 0,
     kernings_count: usize = 0,
 
-    pub fn init(file: []const u8) !BMFontParser {
+    pub fn init(file: []const u8) !BMFont {
         // load the texture
         const texture_file = pxl.mem.dupeZ(u8, file, .temp);
         @memcpy(texture_file[texture_file.len - 3 ..].ptr, "png");
@@ -90,7 +90,7 @@ pub const BMFontParser = struct {
         if (!std.mem.eql(u8, buffer[0..3], "BMF")) return error.InvalidMagicNumber;
         if (buffer[3] != 3) return error.UnsupportedVersion;
 
-        var parser = BMFontParser{ .buffer = buffer, .texture = texture };
+        var parser = BMFont{ .buffer = buffer, .texture = texture };
         var index: usize = 4;
 
         while (index < buffer.len) {
@@ -158,13 +158,13 @@ pub const BMFontParser = struct {
         return parser;
     }
 
-    pub fn deinit(self: *BMFontParser) void {
+    pub fn deinit(self: *BMFont) void {
         pxl.mem.free(self.buffer);
         self.texture.deinit();
     }
 
     /// Safe inline getter that reads character elements out of unaligned data memory
-    pub inline fn getChar(self: BMFontParser, idx: usize) FontChar {
+    pub inline fn getChar(self: BMFont, idx: usize) FontChar {
         const offset = idx * 20;
         const b = self.chars_raw[offset .. offset + 20];
         return .{
@@ -182,7 +182,7 @@ pub const BMFontParser = struct {
     }
 
     /// Safe inline getter that reads kerning elements out of unaligned data memory
-    pub inline fn getKerning(self: BMFontParser, idx: usize) FontKerning {
+    pub inline fn getKerning(self: BMFont, idx: usize) FontKerning {
         const offset = idx * 10;
         const b = self.kernings_raw[offset .. offset + 10];
         return .{
@@ -194,7 +194,7 @@ pub const BMFontParser = struct {
 
     /// TODO: replace with a HashMap?
     /// Finds a glyph's index by its character ID using binary search
-    pub fn findCharIndex(self: BMFontParser, char_id: u32) ?usize {
+    pub fn findCharIndex(self: BMFont, char_id: u32) ?usize {
         if (self.chars_count == 0) return null;
 
         var low: usize = 0;
@@ -216,7 +216,7 @@ pub const BMFontParser = struct {
     }
 
     /// Looks up the kerning adjustment between two characters
-    pub fn getKerningAmount(self: BMFontParser, first_id: u32, second_id: u32) i16 {
+    pub fn getKerningAmount(self: BMFont, first_id: u32, second_id: u32) i16 {
         if (self.kernings_count == 0) return 0;
 
         var low: usize = 0;
@@ -242,7 +242,7 @@ pub const BMFontParser = struct {
     }
 
     /// Draws text by walking through the unified layout iterator
-    pub fn drawString(self: BMFontParser, text: []const u8, start_pos: Vec2) void {
+    pub fn drawString(self: *const BMFont, text: []const u8, start_pos: Vec2) void {
         var layout = TextLayoutIterator.init(self, text, start_pos);
 
         while (layout.next()) |item| {
@@ -259,7 +259,7 @@ pub const BMFontParser = struct {
     }
 
     /// Measures text by inspecting the layout pen's final coordinates
-    pub fn measureString(self: BMFontParser, text: []const u8) Vec2 {
+    pub fn measureString(self: *const BMFont, text: []const u8) Vec2 {
         if (text.len == 0) return .{ .x = 0, .y = 0 };
 
         var layout = TextLayoutIterator.init(self, text, .{ .x = 0, .y = 0 });
@@ -297,7 +297,7 @@ pub const LayoutItem = struct {
 };
 
 pub const TextLayoutIterator = struct {
-    font: BMFontParser,
+    font: *const BMFont,
     text: []const u8,
     index: usize = 0,
     pen_x: f32,
@@ -305,7 +305,7 @@ pub const TextLayoutIterator = struct {
     start_x: f32,
     prev_char_id: ?u32 = null,
 
-    pub fn init(font: BMFontParser, text: []const u8, start_pos: Vec2) TextLayoutIterator {
+    pub fn init(font: *const BMFont, text: []const u8, start_pos: Vec2) TextLayoutIterator {
         return .{
             .font = font,
             .text = text,

@@ -4,7 +4,7 @@ const api = pxl.api;
 const mu = pxl.mu;
 const Vec2 = pxl.math.Vec2;
 const Color = pxl.math.Color;
-const Rect = pxl.gpu.Rect;
+const Rect = pxl.math.Rect;
 
 var worm: Worm = .{};
 var ferris: pxl.gpu.Texture = undefined;

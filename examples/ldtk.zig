@@ -2,14 +2,16 @@ const std = @import("std");
 const pxl = @import("pxl");
 const api = pxl.api;
 const mu = pxl.mu;
-const LDtk = pxl.util.LDtk;
+
+const LDtk = pxl.tilemap.LDtk;
 const Texture = pxl.gpu.Texture;
-const Rect = pxl.gpu.Rect;
+const Rect = pxl.math.Rect;
 const Color = pxl.math.Color;
 const Vec2 = pxl.math.Vec2;
 
 var map: LDtk = undefined;
 var textures: std.AutoHashMap(i64, Texture) = undefined;
+var player: Rect = .{};
 var camera: pxl.Camera = .{
     .position = .init(160, 90),
     .zoom = 1.0,
@@ -34,7 +36,8 @@ pub fn main(init: std.process.Init) !void {
 fn setup() !void {
     textures = std.AutoHashMap(i64, Texture).init(pxl.mem.allocator);
 
-    map = try LDtk.parse(try pxl.fs.read("examples/assets/ldtk.ldtk", .persistent));
+    // map = try LDtk.parse(try pxl.fs.read("examples/assets/ldtk.ldtk", .persistent));
+    map = try LDtk.parse(try pxl.fs.read("examples/assets/tiny_tiles.ldtk", .persistent));
     if (map.root.defs) |defs| {
         for (defs.tilesets) |tileset| {
             if (tileset.relPath) |rel_path| {
@@ -49,10 +52,34 @@ fn setup() !void {
             }
         }
     }
+
+    const grid_size: f32 = @floatFromInt(map.root.defs.?.tilesets[0].tileGridSize);
+    player.w = grid_size;
+    player.h = grid_size;
 }
 
 fn update() !void {
-    // MicroUI Controls Window
+    var move = Vec2{};
+    const speed: f32 = 1.0;
+
+    if (pxl.input.keyDown(.RIGHT)) {
+        move.x += speed;
+    } else if (pxl.input.keyDown(.LEFT)) {
+        move.x -= speed;
+    }
+
+    if (pxl.input.keyDown(.UP)) {
+        move.y -= speed;
+    } else if (pxl.input.keyDown(.DOWN)) {
+        move.y += speed;
+    }
+
+    if (move.x != 0 or move.y != 0) {
+        // aya.tilemap.move(map, player, &move);
+        player.x += move.x;
+        player.y += move.y;
+    }
+
     if (mu.beginWindowEx("Camera Controls", .{ .x = 10, .y = 10, .w = 200, .h = 160 }, .{ .align_center = false })) {
         mu.layoutRow(2, &[_]c_int{ 75, -1 }, 0);
 
@@ -72,6 +99,7 @@ fn update() !void {
 fn render() !void {
     pxl.beginPass(.{ .clear_color = Color.aya, .camera = camera });
     for (map.root.levels) |level| renderLevel(level);
+    api.drawRect(player.pos(), player.size(), Color.orange);
     pxl.endPass();
 }
 
