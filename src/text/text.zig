@@ -242,8 +242,8 @@ pub const BMFont = struct {
     }
 
     /// Draws text by walking through the unified layout iterator
-    pub fn drawString(self: *const BMFont, text: []const u8, start_pos: Vec2) void {
-        var layout = TextLayoutIterator.init(self, text, start_pos);
+    pub fn drawString(self: *const BMFont, text: []const u8, pos: Vec2, color: Color) void {
+        var layout = TextLayoutIterator.init(self, text, pos);
 
         while (layout.next()) |item| {
             const w = @as(f32, @floatFromInt(item.glyph.width));
@@ -253,7 +253,7 @@ pub const BMFont = struct {
                 self.texture,
                 .{ .x = item.render_x, .y = item.render_y, .w = w, .h = h },
                 .{ .x = @floatFromInt(item.glyph.x), .y = @floatFromInt(item.glyph.y), .w = w, .h = h },
-                Color.white,
+                color,
             );
         }
     }

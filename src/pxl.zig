@@ -5,11 +5,8 @@ pub const has_imgui_docking = @import("build_options").docking;
 pub const ig = if (@import("build_options").imgui) @import("cimgui") else struct {};
 
 pub const sokol = @import("sokol");
-pub const slog = sokol.log;
 pub const sg = sokol.gfx;
-pub const sgl = sokol.gl;
 pub const sapp = sokol.app;
-pub const sglue = sokol.glue;
 pub const simgui = sokol.imgui;
 
 pub const api = @import("api.zig");
@@ -17,6 +14,7 @@ pub const gamepad = @import("gamepad");
 pub const stb = @import("stb");
 pub const mu = @import("microui");
 pub const shaders = @import("shaders");
+pub const dbg = @import("util/debug.zig");
 
 pub var input: Input = undefined;
 pub var time: Time = undefined;
@@ -50,6 +48,7 @@ pub const Config = struct {
     width: i32 = 1024,
     height: i32 = 768,
     window_title: [*c]const u8 = "Pxl",
+    debug_render_enabled: bool = true,
     gfx: gpu.Config = .{},
 };
 
@@ -67,6 +66,7 @@ pub const Pass = struct {
     camera: ?Camera = null,
 };
 
+pub var font: text.BMFont = undefined;
 var current_pass: ?Pass = null;
 var cfg: Config = undefined;
 
@@ -91,7 +91,7 @@ pub fn run(init: std.process.Init, comptime config: Config) !void {
         .width = config.width,
         .height = config.height,
         .icon = .{ .sokol_default = true },
-        .logger = .{ .func = slog.func },
+        .logger = .{ .func = sokol.log.func },
     });
 
     if (config.shutdown) |cb| try cb();
@@ -102,10 +102,9 @@ pub fn run(init: std.process.Init, comptime config: Config) !void {
 }
 
 export fn sokolInit() void {
-    // initialize sokol-gfx
     sg.setup(.{
-        .environment = sglue.environment(),
-        .logger = .{ .func = slog.func },
+        .environment = sokol.glue.environment(),
+        .logger = .{ .func = sokol.log.func },
     });
     if (!sg.isvalid()) @panic("failed to create sokol context");
 
@@ -114,7 +113,7 @@ export fn sokolInit() void {
     // optionally, initialize sokol-imgui
     if (has_imgui) {
         simgui.setup(.{
-            .logger = .{ .func = slog.func },
+            .logger = .{ .func = sokol.log.func },
         });
 
         if (has_imgui_docking)
@@ -122,6 +121,7 @@ export fn sokolInit() void {
     }
 
     batcher = gpu.Batcher.init(cfg.gfx.batcher) catch unreachable;
+    font = text.BMFont.init("examples/assets/minecraftia.fnt") catch unreachable;
     gpu.init(cfg.gfx);
     input = Input.init();
     time = Time.init();
@@ -151,7 +151,7 @@ export fn sokolFrame() void {
         var pass_action: sg.PassAction = .{};
         pass_action.colors[0] = .{ .load_action = .LOAD };
 
-        sg.beginPass(.{ .action = pass_action, .swapchain = sglue.swapchain() });
+        sg.beginPass(.{ .action = pass_action, .swapchain = sokol.glue.swapchain() });
         simgui.render();
         sg.endPass();
     }
@@ -181,7 +181,9 @@ export fn sokolCleanup() void {
     gpu.deinit();
 
     batcher.deinit();
-    sgl.shutdown();
+    font.deinit();
+    sokol.gl.shutdown();
+    dbg.deinit();
     if (has_imgui) simgui.shutdown();
     sg.shutdown();
 }
@@ -207,6 +209,7 @@ pub fn beginPass(pass: Pass) void {
 pub fn endPass() void {
     std.debug.assert(current_pass != null);
 
+    dbg.render(cfg.debug_render_enabled);
     batcher.end();
     sg.endPass();
 

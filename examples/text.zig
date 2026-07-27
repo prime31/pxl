@@ -52,13 +52,13 @@ fn render() !void {
     }
 
     const text_pos = Vec2.init(pxl.sapp.widthf() * 0.5 - 100, pxl.sapp.heightf() * 0.5 - 100);
-    font.drawString("fucking a-right ass\nmother FOOKER____!!!!!!@#$%^&*():;,./?{}", text_pos);
+    font.drawString("fucking a-right ass\nmother FOOKER____!!!!!!@#$%^&*():;,./?{}", text_pos, Color.white);
     const bounds = font.measureString("fucking a-right ass\nmother FOOKER____!!!!!!@#$%^&*():;,./?{}");
     api.drawRectOutline(text_pos, bounds, 1, pxl.math.Color.green);
 
-    font.drawString("well shit, let's see if ThIS wORkZ?", .{ .x = 10, .y = 100 + bounds.y });
+    font.drawString("well shit, let's see if ThIS wORkZ?", .{ .x = 10, .y = 100 + bounds.y }, Color.white);
 
-    kiwi_font.drawString("tHIz foOnT loOkz WacKy!", .{ .x = 10, .y = 150 });
+    kiwi_font.drawString("tHIz foOnT loOkz WacKy!", .{ .x = 10, .y = 150 }, Color.white);
 
     pxl.endPass();
 }

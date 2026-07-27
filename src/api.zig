@@ -1,11 +1,12 @@
 const std = @import("std");
 const pxl = @import("pxl.zig");
 const math = std.math;
+const sg = pxl.sg;
 
 const Vec2 = pxl.math.Vec2;
 const Color = pxl.math.Color;
 const Mat32 = pxl.math.Mat32;
-const sg = pxl.sg;
+const BMFont = pxl.text.BMFont;
 
 const Vertex = pxl.gpu.Vertex;
 const BlendMode = pxl.gpu.BlendMode;
@@ -236,12 +237,12 @@ pub fn drawLine(a: Vec2, b: Vec2, thickness: f32, color: Color) void {
 }
 
 /// Draw a filled square of side `size` centered at `center`.
-pub fn drawPoint(center: Vec2, color: Color, size: f32) void {
+pub fn drawPoint(center: Vec2, size: f32, color: Color) void {
     drawRectEx(center, .init(size, size), .center, color);
 }
 
 /// Draw a filled circle as a triangle fan with `segments` sides.
-pub fn drawCircle(center: Vec2, radius: f32, color: Color, segments: u32) void {
+pub fn drawCircle(center: Vec2, radius: f32, segments: u32, color: Color) void {
     std.debug.assert(segments >= 3 and segments <= max_circle_segments);
 
     var verts: [max_circle_segments + 1]Vertex = undefined;
@@ -308,4 +309,9 @@ pub fn drawCircleOutline(center: Vec2, radius: f32, thickness: f32, color: Color
         .verts = verts[0 .. segments * 4],
         .indices = indices[0 .. segments * 6],
     });
+}
+
+pub fn drawText(font: ?*BMFont, pos: Vec2, text: []const u8, color: Color) void {
+    const fnt = if (font) |f| f else &pxl.font;
+    fnt.drawString(text, pos, color);
 }

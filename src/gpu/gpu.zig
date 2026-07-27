@@ -121,7 +121,7 @@ pub fn blitRenderTexture() void {
     var pass_action = sg.PassAction{};
     pass_action.colors[0] = .{ .load_action = .CLEAR };
 
-    sg.beginPass(.{ .action = pass_action, .swapchain = pxl.sglue.swapchain() });
+    sg.beginPass(.{ .action = pass_action, .swapchain = @import("sokol").glue.swapchain() });
 
     if (gfx_config.resolution_policy != .default) {
         const scaler = gfx_config.resolution_policy.getScaler(gfx_config.design_width, gfx_config.design_height);
