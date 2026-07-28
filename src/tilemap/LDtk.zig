@@ -1,5 +1,6 @@
 const std = @import("std");
 const pxl = @import("../pxl.zig");
+const cast = pxl.util.cast;
 
 /// LDtk Project Parser
 parsed_root: std.json.Parsed(Root),
@@ -153,11 +154,25 @@ pub const LayerInstance = struct {
     visible: bool = true,
 
     pub fn isCellSolid(self: LayerInstance, x: u32, y: u32) bool {
-        const index = x + (y * pxl.util.cast(u32, self.__cWid));
-        if (index < 0 or index >= self.intGridCsv.len)
+        std.debug.assert(self.__type == .IntGrid);
+
+        const index = x + (y * cast(u32, self.__cWid));
+        if (index >= self.intGridCsv.len)
             return false;
 
         return self.intGridCsv[index] > 0;
+    }
+
+    pub fn getGridTile(self: LayerInstance, x: u32, y: u32) ?*const TileInstance {
+        const px_x = cast(i64, x) * self.__gridSize;
+        const px_y = cast(i64, y) * self.__gridSize;
+
+        for (self.gridTiles) |*tile| {
+            if (tile.px[0] == px_x and tile.px[1] == px_y)
+                return tile;
+        }
+
+        return null;
     }
 };
 
@@ -434,4 +449,37 @@ pub const EnumValueDefinition = struct {
     color: i64 = 0,
     id: []const u8,
     tileRect: ?TilesetRectangle = null,
+};
+
+/// Tile index cache for fast lookups, not sure if we need this since gridTiles arent generally used for collision
+const TileIndex = struct {
+    indices: []?usize,
+    layer_width: usize,
+
+    pub fn init(layer: LayerInstance) !TileIndex {
+        std.debug.assert(layer.__type == .AutoLayer);
+
+        const indices = pxl.mem.alloc(?usize, cast(usize, layer.__cWid * layer.__cHei));
+        @memset(indices, null);
+
+        for (layer.gridTiles, 0..) |tile, i| {
+            const x = cast(usize, @divExact(tile.px[0], layer.__gridSize));
+            const y = cast(usize, @divExact(tile.px[1], layer.__gridSize));
+
+            indices[x + y * cast(usize, layer.__cWid)] = i;
+        }
+
+        return .{
+            .indices = indices,
+            .layer_width = cast(usize, layer.__cWid),
+        };
+    }
+
+    pub fn deinit(self: *TileIndex) void {
+        pxl.mem.free(self.indices);
+    }
+
+    pub fn get(self: TileIndex, x: usize, y: usize) ?usize {
+        return self.indices[x + y * self.layer_width];
+    }
 };

@@ -1,6 +1,7 @@
 const pxl = @import("../pxl.zig");
 const tilemap = pxl.tilemap;
 const math = pxl.math;
+const cast = pxl.util.cast;
 
 pub const CollisionIterator = struct {
     is_h: bool,
@@ -74,11 +75,33 @@ pub const CollisionIterator = struct {
     }
 };
 
-fn worldToTile(map: *tilemap.Map, pos: i32, axis: math.Axis) i32 {
-    return if (axis == .x) map.worldToTileX(@as(f32, @floatFromInt(pos))) else map.worldToTileY(@as(f32, @floatFromInt(pos)));
+fn worldToTile(map: *tilemap.LDtk, pos: i32, axis: math.Axis) i32 {
+    const pos_f: f32 = @floatFromInt(pos);
+    const layer = map.root.levels[0].layerInstances.?[0];
+
+    if (axis == .x) {
+        const tile_x = math.ifloor(i32, pos_f / @as(f32, @floatFromInt(layer.__gridSize)));
+        return math.iclamp(tile_x, 0, @intCast(layer.__cWid - 1));
+    }
+
+    const tile_y = math.ifloor(i32, pos_f / @as(f32, @floatFromInt(layer.__gridSize)));
+    return math.iclamp(tile_y, 0, @intCast(layer.__cHei - 1));
 }
 
-fn worldToTileX(map: *tilemap.Map, x: f32) i32 {
-    const tile_x = math.ifloor(i32, x / @as(f32, @floatFromInt(map.tile_size)));
-    return math.iclamp(tile_x, 0, map.width - 1);
-}
+// pub fn tileToWorldX(self: Map, x: i32) i32 {
+//     return self.tile_size * x;
+// }
+
+// pub fn tileToWorldY(self: Map, y: i32) i32 {
+//     return self.tile_size * y;
+// }
+
+// fn worldToTileX(map: *tilemap.LDtk, x: f32) i32 {
+//     const tile_x = math.ifloor(i32, x / @as(f32, @floatFromInt(map.tile_size)));
+//     return math.iclamp(tile_x, 0, map.width - 1);
+// }
+
+// pub fn worldToTileY(self: tilemap.LDtk, y: f32) i32 {
+//     const tile_y = aya.math.ifloor(i32, y / @as(f32, @floatFromInt(self.tile_size)));
+//     return aya.math.iclamp(tile_y, 0, self.height - 1);
+// }

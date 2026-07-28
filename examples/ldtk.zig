@@ -77,7 +77,7 @@ fn update() !void {
     }
 
     if (move.x != 0 or move.y != 0) {
-        // aya.tilemap.move(map, player, &move);
+        pxl.tilemap.move(&map, player.asRectI(), &move);
         player.x += move.x;
         player.y += move.y;
     }

@@ -68,6 +68,10 @@ pub const Rect = struct {
         res.h = @max(self.bottom(), r2.bottom()) - res.y;
         return res;
     }
+
+    pub fn asRectI(self: Rect) RectI {
+        return .init(@intFromFloat(self.x), @intFromFloat(self.y), @intFromFloat(self.w), @intFromFloat(self.h));
+    }
 };
 
 pub const RectI = struct {

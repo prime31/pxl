@@ -6,6 +6,8 @@ pub const rand = @import("rand.zig");
 pub const Color = @import("color.zig").Color;
 pub const Edge = @import("edge.zig").Edge;
 pub const Rect = @import("rect.zig").Rect;
+pub const RectI = @import("rect.zig").RectI;
+pub const Axis = enum(u2) { x, y };
 
 pub const Vec2 = @import("vector.zig").Vec2;
 pub const Vec3 = @import("vector.zig").Vec3;
@@ -33,4 +35,41 @@ pub inline fn smoothMap(_v: f32, from: f32, to: f32, map_from: f32, map_to: f32)
     var step = (v - from) / (to - from);
     step = step * step * (3 - 2 * step); // smooth to [0, 1], using equation: 3x^2 - 2x^3
     return map_from + (map_to - map_from) * step;
+}
+
+/// Converts degrees to radian
+pub fn toRadians(deg: anytype) @TypeOf(deg) {
+    math.degreesToRadians(deg);
+}
+
+/// Converts radian to degree
+pub fn toDegrees(rad: anytype) @TypeOf(rad) {
+    return math.radiansToDegrees(rad);
+}
+
+pub fn isEven(val: anytype) bool {
+    std.debug.assert(@typeInfo(@TypeOf(val)) == .Int or @typeInfo(@TypeOf(val)) == .ComptimeInt);
+    return @mod(val, 2) == 0;
+}
+
+pub fn ifloor(comptime T: type, val: f32) T {
+    return @as(T, @intFromFloat(@floor(val)));
+}
+
+pub fn iclamp(x: i32, a: i32, b: i32) i32 {
+    return @max(a, @min(b, x));
+}
+
+// returns true if val is between start and end
+pub fn between(val: anytype, start: anytype, end: anytype) bool {
+    return start <= val and val <= end;
+}
+
+pub fn repeat(t: f32, len: f32) f32 {
+    return t - std.math.floor(t / len) * len;
+}
+
+pub fn pingpong(t: f32, len: f32) f32 {
+    const tt = repeat(t, len * 2);
+    return len - @abs(tt - len);
 }
