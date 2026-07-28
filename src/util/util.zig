@@ -3,6 +3,7 @@ const std = @import("std");
 pub const Vec = @import("vec.zig").Vec;
 pub const SlotMap = @import("slotmap.zig").SlotMap;
 pub const FixedList = @import("fixed_list.zig").FixedList;
+pub const StateMachine = @import("state_machine.zig").StateMachine;
 
 /// asserts with a message
 pub fn assertMsg(ok: bool, comptime msg: []const u8, args: anytype) void {
@@ -68,3 +69,20 @@ pub const BlockTimer = struct {
         std.debug.print("Elapsed: {d:.3} ms\n", .{elapsed_ms});
     }
 };
+
+/// comptime snake_case to camelCase convertor
+pub fn snakeToCamel(comptime s: []const u8) []const u8 {
+    comptime var out: []const u8 = "";
+    comptime var upper = false;
+
+    inline for (s) |c| {
+        if (c == '_') {
+            upper = true;
+        } else {
+            const ch: u8 = if (upper) std.ascii.toUpper(c) else c;
+            out = out ++ .{ch};
+            upper = false;
+        }
+    }
+    return out;
+}

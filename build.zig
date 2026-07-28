@@ -12,6 +12,7 @@ const shdc = sokol.shdc;
 const examples = [_]Example{
     .{ .name = "check" },
     .{ .name = "text" },
+    .{ .name = "animation" },
     .{ .name = "ldtk" },
     .{ .name = "microui" },
     .{ .name = "shader", .has_shader = true },

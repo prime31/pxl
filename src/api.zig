@@ -8,12 +8,15 @@ const Color = pxl.math.Color;
 const Mat32 = pxl.math.Mat32;
 const BMFont = pxl.text.BMFont;
 
+const Mesh = pxl.gpu.Mesh;
 const Vertex = pxl.gpu.Vertex;
 const BlendMode = pxl.gpu.BlendMode;
 const Rect = pxl.math.Rect;
 const Anchor = pxl.gpu.Anchor;
 const Sprite = pxl.gpu.Sprite;
 const Texture = pxl.gpu.Texture;
+const Transform = pxl.gpu.Transform;
+const Camera = pxl.gpu.Camera;
 
 const max_circle_segments = 64;
 
@@ -42,8 +45,6 @@ pub fn setUniform(vs: anytype, fs: anytype) void {
 pub fn makePipeline(shader: sg.Shader, mode: BlendMode) sg.Pipeline {
     return pxl.gpu.Batcher.makePipeline(shader, mode);
 }
-
-const Mesh = pxl.gpu.Mesh;
 
 pub fn pushMesh(mesh: Mesh) void {
     pxl.batcher.pushMesh(mesh);
@@ -75,12 +76,9 @@ pub fn drawQuad(verts: [4]Vertex, tex: ?Texture, model: ?Mat32) void {
     });
 }
 
-const Transform = pxl.gpu.Transform;
-const Camera = pxl.gpu.Camera;
-
 /// Draw a textured sprite with position, rotation, scale, pivot and an optional
 /// atlas source region (models comfy's `draw_sprite_pro`).
-pub fn drawSprite(s: Sprite) void {
+pub fn drawSprite(s: Sprite, t: Transform) void {
     const src = s.source orelse Rect{
         .x = 0,
         .y = 0,
@@ -90,10 +88,10 @@ pub fn drawSprite(s: Sprite) void {
     const tw: f32 = @floatFromInt(s.texture.width);
     const th: f32 = @floatFromInt(s.texture.height);
 
-    const w = src.w * s.transform.scale.x;
-    const h = src.h * s.transform.scale.y;
+    const w = src.w * t.scale.x;
+    const h = src.h * t.scale.y;
 
-    const model = s.transform.toMatrix(src.w, src.h);
+    const model = t.toMatrix(src.w, src.h);
 
     const corners = [4]Vec2{
         .init(0, 0),
