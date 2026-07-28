@@ -84,12 +84,13 @@ pub const SpriteAnimationFrame = struct {
 pub const SpriteAnimation = struct {
     name: []const u8,
     frames: []SpriteAnimationFrame,
-    loop_mode: LoopMode,
-    state: State,
-    ping_pong_state: PingPongState,
-    current_frame: usize,
-    elapsed_time: f32,
-    frame_time_left: f32,
+    loop_mode: LoopMode = .clamp_forever,
+    state: State = .none,
+    ping_pong_state: PingPongState = .ping,
+    ping_ponged_once: bool = false,
+    current_frame: usize = 0,
+    elapsed_time: f32 = 0,
+    frame_time_left: f32 = 0,
 
     pub fn update(self: *SpriteAnimation) void {
         if (self.state != .running) return;
@@ -99,16 +100,78 @@ pub const SpriteAnimation = struct {
         if (self.frame_time_left <= 0) {
             switch (self.loop_mode) {
                 .loop => self.setFrame((self.current_frame + 1) % self.frames.len),
-                .once => self.state = .completed,
-                .clamp_forever => self.setFrame(self.current_frame),
-                .ping_pong => self.setFrame(if (self.ping_pong_state == .ping) 1 else 0),
-                .ping_pong_once => self.setFrame(if (self.ping_pong_state == .ping) 1 else 0),
+                .once, .clamp_forever => {
+                    const new_frame = self.current_frame + 1;
+                    if (new_frame >= self.frames.len) {
+                        self.setComplated(self.loop_mode == .once);
+                    } else self.setFrame(new_frame);
+                },
+                .clamp_forever => {
+                    const new_frame = self.current_frame + 1;
+                    if (new_frame >= self.frames.len) {
+                        self.setComplated(self.loop_mode == .once);
+                    } else self.setFrame(new_frame);
+                },
+                .ping_pong => {
+                    if (self.frames.len == 1) return;
+                    self.parsePingPongLoop();
+                },
+                .ping_pong_once => {
+                    if (self.current_frame == 0) {
+                        if (self.ping_ponged_once) {
+                            self.setComplated(true);
+                            return;
+                        }
+
+                        self.ping_ponged_once = true;
+                    }
+
+                    self.parsePingPongLoop();
+                },
             }
+        }
+    }
+
+    fn parsePingPongLoop(self: *SpriteAnimation) void {
+        switch (self.pin) {
+            .ping => self.parsePingLoop(),
+            .pong => self.parsePongLoop(),
+        }
+    }
+
+    fn parsePingLoop(self: *SpriteAnimation) void {
+        const new_frame = self.current_frame + 1;
+        if (new_frame >= self.frames.len) {
+            self.ping_pong_state = .pong;
+            self.parsePongLoop();
+        } else {
+            self.setFrame(new_frame);
+        }
+    }
+
+    fn parsePongLoop(self: *SpriteAnimation) void {
+        const new_frame = self.current_frame - 1;
+        if (new_frame < 0) {
+            self.ping_pong_state = .ping;
+            self.parsePingLoop();
+        } else {
+            self.setFrame(new_frame);
         }
     }
 
     fn setFrame(self: *SpriteAnimation, index: usize) void {
         self.current_frame = index;
         self.frame_time_left = self.frames[index].frame_time;
+    }
+
+    fn setComplated(self: *SpriteAnimation, return_to_first_frame: bool) void {
+        if (return_to_first_frame)
+            self.setFrame(0);
+
+        self.ping_pong_state = .ping;
+        self.ping_ponged_once = false;
+
+        self.elapsed_time = 0;
+        self.state = .completed;
     }
 };
