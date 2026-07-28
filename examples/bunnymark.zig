@@ -63,13 +63,13 @@ fn update() !void {
     std.debug.print("total: {}, dt: {:.3}, fps: {}, gg.dt: {d:.3}\n", .{
         crabs.items.len,
         dt,
-        pxl.time.frames_per_second,
-        pxl.time.deltaTime(),
+        pxl.time.fps(),
+        pxl.time.dt(),
     });
 }
 
 fn render() !void {
-    pxl.beginPass(.{ .action = .clear });
+    pxl.beginPass(.{ .clear_color = pxl.math.Color.aya });
     for (crabs.items) |*crab| {
         api.drawTexture(texture, crab.pos);
     }

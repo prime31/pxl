@@ -58,7 +58,7 @@ fn update() !void {
 
     // Spawn explosion burst on mouse click
     if (pxl.input.mousePressed(.left)) { // and !mu.isMouseCaptured()
-        const mouse = pxl.input.mousePosVec();
+        const mouse = pxl.input.mousePos();
         const explosion: pxl.EmitterParams = .{
             .position = mouse,
             .lifetime_min = 0.4,

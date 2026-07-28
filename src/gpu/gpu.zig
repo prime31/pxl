@@ -119,7 +119,7 @@ pub fn createOffscreenAttachments() void {
     });
 }
 
-pub fn blitRenderTexture() void {
+pub fn blitRenderTexture(comptime has_imgui: bool) void {
     var pass_action = sg.PassAction{};
     pass_action.colors[0] = .{ .load_action = .CLEAR };
 
@@ -139,6 +139,7 @@ pub fn blitRenderTexture() void {
     // Reset viewport to full swapchain window before rendering MicroUI
     sg.applyViewportf(0, 0, pxl.sapp.widthf(), pxl.sapp.heightf(), true);
     pxl.mu.render();
+    if (has_imgui) @import("sokol").imgui.render();
 
     sg.endPass();
 }

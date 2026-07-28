@@ -23,18 +23,18 @@ fn setup() !void {
 }
 
 fn render() !void {
-    pxl.beginPass(.{ .action = .clear });
+    pxl.beginPass(.{ .clear_color = pxl.math.Color.aya });
 
-    const t = pxl.util.cast(f32, pxl.time.frame_count) / 60.0;
+    const t = pxl.util.cast(f32, pxl.time.frameCount()) / 60.0;
 
     // ---- top strip: primitive showcase ----
     api.drawTriangle(.init(80, 60), .init(240, 60), .init(160, 180), pxl.math.Color.white);
     api.drawRectEx(.init(380, 110), .init(120, 70), .center, pxl.math.Color.red);
     api.drawRectOutlineEx(.init(380, 110), .init(120, 70), .center, 4, pxl.math.Color.white);
-    api.drawCircle(.init(560, 110), 45, pxl.math.Color.gold, 48);
-    api.drawCircleOutline(.init(560, 110), 45, 4, pxl.math.Color.white, 48);
+    api.drawCircle(.init(560, 110), 45, 48, pxl.math.Color.gold);
+    api.drawCircleOutline(.init(560, 110), 45, 4, 48, pxl.math.Color.white);
     api.drawLine(.init(660, 60), .init(940, 170), 6, pxl.math.Color.sky_blue);
-    api.drawPoint(.init(620, 110), pxl.math.Color.lime, 8);
+    api.drawPoint(.init(620, 110), 8, pxl.math.Color.lime);
     // atlas path: draw only the left half of the texture as a sub-region
     api.drawSprite(.{
         .texture = ferris,
@@ -69,11 +69,11 @@ fn render() !void {
             .texture = ferris,
             .transform = .{ .pos = pos, .origin = anchor, .rotation = t, .scale = .init(pulse, pulse) },
         });
-        api.drawPoint(pos, pxl.math.Color.red, 6);
+        api.drawPoint(pos, 6, pxl.math.Color.red);
     }
 
     // exercise the custom-pipeline + uniform API (pipeline is created once, on first press)
-    if (pxl.input.keyDown(.P)) {
+    if (pxl.input.keyDown(.p)) {
         api.setBlendMode(.add);
         api.setUniform(null, null);
         api.drawTriangle(.init(320, 100), .init(520, 100), .init(420, 300), pxl.math.Color.red);
@@ -81,14 +81,14 @@ fn render() !void {
     }
 
     // hold S: draw the gp_example (ferris SDF) shader fullscreen, feeding it uniforms
-    if (pxl.input.keyDown(.S)) {
+    if (pxl.input.keyDown(.s)) {
         const pip = shader_pip orelse blk: {
             shader_pip = api.makePipeline(sg.makeShader(pxl.shaders.gpExampleShaderDesc(sg.queryBackend())), .blend);
             break :blk shader_pip.?;
         };
         api.setPipeline(pip);
         vs_uniform.iResolution = .init(pxl.sapp.widthf(), pxl.sapp.heightf());
-        fs_uniform.iTime = pxl.util.cast(f32, pxl.time.frame_count) / 60.0;
+        fs_uniform.iTime = pxl.util.cast(f32, pxl.time.frameCount()) / 60.0;
         api.setUniform(&vs_uniform, &fs_uniform);
 
         const w = pxl.sapp.widthf();

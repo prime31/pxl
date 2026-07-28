@@ -138,17 +138,7 @@ export fn sokolFrame() void {
     if (cfg.render) |cb| cb() catch unreachable;
     mu.end();
 
-    gpu.blitRenderTexture();
-
-    if (has_imgui) {
-        std.debug.print("FIX THIS, IT SHOULDNT RENDER INTO THE SWAPCHAIN, it needs to render with the gpu offscreen blit!!!!\n", .{});
-        var pass_action: sg.PassAction = .{};
-        pass_action.colors[0] = .{ .load_action = .LOAD };
-
-        sg.beginPass(.{ .action = pass_action, .swapchain = sokol.glue.swapchain() });
-        simgui.render();
-        sg.endPass();
-    }
+    gpu.blitRenderTexture(has_imgui);
 
     sg.commit();
     input.newFrame();

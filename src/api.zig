@@ -271,7 +271,7 @@ pub fn drawCircle(center: Vec2, radius: f32, segments: u32, color: Color) void {
 
 /// Draw a circle outline of the given thickness as a ring of `segments` quads. Each
 /// segment's end angle overlaps the next slightly so there is never a crack between them.
-pub fn drawCircleOutline(center: Vec2, radius: f32, thickness: f32, color: Color, segments: u32) void {
+pub fn drawCircleOutline(center: Vec2, radius: f32, thickness: f32, segments: u32, color: Color) void {
     std.debug.assert(segments >= 3 and segments <= max_circle_segments);
 
     const inner = radius - thickness * 0.5;

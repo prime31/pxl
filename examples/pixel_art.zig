@@ -112,7 +112,7 @@ const Worm = struct {
         for (self.points, 0..) |pt, i| {
             const r: f32 = if (i == 0) 3.5 else 2.0;
             const col: Color = if (i == 0) Color.gold else Color.orange;
-            api.drawCircle(pt, r, col, 16);
+            api.drawCircle(pt, r, 16, col);
         }
     }
 };
@@ -160,7 +160,7 @@ fn update() !void {
     }
 
     // Update worm head to follow mouse in world space
-    const mouse_design = pxl.input.mousePosScaledVec();
+    const mouse_design = pxl.input.mousePosScaled();
     const mouse_world = camera.screenToWorld(mouse_design);
     worm.update(mouse_world);
 }

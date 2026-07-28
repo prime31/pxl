@@ -20,13 +20,13 @@ fn setup() !void {
 }
 
 fn render() !void {
-    pxl.beginPass(.{ .action = .clear });
+    pxl.beginPass(.{ .clear_color = Color.aya });
 
     api.setPipeline(pip);
 
     vs_uniform.iResolution.x = pxl.sapp.widthf();
     vs_uniform.iResolution.y = pxl.sapp.heightf();
-    fs_uniform.iTime = pxl.util.cast(f32, pxl.time.frame_count) / 60.0;
+    fs_uniform.iTime = pxl.util.cast(f32, pxl.time.frameCount()) / 60.0;
     api.setUniform(&vs_uniform, &fs_uniform);
 
     api.drawRect(.init(0, 0), .init(pxl.sapp.widthf(), pxl.sapp.heightf()), Color.white);

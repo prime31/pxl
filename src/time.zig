@@ -36,3 +36,11 @@ pub fn dt64() f64 {
     const ms = curr_time - prev_time;
     return @as(f64, @floatFromInt(ms)) / 1_000_000_000.0;
 }
+
+pub fn fps() i64 {
+    return frames_per_second;
+}
+
+pub fn frameCount() u32 {
+    return frame_count;
+}
