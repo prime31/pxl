@@ -18,6 +18,9 @@ pub const Mat3 = @import("mat3.zig").Mat3;
 pub const Mat32 = @import("mat32.zig").Mat32;
 pub const Mat4 = @import("mat4.zig").Mat4;
 
+pub const ease = @import("tween/ease.zig");
+pub const interp = @import("tween/interp.zig");
+
 pub const perspective = Mat4.perspective;
 pub const perspectiveReversedZ = Mat4.perspectiveReversedZ;
 pub const orthographic = Mat4.orthographic;

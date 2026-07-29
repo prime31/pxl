@@ -33,9 +33,29 @@ fn render() !void {
     pxl.endPass();
 }
 
+pub const SpriteAnimations = struct {
+    sprites: Vec(Sprite) = .empty,
+    animations: Vec(Animation) = .empty,
+};
+
 const Sprite = struct {
     tex: Texture,
     uvs: Rect,
+};
+
+pub const Animation = struct {
+    /// Index into sprites array
+    start: u32,
+    /// Number of Sprite elements used in this animation.
+    len: u32,
+    /// After finishing, will jump to this next animation (which may be itself, in which case it will loop).
+    next: Index = .none,
+
+    /// Index into animations array.
+    pub const Index = enum(u32) {
+        none = std.math.maxInt(u32),
+        _,
+    };
 };
 
 fn spritesFromAtlas(texture: Texture, cell_width: u32, cell_height: u32, cell_offset: u32, max_cells_to_include: u32) Vec(Sprite) {
