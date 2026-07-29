@@ -7,6 +7,7 @@ pub const Color = @import("color.zig").Color;
 pub const Edge = @import("edge.zig").Edge;
 pub const Rect = @import("rect.zig").Rect;
 pub const RectI = @import("rect.zig").RectI;
+pub const RectU = @import("rect.zig").RectU;
 pub const Axis = enum(u2) { x, y };
 
 pub const Vec2 = @import("vector.zig").Vec2;

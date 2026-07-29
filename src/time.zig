@@ -44,3 +44,10 @@ pub fn fps() i64 {
 pub fn frameCount() u32 {
     return frame_count;
 }
+
+pub fn time() f32 {
+    const diff: f32 = @as(f32, @floatFromInt(
+        std.Io.Clock.now(.awake, pxl.io).toNanoseconds() - start,
+    )) / std.time.ns_per_s;
+    return diff;
+}

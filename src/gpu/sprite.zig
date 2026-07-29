@@ -63,7 +63,6 @@ pub const Transform = struct {
 /// Parameters for `drawSprite`. Sensible defaults: whole texture, white, centered, no rotation.
 pub const Sprite = struct {
     texture: Texture,
-    transform: Transform = .{},
     color: Color = Color.white,
     /// Sub-region of the texture in pixels (atlas cell); `null` = the whole texture.
     source: ?Rect = null,

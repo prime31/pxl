@@ -10,6 +10,10 @@ pub const Rect = struct {
     w: f32 = 0,
     h: f32 = 0,
 
+    pub fn init(x: f32, y: f32, w: f32, h: f32) Rect {
+        return .{ .x = x, .y = y, .w = w, .h = h };
+    }
+
     pub fn pos(self: Rect) Vec2 {
         return .init(self.x, self.y);
     }
@@ -169,5 +173,20 @@ pub const RectI = struct {
 
     pub fn unionPoint(self: RectI, x: i32, y: i32) RectI {
         return self.unionRect(.{ .x = x, .y = y });
+    }
+};
+
+pub const RectU = struct {
+    x: u32 = 0,
+    y: u32 = 0,
+    w: u32 = 0,
+    h: u32 = 0,
+
+    pub fn init(x: u32, y: u32, w: u32, h: u32) RectU {
+        return .{ .x = x, .y = y, .w = w, .h = h };
+    }
+
+    pub fn asRect(self: RectU) Rect {
+        return .init(@floatFromInt(self.x), @floatFromInt(self.y), @floatFromInt(self.w), @floatFromInt(self.h));
     }
 };
