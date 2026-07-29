@@ -73,6 +73,15 @@ pub const Rect = struct {
         return res;
     }
 
+    pub fn scale(self: Rect, factor: f32) Rect {
+        return .{
+            .x = self.x * factor,
+            .y = self.y * factor,
+            .w = self.w * factor,
+            .h = self.h * factor,
+        };
+    }
+
     pub fn asRectI(self: Rect) RectI {
         return .init(@intFromFloat(self.x), @intFromFloat(self.y), @intFromFloat(self.w), @intFromFloat(self.h));
     }

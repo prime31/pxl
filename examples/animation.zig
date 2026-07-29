@@ -13,7 +13,11 @@ const Texture = pxl.gpu.Texture;
 
 const cell_size = 34;
 var sprites_tex: Texture = undefined;
+var tiles_tex: Texture = undefined;
 var parsed_sprites: []Sprite = undefined;
+
+var sprite_animations: SpriteAnimations = .{};
+var animator: AnimationPlayer = .{};
 
 pub fn main(init: std.process.Init) !void {
     try pxl.run(init, .{
@@ -26,12 +30,24 @@ pub fn main(init: std.process.Init) !void {
 
 fn setup() !void {
     sprites_tex = try Texture.initFromFile("examples/assets/sprites.png");
+    tiles_tex = try Texture.initFromFile("examples/assets/blacknwhite.png");
+
     parsed_sprites = generateSprites(sprites_tex, cell_size, cell_size, 0, 0, 0, 1000);
+    const parsed_tiles = generateSprites(tiles_tex, 12, 12, 1, 1, 21, 4);
+    sprite_animations.sprites.appendSlice(parsed_tiles);
+    pxl.mem.free(parsed_tiles);
+
+    sprite_animations.animations.append(.{ .start = 0, .len = 4, .next = @enumFromInt(0) });
+
+    animator.play(@enumFromInt(0));
 }
 
 fn shutdown() !void {
     sprites_tex.deinit();
+    tiles_tex.deinit();
     pxl.mem.free(parsed_sprites);
+    sprite_animations.animations.deinit();
+    sprite_animations.sprites.deinit();
 }
 
 fn update() !void {}
@@ -42,7 +58,7 @@ fn render() !void {
     const text_pos = Vec2.init(pxl.sapp.widthf() * 0.5 - 100, pxl.sapp.heightf() * 0.5 - 100);
     api.drawText(null, text_pos, "fucking a-right ass\nmother FOOKER", Color.white);
 
-    var pos = Vec2.zero;
+    var pos = Vec2.one;
     for (animations) |anim| {
         const elapsed: usize = @intFromFloat(@floor(pxl.time.time() / 0.1));
         const frame: usize = elapsed % anim.len;
@@ -57,10 +73,21 @@ fn render() !void {
 
         pos.x += cell_size;
         if (pos.x > pxl.sapp.widthf()) {
-            pos.x = 0;
+            pos.x = 1;
             pos.y += cell_size;
         }
     }
+
+    pos.x = 1;
+    pos.y += 100;
+    animator.update();
+    const spr = animator.getSprite();
+    api.drawTexturedRect(spr.tex, .{
+        .x = pos.x + 50,
+        .y = pos.y,
+        .w = @floatFromInt(spr.uvs.w * 5),
+        .h = @floatFromInt(spr.uvs.h * 5),
+    }, spr.uvs.asRect(), Color.white);
 
     pxl.endPass();
 }
@@ -152,6 +179,7 @@ pub const SpriteAnimations = struct {
 const Sprite = struct {
     tex: Texture,
     uvs: RectU,
+    frame_time: f32 = 0.1,
 };
 
 pub const Animation = struct {
@@ -167,6 +195,53 @@ pub const Animation = struct {
         none = std.math.maxInt(u32),
         _,
     };
+};
+
+pub const AnimationState = enum(u8) { none, running, paused, completed };
+
+pub const AnimationPlayer = struct {
+    animation: Animation.Index = .none,
+    state: AnimationState = .none,
+    current_frame: usize = 0,
+    elapsed_time: f32 = 0,
+    frame_time_left: f32 = 0,
+
+    pub fn play(self: *AnimationPlayer, anim: Animation.Index) void {
+        self.animation = anim;
+        self.elapsed_time = 0;
+        self.setFrame(0);
+        self.state = .running;
+    }
+
+    pub fn getSprite(self: AnimationPlayer) Sprite {
+        const anim = sprite_animations.animations.items[@intFromEnum(self.animation)];
+        return sprite_animations.sprites.items[anim.start + self.current_frame];
+    }
+
+    pub fn update(self: *AnimationPlayer) void {
+        if (self.state != .running) return;
+
+        self.elapsed_time += pxl.time.dt();
+        self.frame_time_left -= pxl.time.dt();
+
+        if (self.frame_time_left <= 0) {
+            const anim = sprite_animations.animations.items[@intFromEnum(self.animation)];
+            const new_frame = self.current_frame + 1;
+            if (new_frame >= anim.len) {
+                if (anim.next != .none) {
+                    self.animation = anim.next;
+                    self.setFrame(0);
+                } else self.state = .completed;
+            } else {
+                self.setFrame(new_frame);
+            }
+        }
+    }
+
+    fn setFrame(self: *AnimationPlayer, index: usize) void {
+        self.current_frame = index;
+        self.frame_time_left = sprite_animations.sprites.items[self.current_frame].frame_time;
+    }
 };
 
 pub fn generateSprites(
@@ -228,34 +303,4 @@ pub fn generateSprites(
     }
 
     return sprites.toOwnedSlice(pxl.mem.allocator) catch unreachable;
-}
-
-fn spritesFromAtlas(texture: Texture, cell_width: u32, cell_height: u32, cell_offset: u32, max_cells_to_include: u32) Vec(Sprite) {
-    var sprites = Vec(Sprite).empty;
-
-    const cols = texture.width / cell_width;
-    const rows = texture.height / cell_height;
-    var i: u32 = 0;
-
-    for (0..rows) |y| {
-        for (0..cols) |x| {
-            i += 1;
-            if (i < cell_offset) continue;
-
-            sprites.append(.{
-                .tex = texture,
-                .uvs = .{
-                    .x = x * cell_width,
-                    .y = y * cell_height,
-                    .w = cell_width,
-                    .h = cell_height,
-                },
-            });
-
-            if (sprites.items.len == max_cells_to_include)
-                return sprites;
-        }
-    }
-
-    return sprites;
 }

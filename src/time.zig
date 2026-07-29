@@ -11,6 +11,8 @@ var frame_count: u32 = 1;
 
 pub fn init() void {
     start = std.Io.Clock.now(.awake, pxl.io).toNanoseconds();
+    curr_time = start;
+    prev_time = start;
 }
 
 pub fn update() void {
