@@ -153,6 +153,19 @@ pub const LayerInstance = struct {
     pxTilesetOffsetY: i64 = 0,
     visible: bool = true,
 
+    pub fn gridSize(self: LayerInstance) f32 {
+        return @floatFromInt(self.__gridSize);
+    }
+
+    pub fn width(self: LayerInstance) i32 {
+        return @intCast(self.__cWid);
+    }
+
+    pub fn height(self: LayerInstance) i32 {
+        return @intCast(self.__cHei);
+    }
+
+    /// checks the intGridCsv to see if the cell is > 0
     pub fn isCellSolid(self: LayerInstance, x: u32, y: u32) bool {
         std.debug.assert(self.__type == .IntGrid);
 

@@ -80,12 +80,12 @@ fn worldToTile(map: *tilemap.LDtk, pos: i32, axis: math.Axis) i32 {
     const layer = map.root.levels[0].layerInstances.?[0];
 
     if (axis == .x) {
-        const tile_x = math.ifloor(i32, pos_f / @as(f32, @floatFromInt(layer.__gridSize)));
-        return math.iclamp(tile_x, 0, @intCast(layer.__cWid - 1));
+        const tile_x = math.ifloor(i32, pos_f / layer.gridSize());
+        return math.iclamp(tile_x, 0, layer.width() - 1);
     }
 
-    const tile_y = math.ifloor(i32, pos_f / @as(f32, @floatFromInt(layer.__gridSize)));
-    return math.iclamp(tile_y, 0, @intCast(layer.__cHei - 1));
+    const tile_y = math.ifloor(i32, pos_f / layer.gridSize());
+    return math.iclamp(tile_y, 0, layer.height() - 1);
 }
 
 // pub fn tileToWorldX(self: Map, x: i32) i32 {
