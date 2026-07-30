@@ -36,16 +36,18 @@ fn render() !void {
     api.drawLine(.init(660, 60), .init(940, 170), 6, pxl.math.Color.sky_blue);
     api.drawPoint(.init(620, 110), 8, pxl.math.Color.lime);
     // atlas path: draw only the left half of the texture as a sub-region
-    api.drawSprite(.{
-        .texture = ferris,
-        .transform = .{ .pos = .init(970, 110), .origin = .center },
-        .source = .{
-            .x = 0,
-            .y = 0,
-            .w = pxl.util.cast(f32, ferris.width) / 2.0,
-            .h = pxl.util.cast(f32, ferris.height),
+    api.drawSprite(
+        .{
+            .texture = ferris,
+            .source = .{
+                .x = 0,
+                .y = 0,
+                .w = pxl.util.cast(f32, ferris.width) / 2.0,
+                .h = pxl.util.cast(f32, ferris.height),
+            },
         },
-    });
+        .{ .pos = .init(970, 110), .origin = .center },
+    );
 
     // ---- 3x3 sprite alignment / pivot showcase (comfy draw_sprite_pro) ----
     // Each sprite is anchored at the same grid point via a different origin, and spins
@@ -65,10 +67,10 @@ fn render() !void {
         const row: f32 = @floatFromInt(i / 3);
         const pos = pxl.math.Vec2.init(grid_origin.x + col * gstep, grid_origin.y + row * gstep);
         api.drawRectOutlineEx(pos, .init(sw, sh), anchor, 2, pxl.math.Color.red);
-        api.drawSprite(.{
-            .texture = ferris,
-            .transform = .{ .pos = pos, .origin = anchor, .rotation = t, .scale = .init(pulse, pulse) },
-        });
+        api.drawSprite(
+            .{ .texture = ferris },
+            .{ .pos = pos, .origin = anchor, .rotation = t, .scale = .init(pulse, pulse) },
+        );
         api.drawPoint(pos, 6, pxl.math.Color.red);
     }
 
