@@ -11,7 +11,8 @@ const Crab = struct {
     vel: Vec2,
 };
 
-var texture: pxl.gpu.Texture = undefined;
+var tex1: pxl.gpu.Texture = undefined;
+var tex2: pxl.gpu.Texture = undefined;
 var crabs: pxl.util.Vec(Crab) = .empty;
 
 pub fn main(init: std.process.Init) !void {
@@ -30,7 +31,8 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn setup() !void {
-    texture = try pxl.gpu.Texture.initFromFile("examples/assets/ferris_smol.png");
+    tex1 = try pxl.gpu.Texture.initFromFile("examples/assets/ferris_smol.png");
+    tex2 = try pxl.gpu.Texture.initFromFile("examples/assets/ferris_smol.png");
 
     const w: f32 = @floatFromInt(pxl.sapp.width());
     const h: f32 = @floatFromInt(pxl.sapp.height());
@@ -39,7 +41,8 @@ fn setup() !void {
 }
 
 fn shutdown() !void {
-    texture.deinit();
+    tex1.deinit();
+    tex2.deinit();
     crabs.deinit();
 }
 
@@ -70,8 +73,9 @@ fn update() !void {
 
 fn render() !void {
     pxl.beginPass(.{ .clear_color = pxl.math.Color.aya });
-    for (crabs.items) |*crab| {
-        api.drawTexture(texture, crab.pos);
+    for (crabs.items, 0..) |*crab, i| {
+        const t = if (@mod(i, 2) == 0) tex1 else tex2;
+        api.drawTexture(t, crab.pos);
     }
     pxl.endPass();
 }

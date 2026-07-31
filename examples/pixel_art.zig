@@ -189,13 +189,13 @@ fn render() !void {
 
     // Draw center rect & pixel art ferris
     api.drawRectEx(.init(160, 90), .init(40, 40), .center, Color.sky_blue);
-    api.drawSprite(.{
-        .texture = ferris,
-        .transform = .{
+    api.drawSprite(
+        .{ .texture = ferris },
+        .{
             .pos = .init(160, 90),
             .origin = .center,
         },
-    });
+    );
 
     // Draw worm creature
     worm.draw();

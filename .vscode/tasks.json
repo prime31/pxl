@@ -2,9 +2,9 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Run audio example",
+            "label": "Build all with summary",
             "type": "shell",
-            "command": "zig build audio",
+            "command": "zig build --summary all",
             "problemMatcher": [],
             "group": {
                 "kind": "build",

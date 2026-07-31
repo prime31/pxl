@@ -124,7 +124,7 @@ pub fn drawSprite(s: Sprite, t: Transform) void {
 
 /// Draw a texture at its native size with its top-left corner at `position`.
 pub fn drawTexture(tex: Texture, position: Vec2) void {
-    drawSprite(.{ .texture = tex, .transform = .{ .pos = position, .origin = .top_left } });
+    drawSprite(.{ .texture = tex }, .{ .pos = position, .origin = .top_left });
 }
 
 /// Draw a texture using a Transform and color tint.

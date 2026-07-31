@@ -131,16 +131,15 @@ pub const ParticleSystem = struct {
 
             api.setBlendMode(p.blend_mode);
             if (p.texture) |tex| {
-                api.drawSprite(.{
-                    .texture = tex,
-                    .transform = .{
+                api.drawSprite(
+                    .{ .texture = tex, .color = col },
+                    .{
                         .pos = p.pos,
                         .scale = .init(size / @as(f32, @floatFromInt(tex.width)), size / @as(f32, @floatFromInt(tex.height))),
                         .rotation = p.rotation,
                         .origin = .center,
                     },
-                    .color = col,
-                });
+                );
             } else {
                 api.drawRectEx(p.pos, .init(size, size), .center, col);
             }
