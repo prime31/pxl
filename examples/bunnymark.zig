@@ -11,6 +11,9 @@ const Crab = struct {
     vel: Vec2,
 };
 
+// stress tests the batcher by forcing batches with texture swaps
+const flip_tex_every_count = 20;
+
 var tex1: pxl.gpu.Texture = undefined;
 var tex2: pxl.gpu.Texture = undefined;
 var crabs: pxl.util.Vec(Crab) = .empty;
@@ -25,6 +28,7 @@ pub fn main(init: std.process.Init) !void {
             .batcher = .{
                 .max_verts = 3_000_000,
                 .max_indices = 3_000_000,
+                .max_cmds = 3_000_000,
             },
         },
     });
@@ -74,7 +78,7 @@ fn update() !void {
 fn render() !void {
     pxl.beginPass(.{ .clear_color = pxl.math.Color.aya });
     for (crabs.items, 0..) |*crab, i| {
-        const t = if (@mod(i, 2) == 0) tex1 else tex2;
+        const t = if (@mod(i, flip_tex_every_count) == 0) tex1 else tex2;
         api.drawTexture(t, crab.pos);
     }
     pxl.endPass();

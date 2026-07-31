@@ -11,14 +11,13 @@ const Rect = pxl.math.Rect;
 const Texture = @import("texture.zig").Texture;
 
 /// A single interleaved vertex: position, texture coordinate and packed RGBA color.
-/// Matches the `batcher` shader's vertex layout (see shaders/batcher.glsl).
 pub const Vertex = extern struct {
     pos: Vec2,
     uv: Vec2,
     col: Color,
 };
 
-/// Blend modes, mirroring sokol_gp's `sgp_blend_mode` (sokol_gp.h:447).
+/// Blend modes, mirroring sokol_gp's `sgp_blend_mode`.
 pub const BlendMode = enum {
     none,
     blend,
@@ -29,13 +28,10 @@ pub const BlendMode = enum {
     mul,
 };
 
-/// Uniform bind slots, matching `SGP_UNIFORM_SLOT_*` and the sokol shader convention.
 const UNIFORM_SLOT_VERTEX: u32 = 0;
 const UNIFORM_SLOT_FRAGMENT: u32 = 1;
 
 const blend_mode_count = @typeInfo(BlendMode).@"enum".fields.len;
-
-/// Upper bound on `segments` for `drawCircle`/`drawCircleOutline` (bounds their stack buffers).
 const max_circle_segments = 64;
 
 pub const sprite = @import("sprite.zig");
@@ -44,56 +40,63 @@ pub const Sprite = sprite.Sprite;
 pub const Transform = sprite.Transform;
 
 pub const BatcherConfig = struct {
-    max_verts: u32 = 300_000,
-    max_indices: u32 = 600_000,
-    max_uniform_bytes: u32 = 64,
+    /// Max vertices queued per CPU batch (flush target).
+    max_verts: u32 = 40_000,
+    /// Max indices queued per CPU batch (flush target).
+    max_indices: u32 = 60_000,
+    /// Multiplier for GPU buffer allocation to allow multiple CPU flushes in a single pass.
+    gpu_buffer_factor: u32 = 2,
+    /// Max draw commands stored per CPU batch.
+    max_cmds: u32 = 2_000,
+    /// Max byte size reserved for staged pipeline uniforms.
+    max_uniform_bytes: u32 = 2_048,
 };
 
-/// A minimal, fast 2D triangle batcher built directly on sokol-gfx.
-///
-/// The only primitive is the triangle: every draw is expressed as indexed
-/// triangles. Vertices are transformed on the CPU by the current `matrix` as they
-/// are pushed, so the shader is a pass-through and draws with different transforms
-/// still merge into a single batch. Only a texture change (or a full staging buffer)
-/// breaks a batch and forces a `flush`.
-///
-/// A `flush` issues sokol-gfx draw commands, so it must be called while an
-/// `sg.beginPass`/`sg.endPass` is active.
+/// A recorded deferred draw command slice.
+pub const DrawCmd = struct {
+    vert_start: u32,
+    index_start: u32,
+    index_count: u32,
+    img: sg.Image,
+    blend_mode: BlendMode,
+    pipeline: sg.Pipeline,
+    uniform_vs_offset: u32,
+    uniform_vs_size: u32,
+    uniform_fs_offset: u32,
+    uniform_fs_size: u32,
+};
+
 pub const Batcher = struct {
     verts: []Vertex,
     indices: []u16,
     vert_count: u32 = 0,
     index_count: u32 = 0,
 
+    cmds: []DrawCmd,
+    cmd_count: u32 = 0,
+    cmd_dirty: bool = true,
+
     vbuf: sg.Buffer,
     ibuf: sg.Buffer,
     smp: sg.Sampler,
     white: Texture,
 
-    /// The batcher shader, kept so per-blend-mode pipelines can be built lazily.
     shader: sg.Shader,
-    /// Lazily-created pipeline per blend mode, indexed by `@intFromEnum(BlendMode)`
-    /// (mirrors sokol_gp's `_sgp.pipelines[]`).
     pipelines: [blend_mode_count]sg.Pipeline = @splat(.{}),
-
-    /// img.id -> texture view, mirroring sokol_gp's per-image view lookup.
     view_cache: std.AutoHashMap(u32, sg.View),
 
-    // ---- current draw state (a change to any of these breaks the batch) ----
-
-    /// The current batch texture.
+    // ---- current recording state ----
     cur_img: sg.Image,
-    /// The current blend mode (ignored while a custom `pipeline` is set).
     blend_mode: BlendMode = .blend,
-    /// The current custom pipeline; `id == 0` means "use the blend-mode pipeline".
-    /// User-owned — not destroyed by the batcher.
     pipeline: sg.Pipeline = .{},
-    /// Custom-pipeline uniform staging: `vs` bytes then `fs` bytes.
+
     uniform_data: []u8,
+    uniform_bytes_count: u32 = 0,
+    uniform_vs_offset: u32 = 0,
     uniform_vs_size: u32 = 0,
+    uniform_fs_offset: u32 = 0,
     uniform_fs_size: u32 = 0,
 
-    /// The current 2D affine transform, applied to vertices on the CPU.
     matrix: Mat32 = Mat32.identity(),
 
     pub fn init(config: BatcherConfig) !Batcher {
@@ -103,17 +106,21 @@ pub const Batcher = struct {
         const indices = try pxl.mem.allocator.alloc(u16, config.max_indices);
         errdefer pxl.mem.allocator.free(indices);
 
+        const cmds = try pxl.mem.allocator.alloc(DrawCmd, config.max_cmds);
+        errdefer pxl.mem.allocator.free(cmds);
+
         const uniform_data = try pxl.mem.allocator.alloc(u8, config.max_uniform_bytes);
         errdefer pxl.mem.allocator.free(uniform_data);
 
+        // Scale GPU buffer capacity by gpu_buffer_factor so multiple appendBuffer calls work per frame
         const vbuf = sg.makeBuffer(.{
             .usage = .{ .vertex_buffer = true, .stream_update = true },
-            .size = config.max_verts * @sizeOf(Vertex),
+            .size = config.max_verts * @sizeOf(Vertex) * config.gpu_buffer_factor,
             .label = "batcher-vbuf",
         });
         const ibuf = sg.makeBuffer(.{
             .usage = .{ .index_buffer = true, .stream_update = true },
-            .size = config.max_indices * @sizeOf(u16),
+            .size = config.max_indices * @sizeOf(u16) * config.gpu_buffer_factor,
             .label = "batcher-ibuf",
         });
 
@@ -127,10 +134,10 @@ pub const Batcher = struct {
         var white_pixels = [_]u32{0xFFFFFFFF};
         const white = Texture.initWithColorData(white_pixels[0..], 1, 1);
 
-        // per-blend-mode pipelines are created lazily on first use (see `blendPipeline`)
         return .{
             .verts = verts,
             .indices = indices,
+            .cmds = cmds,
             .uniform_data = uniform_data,
             .vbuf = vbuf,
             .ibuf = ibuf,
@@ -158,10 +165,10 @@ pub const Batcher = struct {
 
         pxl.mem.allocator.free(self.verts);
         pxl.mem.allocator.free(self.indices);
+        pxl.mem.allocator.free(self.cmds);
         pxl.mem.allocator.free(self.uniform_data);
     }
 
-    /// The blend state for a given mode, mirroring sokol_gp's `_sgp_blend_state` (sokol_gp.h:1523).
     fn blendState(mode: BlendMode) sg.BlendState {
         return switch (mode) {
             .none => .{
@@ -230,9 +237,6 @@ pub const Batcher = struct {
         };
     }
 
-    /// Build a pipeline with the batcher's vertex layout for the given shader and blend
-    /// mode. Public companion to `setPipeline` (mirrors sokol_gp's `sgp_make_pipeline`),
-    /// so callers can create a layout-compatible pipeline for a custom shader.
     pub fn makePipeline(shader: sg.Shader, mode: BlendMode) sg.Pipeline {
         var layout = sg.VertexLayoutState{};
         layout.buffers[0].stride = @sizeOf(Vertex);
@@ -252,64 +256,75 @@ pub const Batcher = struct {
         return sg.makePipeline(pip_desc);
     }
 
-    /// Return the lazily-created pipeline for a blend mode (mirrors `_sgp_lookup_pipeline`).
     fn blendPipeline(self: *Batcher, mode: BlendMode) sg.Pipeline {
         const i = @intFromEnum(mode);
         if (self.pipelines[i].id == 0) self.pipelines[i] = makePipeline(self.shader, mode);
         return self.pipelines[i];
     }
 
-    /// Begin a new batch: reset the staging buffers and all draw state.
+    /// Reset staging buffers and recording state.
     pub fn begin(self: *Batcher, matrix: Mat32) void {
         self.vert_count = 0;
         self.index_count = 0;
+        self.cmd_count = 0;
+        self.uniform_bytes_count = 0;
         self.matrix = matrix;
         self.cur_img = self.white.img;
         self.blend_mode = .blend;
         self.pipeline = .{};
         self.uniform_vs_size = 0;
         self.uniform_fs_size = 0;
+        self.uniform_vs_offset = 0;
+        self.uniform_fs_offset = 0;
+        self.cmd_dirty = true;
     }
 
-    /// Set the transform applied to subsequently pushed vertices. Does not break the
-    /// batch, since the transform is baked into the vertices on the CPU.
     pub fn setMatrix(self: *Batcher, matrix: Mat32) void {
         self.matrix = matrix;
     }
 
-    /// Set the blend mode for subsequent draws. Flushes the current batch if it changes.
     pub fn setBlendMode(self: *Batcher, mode: BlendMode) void {
         if (mode == self.blend_mode) return;
-        self.flush();
         self.blend_mode = mode;
+        self.cmd_dirty = true;
     }
 
-    /// Set a custom pipeline that overrides the blend-mode pipeline. `id == 0` clears it.
-    /// Flushes the current batch and resets uniforms, like sokol_gp's `sgp_set_pipeline`.
     pub fn setPipeline(self: *Batcher, pipeline: sg.Pipeline) void {
         if (pipeline.id == self.pipeline.id) return;
-        self.flush();
         self.pipeline = pipeline;
         self.uniform_vs_size = 0;
         self.uniform_fs_size = 0;
+        self.cmd_dirty = true;
     }
 
-    /// Clear the custom pipeline, returning to the built-in blend-mode pipelines.
     pub fn resetPipeline(self: *Batcher) void {
         self.setPipeline(.{});
     }
 
-    /// Set the uniform data for the current custom pipeline. Pass a pointer to the
-    /// vertex-stage uniform struct (or `null`) and likewise for the fragment stage; each
-    /// size is derived from the pointee type. Mirrors sokol_gp's `sgp_set_uniform`. Flushes.
     pub fn setUniform(self: *Batcher, vs: anytype, fs: anytype) void {
-        self.flush();
-        self.uniform_vs_size = self.copyUniform(0, vs);
-        self.uniform_fs_size = self.copyUniform(self.uniform_vs_size, fs);
+        const vs_size = getUniformSize(vs);
+        const fs_size = getUniformSize(fs);
+
+        if (self.uniform_bytes_count + vs_size + fs_size > self.uniform_data.len) {
+            self.flush();
+        }
+
+        self.uniform_vs_offset = self.uniform_bytes_count;
+        self.uniform_vs_size = self.copyUniform(self.uniform_vs_offset, vs);
+        self.uniform_bytes_count += self.uniform_vs_size;
+
+        self.uniform_fs_offset = self.uniform_bytes_count;
+        self.uniform_fs_size = self.copyUniform(self.uniform_fs_offset, fs);
+        self.uniform_bytes_count += self.uniform_fs_size;
+
+        self.cmd_dirty = true;
     }
 
-    /// Copy a uniform struct pointed to by `ptr` into `uniform_data` at `offset`, returning
-    /// its byte size. `null` writes nothing and returns 0.
+    fn getUniformSize(ptr: anytype) u32 {
+        if (@TypeOf(ptr) == @TypeOf(null)) return 0;
+        return @intCast(std.mem.asBytes(ptr).len);
+    }
+
     fn copyUniform(self: *Batcher, offset: u32, ptr: anytype) u32 {
         if (@TypeOf(ptr) == @TypeOf(null)) return 0;
         const bytes = std.mem.asBytes(ptr);
@@ -318,11 +333,10 @@ pub const Batcher = struct {
         return @intCast(bytes.len);
     }
 
-    /// Bind a texture for subsequent draws. Flushes the current batch if the texture changes.
     pub fn setTexture(self: *Batcher, tex: Texture) void {
         if (tex.img.id == self.cur_img.id) return;
-        self.flush();
         self.cur_img = tex.img;
+        self.cmd_dirty = true;
     }
 
     pub const Mesh = struct {
@@ -332,9 +346,6 @@ pub const Batcher = struct {
         matrix: ?Mat32 = null,
     };
 
-    /// Append a mesh of triangles. Each vertex position is transformed by the current
-    /// matrix (or `mesh.matrix` composed with current matrix if provided).
-    /// `mesh.texture` sets the batch texture (defaults to 1x1 white texture if null).
     pub fn pushMesh(self: *Batcher, mesh: Mesh) void {
         const target_tex = mesh.texture orelse self.white;
         self.setTexture(target_tex);
@@ -343,12 +354,38 @@ pub const Batcher = struct {
 
         std.debug.assert(mesh.verts.len <= self.verts.len and mesh.indices.len <= self.indices.len);
 
+        const current_cmd_verts = if (self.cmd_count > 0 and !self.cmd_dirty)
+            (self.vert_count - self.cmds[self.cmd_count - 1].vert_start)
+        else
+            0;
+
         const would_overflow = self.vert_count + mesh.verts.len > self.verts.len or
             self.index_count + mesh.indices.len > self.indices.len or
-            self.vert_count + mesh.verts.len > std.math.maxInt(u16);
+            self.cmd_count >= self.cmds.len or
+            current_cmd_verts + mesh.verts.len > std.math.maxInt(u16);
+
         if (would_overflow) self.flush();
 
-        const base: u16 = @intCast(self.vert_count);
+        if (self.cmd_dirty or self.cmd_count == 0) {
+            self.cmds[self.cmd_count] = .{
+                .index_start = self.index_count,
+                .index_count = 0,
+                .vert_start = self.vert_count,
+                .img = self.cur_img,
+                .blend_mode = self.blend_mode,
+                .pipeline = self.pipeline,
+                .uniform_vs_offset = self.uniform_vs_offset,
+                .uniform_vs_size = self.uniform_vs_size,
+                .uniform_fs_offset = self.uniform_fs_offset,
+                .uniform_fs_size = self.uniform_fs_size,
+            };
+            self.cmd_count += 1;
+            self.cmd_dirty = false;
+        }
+
+        var cmd = &self.cmds[self.cmd_count - 1];
+        const base: u16 = @intCast(self.vert_count - cmd.vert_start);
+
         for (mesh.verts, 0..) |v, i| {
             self.verts[self.vert_count + i] = .{
                 .pos = current_mat.transformVec2(v.pos),
@@ -362,43 +399,73 @@ pub const Batcher = struct {
             self.indices[self.index_count + i] = base + idx;
         }
         self.index_count += @intCast(mesh.indices.len);
+        cmd.index_count += @intCast(mesh.indices.len);
     }
 
-    /// Upload the staged geometry and issue a draw call for the current texture.
-    /// Must be called inside an active sokol-gfx render pass.
+    /// Single upload of staged geometry followed by issuing stored draw commands.
     pub fn flush(self: *Batcher) void {
         if (self.index_count == 0) return;
 
-        const v_off = sg.appendBuffer(self.vbuf, sg.asRange(self.verts[0..self.vert_count]));
-        const i_off = sg.appendBuffer(self.ibuf, sg.asRange(self.indices[0..self.index_count]));
+        // 1. Single Buffer Upload
+        const v_off: u32 = @intCast(sg.appendBuffer(self.vbuf, sg.asRange(self.verts[0..self.vert_count])));
+        const i_off: u32 = @intCast(sg.appendBuffer(self.ibuf, sg.asRange(self.indices[0..self.index_count])));
 
-        var bind = sg.Bindings{};
-        bind.vertex_buffers[0] = self.vbuf;
-        bind.vertex_buffer_offsets[0] = v_off;
-        bind.index_buffer = self.ibuf;
-        bind.index_buffer_offset = i_off;
-        bind.views[shaders.VIEW_tex] = self.viewFor(self.cur_img);
-        bind.samplers[shaders.SMP_smp] = self.smp;
+        // 2. Execute recorded commands
+        for (self.cmds[0..self.cmd_count]) |cmd| {
+            if (cmd.index_count == 0) continue;
 
-        // a custom pipeline overrides the blend-mode pipeline and carries uniforms
-        const custom = self.pipeline.id != 0;
-        const pip = if (custom) self.pipeline else self.blendPipeline(self.blend_mode);
+            var bind = sg.Bindings{};
+            bind.vertex_buffers[0] = self.vbuf;
+            bind.vertex_buffer_offsets[0] = @intCast(v_off + cmd.vert_start * @sizeOf(Vertex));
+            bind.index_buffer = self.ibuf;
+            bind.index_buffer_offset = @intCast(i_off + cmd.index_start * @sizeOf(u16));
+            bind.views[shaders.VIEW_tex] = self.viewFor(cmd.img);
+            bind.samplers[shaders.SMP_smp] = self.smp;
 
-        sg.applyPipeline(pip);
-        sg.applyBindings(bind);
-        if (custom) {
-            if (self.uniform_vs_size > 0)
-                sg.applyUniforms(UNIFORM_SLOT_VERTEX, sg.asRange(self.uniform_data[0..self.uniform_vs_size]));
-            if (self.uniform_fs_size > 0)
-                sg.applyUniforms(UNIFORM_SLOT_FRAGMENT, sg.asRange(self.uniform_data[self.uniform_vs_size..][0..self.uniform_fs_size]));
+            const custom = cmd.pipeline.id != 0;
+            const pip = if (custom) cmd.pipeline else self.blendPipeline(cmd.blend_mode);
+
+            sg.applyPipeline(pip);
+            sg.applyBindings(bind);
+            if (custom) {
+                if (cmd.uniform_vs_size > 0)
+                    sg.applyUniforms(UNIFORM_SLOT_VERTEX, sg.asRange(self.uniform_data[cmd.uniform_vs_offset..][0..cmd.uniform_vs_size]));
+                if (cmd.uniform_fs_size > 0)
+                    sg.applyUniforms(UNIFORM_SLOT_FRAGMENT, sg.asRange(self.uniform_data[cmd.uniform_fs_offset..][0..cmd.uniform_fs_size]));
+            }
+            sg.draw(0, cmd.index_count, 1);
         }
-        sg.draw(0, self.index_count, 1);
 
+        // 3. Reset queue counters
         self.vert_count = 0;
         self.index_count = 0;
+        self.cmd_count = 0;
+
+        // 4. Preserve active uniform slice across mid-frame flushes
+        if (self.pipeline.id != 0 and (self.uniform_vs_size > 0 or self.uniform_fs_size > 0)) {
+            const vs_size = self.uniform_vs_size;
+            const fs_size = self.uniform_fs_size;
+
+            if (vs_size > 0) {
+                @memcpy(self.uniform_data[0..vs_size], self.uniform_data[self.uniform_vs_offset..][0..vs_size]);
+                self.uniform_vs_offset = 0;
+            }
+            if (fs_size > 0) {
+                @memcpy(self.uniform_data[vs_size..][0..fs_size], self.uniform_data[self.uniform_fs_offset..][0..fs_size]);
+                self.uniform_fs_offset = vs_size;
+            }
+            self.uniform_bytes_count = vs_size + fs_size;
+        } else {
+            self.uniform_bytes_count = 0;
+            self.uniform_vs_offset = 0;
+            self.uniform_fs_offset = 0;
+            self.uniform_vs_size = 0;
+            self.uniform_fs_size = 0;
+        }
+
+        self.cmd_dirty = true;
     }
 
-    /// Flush any remaining geometry. Alias for `flush`, marking the end of a batch.
     pub fn end(self: *Batcher) void {
         self.flush();
     }
