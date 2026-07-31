@@ -11,3 +11,4 @@
 @include offscreen.glsl
 @include display.glsl
 @include gp_example.glsl
+@include fog_noise.glsl

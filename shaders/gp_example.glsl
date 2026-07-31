@@ -7,6 +7,7 @@ layout(binding=0) uniform gp_example_vs_uniforms {
 layout(location=0) in vec4 coord;
 layout(location=0) out vec2 texUV;
 layout(location=1) out vec2 fragPos;
+
 void main() {
     gl_Position = vec4(coord.xy, 0.0, 1.0);
     fragPos = vec2(coord.x * (iResolution.x/iResolution.y), coord.y);

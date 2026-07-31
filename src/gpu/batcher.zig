@@ -467,6 +467,7 @@ pub const Batcher = struct {
     }
 
     pub fn end(self: *Batcher) void {
+        self.resetPipeline();
         self.flush();
     }
 
