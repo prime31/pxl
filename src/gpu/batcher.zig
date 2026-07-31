@@ -58,6 +58,7 @@ pub const DrawCmd = struct {
     index_start: u32,
     index_count: u32,
     img: sg.Image,
+    smp: sg.Sampler,
     blend_mode: BlendMode,
     pipeline: sg.Pipeline,
     uniform_vs_offset: u32,
@@ -87,6 +88,7 @@ pub const Batcher = struct {
 
     // ---- current recording state ----
     cur_img: sg.Image,
+    cur_smp: sg.Sampler,
     blend_mode: BlendMode = .blend,
     pipeline: sg.Pipeline = .{},
 
@@ -142,6 +144,7 @@ pub const Batcher = struct {
             .vbuf = vbuf,
             .ibuf = ibuf,
             .smp = smp,
+            .cur_smp = smp,
             .white = white,
             .shader = sg.makeShader(shaders.batcherShaderDesc(sg.queryBackend())),
             .view_cache = std.AutoHashMap(u32, sg.View).init(pxl.mem.allocator),
@@ -270,6 +273,7 @@ pub const Batcher = struct {
         self.uniform_bytes_count = 0;
         self.matrix = matrix;
         self.cur_img = self.white.img;
+        self.cur_smp = self.smp;
         self.blend_mode = .blend;
         self.pipeline = .{};
         self.uniform_vs_size = 0;
@@ -299,6 +303,16 @@ pub const Batcher = struct {
 
     pub fn resetPipeline(self: *Batcher) void {
         self.setPipeline(.{});
+    }
+
+    pub fn setSampler(self: *Batcher, smp: sg.Sampler) void {
+        if (smp.id == self.cur_smp.id) return;
+        self.cur_smp = smp;
+        self.cmd_dirty = true;
+    }
+
+    pub fn resetSampler(self: *Batcher) void {
+        self.setSampler(self.smp);
     }
 
     pub fn setUniform(self: *Batcher, vs: anytype, fs: anytype) void {
@@ -372,6 +386,7 @@ pub const Batcher = struct {
                 .index_count = 0,
                 .vert_start = self.vert_count,
                 .img = self.cur_img,
+                .smp = self.cur_smp,
                 .blend_mode = self.blend_mode,
                 .pipeline = self.pipeline,
                 .uniform_vs_offset = self.uniform_vs_offset,
@@ -420,7 +435,7 @@ pub const Batcher = struct {
             bind.index_buffer = self.ibuf;
             bind.index_buffer_offset = @intCast(i_off + cmd.index_start * @sizeOf(u16));
             bind.views[shaders.VIEW_tex] = self.viewFor(cmd.img);
-            bind.samplers[shaders.SMP_smp] = self.smp;
+            bind.samplers[shaders.SMP_smp] = cmd.smp;
 
             const custom = cmd.pipeline.id != 0;
             const pip = if (custom) cmd.pipeline else self.blendPipeline(cmd.blend_mode);
@@ -467,6 +482,7 @@ pub const Batcher = struct {
     }
 
     pub fn end(self: *Batcher) void {
+        self.resetSampler();
         self.resetPipeline();
         self.flush();
     }

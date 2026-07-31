@@ -38,6 +38,14 @@ pub fn resetPipeline() void {
     pxl.batcher.resetPipeline();
 }
 
+pub fn setSampler(smp: sg.Sampler) void {
+    pxl.batcher.setSampler(smp);
+}
+
+pub fn resetSampler() void {
+    pxl.batcher.resetSampler();
+}
+
 pub fn setUniform(vs: anytype, fs: anytype) void {
     pxl.batcher.setUniform(vs, fs);
 }

@@ -9,6 +9,7 @@ const Color = pxl.math.Color;
 var sdf_pip: sg.Pipeline = undefined;
 var noise_pip: sg.Pipeline = undefined;
 var noise_tex: pxl.gpu.Texture = undefined;
+var noise_smp: sg.Sampler = undefined;
 var sdf_vs_uni: pxl.shaders.GpExampleVsUniforms = undefined;
 var sdf_fs_uni: pxl.shaders.GpExampleFsUniforms = undefined;
 var noise_fs_uni: pxl.shaders.FogNoiseFsUniforms = .{
@@ -33,12 +34,19 @@ fn setup() !void {
     sdf_pip = api.makePipeline(sg.makeShader(pxl.shaders.gpExampleShaderDesc(sg.queryBackend())), .blend);
     noise_pip = api.makePipeline(sg.makeShader(pxl.shaders.fogNoiseShaderDesc(sg.queryBackend())), .blend);
     noise_tex = try pxl.gpu.Texture.initFromFile("examples/assets/perlin.png");
+    noise_smp = sg.makeSampler(.{
+        .min_filter = .LINEAR,
+        .mag_filter = .LINEAR,
+        .wrap_u = .REPEAT,
+        .wrap_v = .REPEAT,
+    });
 }
 
 fn shutdown() !void {
     sg.destroyPipeline(sdf_pip);
     sg.destroyPipeline(noise_pip);
     noise_tex.deinit();
+    sg.destroySampler(noise_smp);
 }
 
 fn update() !void {
@@ -80,6 +88,7 @@ fn render() !void {
 
     {
         api.setPipeline(noise_pip);
+        api.setSampler(noise_smp);
 
         const image_ratio = pxl.util.cast(f32, noise_tex.width) / pxl.util.cast(f32, noise_tex.height);
         noise_fs_uni.iRatio = image_ratio;
