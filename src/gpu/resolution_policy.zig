@@ -1,5 +1,6 @@
 const std = @import("std");
 const pxl = @import("../pxl.zig");
+const cast = pxl.util.cast;
 
 pub const ResolutionScaler = struct {
     x: i32 = 0,
@@ -7,6 +8,14 @@ pub const ResolutionScaler = struct {
     w: i32,
     h: i32,
     scale: f32 = 1,
+
+    pub fn widthf(self: ResolutionScaler) f32 {
+        return cast(f32, self.w);
+    }
+
+    pub fn heightf(self: ResolutionScaler) f32 {
+        return cast(f32, self.h);
+    }
 };
 
 pub const ResolutionPolicy = enum {
@@ -30,20 +39,20 @@ pub const ResolutionPolicy = enum {
         std.debug.assert((self != .default and design_w > 0 and design_h > 0) or self == .default);
 
         // common config
-        const win_size = struct { w: i32, h: i32 }{ .w = pxl.sapp.width(), .h = pxl.sapp.height() };
+        const win_size = struct { w: f32, h: f32 }{ .w = pxl.sapp.widthf(), .h = pxl.sapp.heightf() };
 
         // our render target size will be full screen for .default
-        const rt_w = if (self == .default) win_size.w else design_w;
-        const rt_h = if (self == .default) win_size.h else design_h;
+        const rt_w = if (self == .default) win_size.w else cast(f32, design_w);
+        const rt_h = if (self == .default) win_size.h else cast(f32, design_h);
 
         // scale of the screen size / render target size, used by both pixel perfect and non-pp
-        const res_x = @as(f32, @floatFromInt(win_size.w)) / @as(f32, @floatFromInt(rt_w));
-        const res_y = @as(f32, @floatFromInt(win_size.h)) / @as(f32, @floatFromInt(rt_h));
+        const res_x = win_size.w / rt_w;
+        const res_y = win_size.h / rt_h;
 
         var scale: i32 = 1;
         var scale_f: f32 = 1.0;
-        const aspect_ratio = @as(f32, @floatFromInt(win_size.w)) / @as(f32, @floatFromInt(win_size.h));
-        const rt_aspect_ratio = @as(f32, @floatFromInt(rt_w)) / @as(f32, @floatFromInt(rt_h));
+        const aspect_ratio = win_size.w / win_size.h;
+        const rt_aspect_ratio = rt_w / rt_h;
 
         if (self != .default) {
             scale_f = if (rt_aspect_ratio > aspect_ratio) res_x else res_y;
@@ -55,8 +64,8 @@ pub const ResolutionPolicy = enum {
         switch (self) {
             .default => {
                 const win_scale = pxl.sapp.dpiScale();
-                const width = @as(i32, @intFromFloat(@as(f32, @floatFromInt(win_size.w)) / win_scale));
-                const height = @as(i32, @intFromFloat(@as(f32, @floatFromInt(win_size.h)) / win_scale));
+                const width = @as(i32, @intFromFloat(win_size.w / win_scale));
+                const height = @as(i32, @intFromFloat(win_size.h / win_scale));
                 return ResolutionScaler{
                     .x = 0,
                     .y = 0,
@@ -70,14 +79,14 @@ pub const ResolutionPolicy = enum {
                 // go for the lowest scale value so everything fits properly (Show_All)
                 const res_scale = if (self == .no_border) @max(res_x, res_y) else @min(res_x, res_y);
 
-                const x = (@as(f32, @floatFromInt(win_size.w)) - (@as(f32, @floatFromInt(rt_w)) * res_scale)) / 2.0;
-                const y = (@as(f32, @floatFromInt(win_size.h)) - (@as(f32, @floatFromInt(rt_h)) * res_scale)) / 2.0;
+                const x = (win_size.w - rt_w * res_scale) / 2.0;
+                const y = (win_size.h - rt_h * res_scale) / 2.0;
 
                 return ResolutionScaler{
-                    .x = @as(i32, @intFromFloat(x)),
-                    .y = @as(i32, @intFromFloat(y)),
-                    .w = rt_w,
-                    .h = rt_h,
+                    .x = cast(i32, x),
+                    .y = cast(i32, y),
+                    .w = cast(i32, rt_w),
+                    .h = cast(i32, rt_h),
                     .scale = res_scale,
                 };
             },
@@ -89,34 +98,34 @@ pub const ResolutionPolicy = enum {
                     scale = @as(i32, @intFromFloat(@ceil(scale_f)));
                 }
 
-                const x = @divTrunc(win_size.w - (rt_w * scale), 2);
-                const y = @divTrunc(win_size.h - (rt_h * scale), 2);
+                const x = @divTrunc(cast(i32, win_size.w - rt_w * cast(f32, scale)), 2);
+                const y = @divTrunc(cast(i32, win_size.h - rt_h * cast(f32, scale)), 2);
                 return ResolutionScaler{
                     .x = x,
                     .y = y,
-                    .w = rt_w,
-                    .h = rt_h,
+                    .w = cast(i32, rt_w),
+                    .h = cast(i32, rt_h),
                     .scale = @as(f32, @floatFromInt(scale)),
                 };
             },
             .best_fit => {
-                const bleed_x: i32 = 0;
-                const bleed_y: i32 = 0;
-                const safe_sx = @as(f32, @floatFromInt(win_size.w)) / @as(f32, @floatFromInt(rt_w - bleed_x));
-                const safe_sy = @as(f32, @floatFromInt(win_size.h)) / @as(f32, @floatFromInt(rt_h - bleed_y));
+                const bleed_x: f32 = 0;
+                const bleed_y: f32 = 0;
+                const safe_sx = win_size.w / rt_w - bleed_x;
+                const safe_sy = win_size.h / rt_h - bleed_y;
 
                 const res_scale = @max(res_x, res_y);
                 const safe_scale = @min(safe_sx, safe_sy);
                 const final_scale = @min(res_scale, safe_scale);
 
-                const x = (@as(f32, @floatFromInt(win_size.w)) - (@as(f32, @floatFromInt(rt_w)) * final_scale)) / 2.0;
-                const y = (@as(f32, @floatFromInt(win_size.h)) - (@as(f32, @floatFromInt(rt_h)) * final_scale)) / 2.0;
+                const x = win_size.w - (rt_w * final_scale) / 2.0;
+                const y = win_size.h - (rt_h * final_scale) / 2.0;
 
                 return ResolutionScaler{
-                    .x = @as(i32, @intFromFloat(x)),
-                    .y = @as(i32, @intFromFloat(y)),
-                    .w = rt_w,
-                    .h = rt_h,
+                    .x = cast(i32, x),
+                    .y = cast(i32, y),
+                    .w = cast(i32, rt_w),
+                    .h = cast(i32, rt_h),
                     .scale = final_scale,
                 };
             },

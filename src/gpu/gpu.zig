@@ -127,8 +127,8 @@ pub fn blitRenderTexture(comptime has_imgui: bool) void {
 
     if (gfx_config.resolution_policy != .default) {
         const scaler = gfx_config.resolution_policy.getScaler(gfx_config.design_width, gfx_config.design_height);
-        const view_w: f32 = @floatFromInt(@as(i32, @intFromFloat(@as(f32, @floatFromInt(scaler.w)) * scaler.scale)));
-        const view_h: f32 = @floatFromInt(@as(i32, @intFromFloat(@as(f32, @floatFromInt(scaler.h)) * scaler.scale)));
+        const view_w: f32 = scaler.widthf() * scaler.scale;
+        const view_h: f32 = scaler.heightf() * scaler.scale;
         sg.applyViewportf(@floatFromInt(scaler.x), @floatFromInt(scaler.y), view_w, view_h, true);
     }
 

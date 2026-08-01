@@ -25,6 +25,11 @@ pub fn main(init: std.process.Init) !void {
         .update = update,
         .render = render,
         .shutdown = shutdown,
+        .gfx = .{
+            .design_width = 640,
+            .design_height = 320,
+            .resolution_policy = .show_all_pixel_perfect,
+        },
     });
 }
 
@@ -55,9 +60,6 @@ fn update() !void {}
 fn render() !void {
     pxl.beginPass(.{ .clear_color = Color.fromBytes(11, 15, 22, 255) });
 
-    const text_pos = Vec2.init(pxl.sapp.widthf() * 0.5 - 100, pxl.sapp.heightf() * 0.5 - 100);
-    api.drawText(null, text_pos, "fucking a-right ass\nmother FOOKER", Color.white);
-
     var pos = Vec2.one;
     for (animations) |anim| {
         const elapsed: usize = @intFromFloat(@floor(pxl.time.time() / 0.1));
@@ -72,7 +74,7 @@ fn render() !void {
         }, sprite.uvs.asRect(), Color.white);
 
         pos.x += cell_size;
-        if (pos.x > pxl.sapp.widthf()) {
+        if (pos.x > pxl.gpu.renderWidthf()) {
             pos.x = 1;
             pos.y += cell_size;
         }
@@ -88,6 +90,9 @@ fn render() !void {
         .w = @floatFromInt(spr.uvs.w * 5),
         .h = @floatFromInt(spr.uvs.h * 5),
     }, spr.uvs.asRect(), Color.white);
+
+    const text_pos = Vec2.init(pxl.gpu.renderWidthf() * 0.5 - 100, pxl.gpu.renderHeightf() * 0.5);
+    api.drawText(null, text_pos, "fucking a-right ass\nmother FOOKER", Color.white);
 
     pxl.endPass();
 }
