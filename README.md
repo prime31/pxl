@@ -5,3 +5,11 @@
 - zig-frm parallax_tilemap.zig has decent player starter
 
 zig build --release=small -Dtarget=wasm32-emscripten base
+
+
+### Bust Shadc Cache
+
+In `shdc.createModule`:
+```zig
+.genver = b.fmt("{b}", .{std.Io.Clock.now(.awake, b.graph.io).toNanoseconds()})
+```

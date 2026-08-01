@@ -228,5 +228,6 @@ fn compileShaderModule(b: *Build, dep_sokol: *Build.Dependency, shader_file: []c
             .metal_macos = true,
             .hlsl5 = false,
         },
+        .genver = b.fmt("{b}", .{std.Io.Clock.now(.awake, b.graph.io).toNanoseconds()}),
     });
 }

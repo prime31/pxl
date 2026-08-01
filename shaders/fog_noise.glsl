@@ -41,7 +41,6 @@ void main() {
 
     vec3 col = mix(tex_col, vec3(f) * color.rgb, iPressure);
     frag_color = vec4(col, 1.0);
-    // frag_color = texture(sampler2D(tex, smp), uv);
 }
 @end
 
