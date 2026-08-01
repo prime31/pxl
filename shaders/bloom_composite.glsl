@@ -14,6 +14,9 @@ void main() {
 layout(binding=0) uniform texture2D scene_tex;
 layout(binding=1) uniform texture2D bloom_mix_tex;
 layout(binding=0) uniform sampler bloom_smp;
+layout(binding=1) uniform bloom_composite_fs_uniforms {
+    float u_intensity;
+};
 
 in vec2 uv;
 out vec4 frag_color;
@@ -21,8 +24,7 @@ out vec4 frag_color;
 void main() {
     vec3 scene_col = texture(sampler2D(scene_tex, bloom_smp), uv).rgb;
     vec3 bloom_col = texture(sampler2D(bloom_mix_tex, bloom_smp), uv).rgb;
-    float intensity = 1.4;
-    frag_color = vec4(scene_col + bloom_col * intensity, 1.0);
+    frag_color = vec4(scene_col + bloom_col * u_intensity, 1.0);
 }
 #pragma sokol @end
 

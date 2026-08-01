@@ -20,6 +20,9 @@ try pxl.run(init, .{
 		.resolution_policy = .show_all_pixel_perfect,
 		.bloom_enabled = true,
 		.bloom_downsample = 2,
+		.bloom_threshold = 0.7,
+		.bloom_intensity = 1.2,
+		.bloom_blur_radius = 1.0,
 	},
 });
 ```

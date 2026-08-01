@@ -2,6 +2,8 @@ const std = @import("std");
 const pxl = @import("../pxl.zig");
 const sg = pxl.sokol.gfx;
 
+const UNIFORM_SLOT_FRAGMENT: u32 = 1;
+
 pub const ResolutionPolicy = @import("resolution_policy.zig").ResolutionPolicy;
 pub const ResolutionScaler = @import("resolution_policy.zig").ResolutionScaler;
 pub const Batcher = @import("batcher.zig").Batcher;
@@ -40,6 +42,12 @@ pub const Config = struct {
     bloom_enabled: bool = false,
     // render bloom intermediate textures at 1 / bloom_downsample scale
     bloom_downsample: i32 = 2,
+    // luminance threshold for bloom extraction, clamped to [0, 4]
+    bloom_threshold: f32 = 0.7,
+    // final bloom intensity multiplier, clamped to >= 0
+    bloom_intensity: f32 = 1.2,
+    // blur sampling radius multiplier, clamped to >= 0
+    bloom_blur_radius: f32 = 1.0,
 };
 
 pub var gfx_config: Config = .{};
@@ -218,6 +226,11 @@ pub fn blitRenderTexture(comptime has_imgui: bool) void {
 
         sg.applyPipeline(offscreen.bloom.composite_pip);
         sg.applyBindings(bind);
+
+        var composite_uni: pxl.shaders.BloomCompositeFsUniforms = .{
+            .u_intensity = @max(0.0, gfx_config.bloom_intensity),
+        };
+        sg.applyUniforms(UNIFORM_SLOT_FRAGMENT, sg.asRange(&composite_uni));
     } else {
         sg.applyPipeline(offscreen.pip);
         sg.applyBindings(offscreen.bind);
@@ -280,6 +293,9 @@ fn destroyBloomAttachments() void {
 }
 
 fn runBloomPasses() void {
+    const threshold = std.math.clamp(gfx_config.bloom_threshold, @as(f32, 0.0), @as(f32, 4.0));
+    const radius = @max(@as(f32, 0.0), gfx_config.bloom_blur_radius);
+
     var extract_bind = sg.Bindings{};
     extract_bind.views[pxl.shaders.VIEW_scene_tex] = offscreen.bind.views[pxl.shaders.VIEW_tex];
     extract_bind.samplers[pxl.shaders.SMP_bloom_smp] = offscreen.bloom.linear_smp;
@@ -287,6 +303,12 @@ fn runBloomPasses() void {
     sg.beginPass(offscreen.bloom.extract_pass);
     sg.applyPipeline(offscreen.bloom.extract_pip);
     sg.applyBindings(extract_bind);
+
+    var extract_uni: pxl.shaders.BloomExtractFsUniforms = .{
+        .u_threshold = threshold,
+    };
+    sg.applyUniforms(UNIFORM_SLOT_FRAGMENT, sg.asRange(&extract_uni));
+
     sg.draw(0, 3, 1);
     sg.endPass();
 
@@ -297,6 +319,12 @@ fn runBloomPasses() void {
     sg.beginPass(offscreen.bloom.ping_pass);
     sg.applyPipeline(offscreen.bloom.blur_h_pip);
     sg.applyBindings(blur_h_bind);
+
+    var blur_h_uni: pxl.shaders.BloomBlurHFsUniforms = .{
+        .u_radius = radius,
+    };
+    sg.applyUniforms(UNIFORM_SLOT_FRAGMENT, sg.asRange(&blur_h_uni));
+
     sg.draw(0, 3, 1);
     sg.endPass();
 
@@ -307,6 +335,12 @@ fn runBloomPasses() void {
     sg.beginPass(offscreen.bloom.blur_pass);
     sg.applyPipeline(offscreen.bloom.blur_v_pip);
     sg.applyBindings(blur_v_bind);
+
+    var blur_v_uni: pxl.shaders.BloomBlurVFsUniforms = .{
+        .u_radius = radius,
+    };
+    sg.applyUniforms(UNIFORM_SLOT_FRAGMENT, sg.asRange(&blur_v_uni));
+
     sg.draw(0, 3, 1);
     sg.endPass();
 }

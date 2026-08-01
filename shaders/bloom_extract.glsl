@@ -13,6 +13,9 @@ void main() {
 #pragma sokol @fs bloom_extract_fs
 layout(binding=0) uniform texture2D scene_tex;
 layout(binding=0) uniform sampler bloom_smp;
+layout(binding=1) uniform bloom_extract_fs_uniforms {
+    float u_threshold;
+};
 
 in vec2 uv;
 out vec4 frag_color;
@@ -20,8 +23,7 @@ out vec4 frag_color;
 void main() {
     vec3 col = texture(sampler2D(scene_tex, bloom_smp), uv).rgb;
     float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
-    float threshold = 0.6;
-    float k = max(luma - threshold, 0.0);
+    float k = max(luma - u_threshold, 0.0);
     frag_color = vec4(col * k, 1.0);
 }
 #pragma sokol @end
