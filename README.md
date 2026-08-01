@@ -6,6 +6,31 @@
 
 zig build --release=small -Dtarget=wasm32-emscripten base
 
+## Bloom (WIP)
+
+The renderer now supports a startup bloom toggle in `pxl.Config.gfx`.
+
+```zig
+try pxl.run(init, .{
+	.setup = setup,
+	.render = render,
+	.gfx = .{
+		.design_width = 320,
+		.design_height = 180,
+		.resolution_policy = .show_all_pixel_perfect,
+		.bloom_enabled = true,
+		.bloom_downsample = 2,
+	},
+});
+```
+
+Current implementation is RGBA8-first and uses a minimal post stack:
+- bright-pass extraction
+- half-res separable blur
+- final composite onto the swapchain
+
+MicroUI/imgui remain unbloomed because UI is rendered after scene composite.
+
 
 ### Bust Shadc Cache
 

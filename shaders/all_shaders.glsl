@@ -12,3 +12,6 @@
 @include display.glsl
 @include gp_example.glsl
 @include fog_noise.glsl
+@include bloom_extract.glsl
+@include bloom_blur.glsl
+@include bloom_composite.glsl

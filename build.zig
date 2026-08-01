@@ -20,6 +20,7 @@ const examples = [_]Example{
     .{ .name = "batcher" },
     .{ .name = "pixel_art" },
     .{ .name = "particle_systems" },
+    .{ .name = "bloom" },
 };
 
 const shaders = struct {

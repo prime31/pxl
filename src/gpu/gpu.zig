@@ -36,6 +36,10 @@ pub const Config = struct {
     design_height: i32 = 0,
     // defines how the main render texture should be blitted to the backbuffer
     resolution_policy: ResolutionPolicy = .default,
+    // enables a minimal bloom post-process pass on the offscreen render target
+    bloom_enabled: bool = false,
+    // render bloom intermediate textures at 1 / bloom_downsample scale
+    bloom_downsample: i32 = 2,
 };
 
 pub var gfx_config: Config = .{};
@@ -48,11 +52,35 @@ pub const offscreen = struct {
     pub var pass: sg.Pass = .{};
     var pip: sg.Pipeline = .{};
     var bind: sg.Bindings = .{};
+
+    pub const bloom = struct {
+        pub var extract_img: sg.Image = .{};
+        pub var ping_img: sg.Image = .{};
+        pub var blur_img: sg.Image = .{};
+
+        pub var extract_color_view: sg.View = .{};
+        pub var ping_color_view: sg.View = .{};
+        pub var blur_color_view: sg.View = .{};
+
+        pub var extract_sample_view: sg.View = .{};
+        pub var ping_sample_view: sg.View = .{};
+        pub var blur_sample_view: sg.View = .{};
+
+        pub var linear_smp: sg.Sampler = .{};
+
+        pub var extract_pass: sg.Pass = .{};
+        pub var ping_pass: sg.Pass = .{};
+        pub var blur_pass: sg.Pass = .{};
+
+        pub var extract_pip: sg.Pipeline = .{};
+        pub var blur_h_pip: sg.Pipeline = .{};
+        pub var blur_v_pip: sg.Pipeline = .{};
+        pub var composite_pip: sg.Pipeline = .{};
+    };
 };
 
 pub fn init(config: Config) void {
     gfx_config = config;
-    createOffscreenAttachments();
 
     offscreen.smp = sg.makeSampler(.{
         .min_filter = .NEAREST,
@@ -67,9 +95,52 @@ pub fn init(config: Config) void {
         .shader = sg.makeShader(pxl.shaders.blitShaderDesc(sg.queryBackend())),
         .label = "blit",
     });
+
+    if (gfx_config.bloom_enabled) {
+        offscreen.bloom.linear_smp = sg.makeSampler(.{
+            .min_filter = .LINEAR,
+            .mag_filter = .LINEAR,
+            .wrap_u = .CLAMP_TO_EDGE,
+            .wrap_v = .CLAMP_TO_EDGE,
+        });
+
+        offscreen.bloom.extract_pip = sg.makePipeline(.{
+            .shader = sg.makeShader(pxl.shaders.bloomExtractShaderDesc(sg.queryBackend())),
+            .depth = .{ .pixel_format = .NONE },
+            .label = "bloom_extract",
+        });
+
+        offscreen.bloom.blur_h_pip = sg.makePipeline(.{
+            .shader = sg.makeShader(pxl.shaders.bloomBlurHShaderDesc(sg.queryBackend())),
+            .depth = .{ .pixel_format = .NONE },
+            .label = "bloom_blur_h",
+        });
+
+        offscreen.bloom.blur_v_pip = sg.makePipeline(.{
+            .shader = sg.makeShader(pxl.shaders.bloomBlurVShaderDesc(sg.queryBackend())),
+            .depth = .{ .pixel_format = .NONE },
+            .label = "bloom_blur_v",
+        });
+
+        offscreen.bloom.composite_pip = sg.makePipeline(.{
+            .shader = sg.makeShader(pxl.shaders.bloomCompositeShaderDesc(sg.queryBackend())),
+            .label = "bloom_composite",
+        });
+    }
+
+    createOffscreenAttachments();
 }
 
 pub fn deinit() void {
+    if (gfx_config.bloom_enabled) {
+        destroyBloomAttachments();
+        sg.destroyPipeline(offscreen.bloom.extract_pip);
+        sg.destroyPipeline(offscreen.bloom.blur_h_pip);
+        sg.destroyPipeline(offscreen.bloom.blur_v_pip);
+        sg.destroyPipeline(offscreen.bloom.composite_pip);
+        sg.destroySampler(offscreen.bloom.linear_smp);
+    }
+
     sg.destroyPipeline(offscreen.pip);
     sg.destroyImage(offscreen.img);
     sg.destroySampler(offscreen.smp);
@@ -103,6 +174,7 @@ pub fn createOffscreenAttachments() void {
     sg.destroyImage(offscreen.img);
     sg.destroyView(offscreen.pass.attachments.colors[0]);
     sg.destroyView(offscreen.bind.views[pxl.shaders.VIEW_tex]);
+    if (gfx_config.bloom_enabled) destroyBloomAttachments();
 
     offscreen.img = sg.makeImage(.{
         .usage = .{ .color_attachment = true },
@@ -117,9 +189,15 @@ pub fn createOffscreenAttachments() void {
     offscreen.bind.views[pxl.shaders.VIEW_tex] = sg.makeView(.{
         .texture = .{ .image = offscreen.img },
     });
+
+    if (gfx_config.bloom_enabled) createBloomAttachments(rt_w, rt_h);
 }
 
 pub fn blitRenderTexture(comptime has_imgui: bool) void {
+    if (gfx_config.bloom_enabled) {
+        runBloomPasses();
+    }
+
     var pass_action = sg.PassAction{};
     pass_action.colors[0] = .{ .load_action = .CLEAR };
 
@@ -132,8 +210,18 @@ pub fn blitRenderTexture(comptime has_imgui: bool) void {
         sg.applyViewportf(@floatFromInt(scaler.x), @floatFromInt(scaler.y), view_w, view_h, true);
     }
 
-    sg.applyPipeline(offscreen.pip);
-    sg.applyBindings(offscreen.bind);
+    if (gfx_config.bloom_enabled) {
+        var bind = sg.Bindings{};
+        bind.views[pxl.shaders.VIEW_scene_tex] = offscreen.bind.views[pxl.shaders.VIEW_tex];
+        bind.views[pxl.shaders.VIEW_bloom_mix_tex] = offscreen.bloom.blur_sample_view;
+        bind.samplers[pxl.shaders.SMP_bloom_smp] = offscreen.bloom.linear_smp;
+
+        sg.applyPipeline(offscreen.bloom.composite_pip);
+        sg.applyBindings(bind);
+    } else {
+        sg.applyPipeline(offscreen.pip);
+        sg.applyBindings(offscreen.bind);
+    }
     sg.draw(0, 3, 1);
 
     // Reset viewport to full swapchain window before rendering MicroUI
@@ -141,5 +229,84 @@ pub fn blitRenderTexture(comptime has_imgui: bool) void {
     pxl.mu.render();
     if (has_imgui) @import("sokol").imgui.render();
 
+    sg.endPass();
+}
+
+fn createBloomAttachments(rt_w: i32, rt_h: i32) void {
+    const downsample = @max(1, gfx_config.bloom_downsample);
+    const bloom_w = @max(1, @divTrunc(rt_w, downsample));
+    const bloom_h = @max(1, @divTrunc(rt_h, downsample));
+
+    offscreen.bloom.extract_img = sg.makeImage(.{
+        .usage = .{ .color_attachment = true },
+        .width = bloom_w,
+        .height = bloom_h,
+    });
+    offscreen.bloom.ping_img = sg.makeImage(.{
+        .usage = .{ .color_attachment = true },
+        .width = bloom_w,
+        .height = bloom_h,
+    });
+    offscreen.bloom.blur_img = sg.makeImage(.{
+        .usage = .{ .color_attachment = true },
+        .width = bloom_w,
+        .height = bloom_h,
+    });
+
+    offscreen.bloom.extract_color_view = sg.makeView(.{ .color_attachment = .{ .image = offscreen.bloom.extract_img } });
+    offscreen.bloom.ping_color_view = sg.makeView(.{ .color_attachment = .{ .image = offscreen.bloom.ping_img } });
+    offscreen.bloom.blur_color_view = sg.makeView(.{ .color_attachment = .{ .image = offscreen.bloom.blur_img } });
+
+    offscreen.bloom.extract_sample_view = sg.makeView(.{ .texture = .{ .image = offscreen.bloom.extract_img } });
+    offscreen.bloom.ping_sample_view = sg.makeView(.{ .texture = .{ .image = offscreen.bloom.ping_img } });
+    offscreen.bloom.blur_sample_view = sg.makeView(.{ .texture = .{ .image = offscreen.bloom.blur_img } });
+
+    offscreen.bloom.extract_pass.attachments.colors[0] = offscreen.bloom.extract_color_view;
+    offscreen.bloom.ping_pass.attachments.colors[0] = offscreen.bloom.ping_color_view;
+    offscreen.bloom.blur_pass.attachments.colors[0] = offscreen.bloom.blur_color_view;
+}
+
+fn destroyBloomAttachments() void {
+    sg.destroyView(offscreen.bloom.extract_color_view);
+    sg.destroyView(offscreen.bloom.ping_color_view);
+    sg.destroyView(offscreen.bloom.blur_color_view);
+    sg.destroyView(offscreen.bloom.extract_sample_view);
+    sg.destroyView(offscreen.bloom.ping_sample_view);
+    sg.destroyView(offscreen.bloom.blur_sample_view);
+
+    sg.destroyImage(offscreen.bloom.extract_img);
+    sg.destroyImage(offscreen.bloom.ping_img);
+    sg.destroyImage(offscreen.bloom.blur_img);
+}
+
+fn runBloomPasses() void {
+    var extract_bind = sg.Bindings{};
+    extract_bind.views[pxl.shaders.VIEW_scene_tex] = offscreen.bind.views[pxl.shaders.VIEW_tex];
+    extract_bind.samplers[pxl.shaders.SMP_bloom_smp] = offscreen.bloom.linear_smp;
+
+    sg.beginPass(offscreen.bloom.extract_pass);
+    sg.applyPipeline(offscreen.bloom.extract_pip);
+    sg.applyBindings(extract_bind);
+    sg.draw(0, 3, 1);
+    sg.endPass();
+
+    var blur_h_bind = sg.Bindings{};
+    blur_h_bind.views[pxl.shaders.VIEW_bloom_tex] = offscreen.bloom.extract_sample_view;
+    blur_h_bind.samplers[pxl.shaders.SMP_bloom_smp] = offscreen.bloom.linear_smp;
+
+    sg.beginPass(offscreen.bloom.ping_pass);
+    sg.applyPipeline(offscreen.bloom.blur_h_pip);
+    sg.applyBindings(blur_h_bind);
+    sg.draw(0, 3, 1);
+    sg.endPass();
+
+    var blur_v_bind = sg.Bindings{};
+    blur_v_bind.views[pxl.shaders.VIEW_bloom_tex] = offscreen.bloom.ping_sample_view;
+    blur_v_bind.samplers[pxl.shaders.SMP_bloom_smp] = offscreen.bloom.linear_smp;
+
+    sg.beginPass(offscreen.bloom.blur_pass);
+    sg.applyPipeline(offscreen.bloom.blur_v_pip);
+    sg.applyBindings(blur_v_bind);
+    sg.draw(0, 3, 1);
     sg.endPass();
 }
