@@ -136,8 +136,13 @@ pub fn Vec(comptime T: type) type {
         }
 
         pub fn orderedRemove(self: *Self, i: usize) T {
+            std.debug.assert(i < self.items.len);
             const old_item = self.items[i];
-            self.replaceRangeAssumeCapacity(i, 1, &.{});
+            const len = self.items.len;
+            if (i + 1 < len) {
+                @memmove(self.items[i .. len - 1], self.items[i + 1 .. len]);
+            }
+            self.items.len = len - 1;
             return old_item;
         }
 

@@ -21,6 +21,8 @@ pub const Mat4 = @import("mat4.zig").Mat4;
 
 pub const ease = @import("tween/ease.zig");
 pub const interp = @import("tween/interp.zig");
+pub const lerp = interp.lerp;
+pub const lerpClamped = interp.lerpClamped;
 
 pub const perspective = Mat4.perspective;
 pub const perspectiveReversedZ = Mat4.perspectiveReversedZ;
