@@ -51,11 +51,10 @@ fn shutdown() !void {
 }
 
 fn update() !void {
-    const dt: f32 = @floatCast(pxl.sapp.frameDuration());
     const bounds = Vec2.init(@floatFromInt(pxl.sapp.width()), @floatFromInt(pxl.sapp.height()));
 
     for (crabs.items) |*crab| {
-        crab.pos = crab.pos.add(crab.vel.scale(dt));
+        crab.pos = crab.pos.add(crab.vel.scale(pxl.time.dt()));
         bounce(&crab.pos, &crab.vel, bounds, 32);
     }
 
@@ -67,11 +66,10 @@ fn update() !void {
             crabs.append(spawnCrab(Vec2.init(w, h)));
     }
 
-    std.debug.print("total: {}, dt: {:.3}, fps: {}, gg.dt: {d:.3}\n", .{
+    std.debug.print("total: {}, dt: {:.3}, fps: {}\n", .{
         crabs.items.len,
-        dt,
-        pxl.time.fps(),
         pxl.time.dt(),
+        pxl.time.fps(),
     });
 }
 

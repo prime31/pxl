@@ -1,55 +1,71 @@
 const std = @import("std");
 const pxl = @import("pxl.zig");
+const sapp = @import("sokol").app;
+const stm = @import("sokol").time;
 
-var start: i96 = 0;
-var fps_frames: i96 = 0;
-var prev_time: i96 = 0;
-var curr_time: i96 = 0;
-var fps_last_update: i96 = 0;
-var frames_per_second: i64 = 0;
-var frame_count: u32 = 1;
+// State tracking variables
+var start_ticks: u64 = 0;
+var fps_frames: u32 = 0;
+var fps_last_update_ticks: u64 = 0;
+var frames_per_second: u32 = 0;
+var frame_count: u32 = 0; // Starts at 0, increments on update
 
 pub fn init() void {
-    start = std.Io.Clock.now(.awake, pxl.io).toNanoseconds();
-    curr_time = start;
-    prev_time = start;
+    stm.setup();
+    start_ticks = stm.now();
+    fps_last_update_ticks = start_ticks;
 }
 
 pub fn update() void {
     frame_count += 1;
     fps_frames += 1;
-    prev_time = curr_time;
-    curr_time = std.Io.Clock.now(.awake, pxl.io).toNanoseconds();
 
-    if (curr_time > fps_last_update + 1_000_000_000) {
-        const time_since_last = curr_time - fps_last_update;
-        frames_per_second = @intCast(@divTrunc(fps_frames * 1_000_000_000, time_since_last));
-        fps_last_update = curr_time;
+    const curr_ticks = stm.now();
+    const elapsed_since_fps_update = stm.diff(curr_ticks, fps_last_update_ticks);
+
+    // Update FPS counter once per second (1,000,000,000 nanoseconds)
+    if (elapsed_since_fps_update >= 1_000_000_000) {
+        // stm.sec converts high-res ticks directly to standard f64 seconds
+        const seconds_passed = stm.sec(elapsed_since_fps_update);
+
+        frames_per_second = @intFromFloat(@as(f64, @floatFromInt(fps_frames)) / seconds_passed);
+        fps_last_update_ticks = curr_ticks;
         fps_frames = 0;
     }
 }
 
+/// Returns a smoothed 32-bit float delta time averaged over 256 frames.
 pub fn dt() f32 {
-    const ms = curr_time - prev_time;
-    return @as(f32, @floatFromInt(ms)) / 1_000_000_000.0;
+    return @floatCast(sapp.frameDuration());
 }
 
+/// Returns a smoothed 64-bit float delta time averaged over 256 frames.
 pub fn dt64() f64 {
-    const ms = curr_time - prev_time;
-    return @as(f64, @floatFromInt(ms)) / 1_000_000_000.0;
+    return sapp.frameDuration();
 }
 
-pub fn fps() i64 {
+/// Returns a raw, non-smoothed delta time for the current frame.
+/// Essential for benchmarking or manual accumulator physics steps.
+pub fn rawDt() f64 {
+    return sapp.frameDurationRaw();
+}
+
+/// Returns the stable, averaged frame rate calculated over 1-second intervals.
+pub fn fps() u32 {
     return frames_per_second;
 }
 
+/// Returns the current total count of processed frames.
 pub fn frameCount() u32 {
     return frame_count;
 }
 
+/// Returns the total running time in seconds since the application started.
 pub fn time() f32 {
-    const diff: f32 = @as(f32, @floatFromInt(
-        std.Io.Clock.now(.awake, pxl.io).toNanoseconds() - start,
-    )) / std.time.ns_per_s;
-    return diff;
+    return @floatCast(stm.sec(stm.since(start_ticks)));
+}
+
+/// Returns the total running time in high-precision seconds as an f64.
+pub fn time64() f64 {
+    return stm.sec(stm.since(start_ticks));
 }
