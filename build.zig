@@ -23,6 +23,7 @@ const examples = [_]Example{
     .{ .name = "trail" },
     .{ .name = "bloom" },
     .{ .name = "verlet" },
+    .{ .name = "fabrik" },
 };
 
 const shaders = struct {
