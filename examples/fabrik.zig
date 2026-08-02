@@ -4,8 +4,6 @@ const api = pxl.api;
 const Vec2 = pxl.math.Vec2;
 const Color = pxl.math.Color;
 
-const max_nodes = 12;
-
 /// A single FABRIK tentacle: `node_count` nodes joined by fixed-length segments.
 /// `nodes[0]` is the fixed root/anchor; `nodes[node_count - 1]` is the end
 /// effector (the part that reaches for the target).
@@ -19,6 +17,7 @@ const max_nodes = 12;
 /// Repeating these converges the whole chain to the target (fully solved once
 /// iterations >= node_count).
 const FabrikChain = struct {
+    const max_nodes = 16;
     nodes: [max_nodes]Vec2 = undefined,
     node_count: usize,
     segment_length: f32,
@@ -89,7 +88,7 @@ const FabrikChain = struct {
     }
 };
 
-var chains: [2]FabrikChain = undefined;
+var chains: [3]FabrikChain = undefined;
 var target: Vec2 = .zero; // smoothed target both tentacles chase
 var actual_target: Vec2 = .zero; // raw target: mouse (shift) or screen center
 
@@ -110,9 +109,10 @@ fn setup() !void {
     actual_target = target;
 
     // Tentacle 1: planted in the floor, reaches upward.
-    chains[0] = FabrikChain.init(.init(w * 0.32, h - 22), 8, 34, .init(0, -1), Color.sky_blue, 9);
+    chains[0] = FabrikChain.init(.init(w * 0.32, h - 22), 10, 34, .init(0, -1), Color.sky_blue, 9);
     // Tentacle 2: planted on the left wall, reaches rightward.
     chains[1] = FabrikChain.init(.init(22, h * 0.68), 9, 34, .init(1, 0), Color.pink, 9);
+    chains[2] = FabrikChain.init(.init(w - 22, h * 0.68), 15, 34, .init(-1, 0), Color.aya, 4);
 }
 
 fn update() !void {
