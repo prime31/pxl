@@ -47,7 +47,7 @@ pub fn dt64() f64 {
 /// Returns a raw, non-smoothed delta time for the current frame.
 /// Essential for benchmarking or manual accumulator physics steps.
 pub fn rawDt() f64 {
-    return sapp.frameDurationRaw();
+    return sapp.frameDurationUnfiltered();
 }
 
 /// Returns the stable, averaged frame rate calculated over 1-second intervals.

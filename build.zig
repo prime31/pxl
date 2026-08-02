@@ -22,6 +22,7 @@ const examples = [_]Example{
     .{ .name = "particle_systems" },
     .{ .name = "trail" },
     .{ .name = "bloom" },
+    .{ .name = "verlet" },
 };
 
 const shaders = struct {

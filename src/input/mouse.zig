@@ -5,8 +5,8 @@ const MouseButtons = @import("pressable_input.zig").MouseButtons;
 
 pub const MouseButton = enum(u8) {
     left = 0,
-    middle = 1,
-    right = 2,
+    right = 1,
+    middle = 2,
 
     pub const max = MouseButton.right;
 };
