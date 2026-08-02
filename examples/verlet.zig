@@ -281,6 +281,14 @@ const VerletSolver = struct {
             api.drawCircle(obj.current, obj.radius, 16, hot);
             api.drawCircleOutline(obj.current, obj.radius, 1.5, 16, Color.fromRgba(0, 0, 0, 0.35));
         }
+
+        // Highlight the node currently being grabbed with shift+drag.
+        if (drag_index) |idx| {
+            if (idx < self.objects.items.len) {
+                const grabbed = self.objects.items[idx];
+                api.drawCircleOutline(grabbed.current, grabbed.radius + 4, 2, 16, Color.white);
+            }
+        }
     }
 };
 
@@ -292,6 +300,12 @@ const fixed_dt: f32 = 1.0 / 60.0;
 /// Max displacement per physics tick. Must stay below the thinnest collider
 /// half-thickness (ledges are 18) so spheres can never tunnel through.
 const max_move_per_tick: f32 = 16.0;
+/// Extra padding around a sphere's radius used to pick it up with shift+drag.
+const grab_margin: f32 = 8.0;
+
+/// Index of the node currently being dragged with shift+left button, if any.
+var drag_index: ?usize = null;
+var last_drag_mouse: Vec2 = Vec2.zero;
 
 const palette = [_]Color{
     Color.sky_blue,
@@ -369,12 +383,17 @@ fn update() !void {
         }
     }
 
-    if (pxl.input.keyPressed(.c)) solver.clearObjects();
+    if (pxl.input.keyPressed(.c)) {
+        solver.clearObjects();
+        drag_index = null;
+    }
 
     if (pxl.input.keyPressed(.p)) paused = !paused;
 
     const mouse = pxl.input.mousePos();
-    if (pxl.input.mousePressed(.left)) {
+    const shift_held = pxl.input.keyDown(.left_shift) or pxl.input.keyDown(.right_shift);
+
+    if (pxl.input.mousePressed(.left) and !shift_held) {
         _ = solver.addObject(mouse, rand.range(f32, 6.0, 14.0), nextColor());
     }
 
@@ -390,6 +409,41 @@ fn update() !void {
         accumulator = @min(accumulator, fixed_dt * 4); // avoid a spiral of death
         while (accumulator >= fixed_dt) : (accumulator -= fixed_dt) {
             solver.simulate(fixed_dt);
+        }
+    }
+
+    // Shift+left-click drags the node under the mouse. On the press frame we
+    // grab the nearest sphere whose (radius + grab_margin) covers the cursor.
+    if (pxl.input.mouseDown(.left) and shift_held) {
+        if (drag_index == null) {
+            var best: ?usize = null;
+            var best_dist: f32 = std.math.floatMax(f32);
+            for (solver.objects.items, 0..) |obj, i| {
+                const d = obj.current.sub(mouse).len();
+                if (d <= obj.radius + grab_margin and d < best_dist) {
+                    best_dist = d;
+                    best = i;
+                }
+            }
+            drag_index = best;
+            last_drag_mouse = mouse;
+        }
+    } else {
+        drag_index = null;
+    }
+
+    // Glue the grabbed node to the cursor. The mouse's per-frame motion is fed
+    // back into the verlet state (via `previous`) so releasing gives the node
+    // a natural "throw" instead of a dead drop.
+    if (drag_index) |idx| {
+        if (shift_held and pxl.input.mouseDown(.left) and idx < solver.objects.items.len) {
+            const obj = &solver.objects.items[idx];
+            const mouse_delta = mouse.sub(last_drag_mouse);
+            obj.current = mouse;
+            obj.previous = mouse.sub(mouse_delta);
+            last_drag_mouse = mouse;
+        } else {
+            drag_index = null;
         }
     }
 }
@@ -412,7 +466,7 @@ fn render() !void {
 
     solver.draw();
 
-    const hud = if (paused) "Verlet solver: LMB sphere, RMB rope, SPACE burst, C clear, P pause [PAUSED]" else "Verlet solver: LMB sphere, RMB rope, SPACE burst, C clear, P pause";
+    const hud = if (paused) "Verlet solver: LMB sphere, SHIFT+LMB drag, RMB rope, SPACE burst, C clear, P pause [PAUSED]" else "Verlet solver: LMB sphere, SHIFT+LMB drag, RMB rope, SPACE burst, C clear, P pause";
     api.drawText(null, .init(12, 12), hud, Color.light_gray);
 
     pxl.endPass();
