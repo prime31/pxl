@@ -18,7 +18,7 @@ const max_nodes = 12;
 ///      re-positioning every node so it sits `segment_length` from the previous.
 /// Repeating these converges the whole chain to the target (fully solved once
 /// iterations >= node_count).
-const FABRIKChain = struct {
+const FabrikChain = struct {
     nodes: [max_nodes]Vec2 = undefined,
     node_count: usize,
     segment_length: f32,
@@ -27,9 +27,9 @@ const FABRIKChain = struct {
     node_radius: f32,
     thickness: f32,
 
-    fn init(root: Vec2, node_count: usize, segment_length: f32, direction: Vec2, color: Color, node_radius: f32) FABRIKChain {
+    fn init(root: Vec2, node_count: usize, segment_length: f32, direction: Vec2, color: Color, node_radius: f32) FabrikChain {
         const dir = direction.norm();
-        var self = FABRIKChain{
+        var self = FabrikChain{
             .node_count = node_count,
             .segment_length = segment_length,
             .root = root,
@@ -45,7 +45,7 @@ const FABRIKChain = struct {
         return self;
     }
 
-    fn solve(self: *FABRIKChain, target_pos: Vec2, iterations: u32) void {
+    fn solve(self: *FabrikChain, target_pos: Vec2, iterations: u32) void {
         var iter: u32 = 0;
         while (iter < iterations) : (iter += 1) {
             // Backward pass: pin the tip to the target and walk toward the root.
@@ -66,11 +66,11 @@ const FABRIKChain = struct {
         }
     }
 
-    fn tip(self: *const FABRIKChain) Vec2 {
+    fn tip(self: *const FabrikChain) Vec2 {
         return self.nodes[self.node_count - 1];
     }
 
-    fn draw(self: *const FABRIKChain) void {
+    fn draw(self: *const FabrikChain) void {
         // Body segments.
         var i: usize = 0;
         while (i + 1 < self.node_count) : (i += 1) {
@@ -89,7 +89,7 @@ const FABRIKChain = struct {
     }
 };
 
-var chains: [2]FABRIKChain = undefined;
+var chains: [2]FabrikChain = undefined;
 var target: Vec2 = .zero; // smoothed target both tentacles chase
 var actual_target: Vec2 = .zero; // raw target: mouse (shift) or screen center
 
@@ -110,9 +110,9 @@ fn setup() !void {
     actual_target = target;
 
     // Tentacle 1: planted in the floor, reaches upward.
-    chains[0] = FABRIKChain.init(.init(w * 0.32, h - 22), 8, 34, .init(0, -1), Color.sky_blue, 9);
+    chains[0] = FabrikChain.init(.init(w * 0.32, h - 22), 8, 34, .init(0, -1), Color.sky_blue, 9);
     // Tentacle 2: planted on the left wall, reaches rightward.
-    chains[1] = FABRIKChain.init(.init(22, h * 0.68), 9, 34, .init(1, 0), Color.pink, 9);
+    chains[1] = FabrikChain.init(.init(22, h * 0.68), 9, 34, .init(1, 0), Color.pink, 9);
 }
 
 fn update() !void {
