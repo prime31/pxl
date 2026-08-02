@@ -36,7 +36,7 @@ pub fn main(init: std.process.Init) !void {
 
 fn setup() !void {
     tex1 = try pxl.gpu.Texture.initFromFile("examples/assets/ferris_smol.png");
-    tex2 = try pxl.gpu.Texture.initFromFile("examples/assets/ferris_smol.png");
+    tex2 = try pxl.gpu.Texture.initFromFile("examples/assets/zig.png");
 
     const w: f32 = @floatFromInt(pxl.sapp.width());
     const h: f32 = @floatFromInt(pxl.sapp.height());
@@ -58,6 +58,14 @@ fn update() !void {
         bounce(&crab.pos, &crab.vel, bounds, 32);
     }
 
+    if (pxl.input.mousePressed(.right)) {
+        const w: f32 = @floatFromInt(pxl.sapp.width());
+        const h: f32 = @floatFromInt(pxl.sapp.height());
+
+        for (0..300) |_|
+            crabs.append(spawnCrab(Vec2.init(w, h)));
+    }
+
     if (pxl.input.mouseDown(.left)) {
         const w: f32 = @floatFromInt(pxl.sapp.width());
         const h: f32 = @floatFromInt(pxl.sapp.height());
@@ -74,7 +82,7 @@ fn update() !void {
 }
 
 fn render() !void {
-    pxl.beginPass(.{ .clear_color = pxl.math.Color.aya });
+    pxl.beginPass(.{ .clear_color = pxl.math.Color.dark_gray });
     for (crabs.items, 0..) |*crab, i| {
         const t = if (@mod(i, flip_tex_every_count) == 0) tex1 else tex2;
         api.drawTexture(t, crab.pos);
