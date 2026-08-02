@@ -32,6 +32,18 @@ const DistanceConstraint = struct {
     color: Color,
 };
 
+/// An angle constraint keeps the angle at `pivot` between the vectors to `a`
+/// and `b` fixed. Combined with distance constraints this lets a handful of
+/// nodes form rigid bodies (triangles, etc.) - the article's "fuse 2+ nodes
+/// together" idea.
+const AngleConstraint = struct {
+    pivot: usize,
+    a: usize,
+    b: usize,
+    target_angle: f32,
+    color: Color,
+};
+
 /// An axis-aligned box collider represented as a *signed distance field* (SDF).
 /// The SDF returns the distance to the closest surface (negative when inside),
 /// and its gradient is the surface normal used to push objects back outside.
@@ -91,6 +103,7 @@ fn signf(v: f32) f32 {
 const VerletSolver = struct {
     objects: Vec(VerletObject),
     constraints: Vec(DistanceConstraint),
+    angle_constraints: Vec(AngleConstraint),
     colliders: Vec(BoxCollider),
     gravity: Vec2,
     constraint_iterations: u32 = 6,
@@ -99,11 +112,13 @@ const VerletSolver = struct {
         var s: VerletSolver = .{
             .objects = .empty,
             .constraints = .empty,
+            .angle_constraints = .empty,
             .colliders = .empty,
             .gravity = gravity,
         };
         s.objects.ensureTotalCapacity(max_objects);
         s.constraints.ensureTotalCapacity(max_constraints);
+        s.angle_constraints.ensureTotalCapacity(max_constraints);
         s.colliders.ensureTotalCapacity(max_colliders);
         return s;
     }
@@ -111,12 +126,14 @@ const VerletSolver = struct {
     fn deinit(self: *VerletSolver) void {
         self.objects.deinit();
         self.constraints.deinit();
+        self.angle_constraints.deinit();
         self.colliders.deinit();
     }
 
     fn clearObjects(self: *VerletSolver) void {
         self.objects.clearRetainingCapacity();
         self.constraints.clearRetainingCapacity();
+        self.angle_constraints.clearRetainingCapacity();
     }
 
     fn simulate(self: *VerletSolver, dt: f32) void {
@@ -142,11 +159,13 @@ const VerletSolver = struct {
         // 2) Dynamic collisions: check every pair, push them apart so they just touch.
         self.solveDynamicCollisions();
 
-        // 3) Constraints: keep rope distances fixed. Run several iterations so the
-        //    corrections propagate down the chain for stable, stiff ropes.
+        // 3) Constraints: keep rope distances and joint angles fixed. Run several
+        //    iterations so the corrections propagate for stable, stiff structures.
         var iter: u32 = 0;
-        while (iter < self.constraint_iterations) : (iter += 1)
+        while (iter < self.constraint_iterations) : (iter += 1) {
             self.solveConstraints();
+            self.solveAngleConstraints();
+        }
 
         // 4) Static collisions: push overlapping objects out of every box collider.
         self.solveStaticCollisions();
@@ -190,6 +209,38 @@ const VerletSolver = struct {
             const offset = diff.scale((dist - constraint.target_distance) / dist * 0.5);
             if (!a.is_static) a.current = a.current.add(offset);
             if (!b.is_static) b.current = b.current.sub(offset);
+        }
+    }
+
+    /// Keeps the angle at `pivot` between the vectors to `a` and `b` at the
+    /// constraint's target. The two outer nodes are rotated around the pivot by
+    /// half the angular error each (in opposite directions) so the pivot stays put.
+    fn solveAngleConstraints(self: *VerletSolver) void {
+        for (self.angle_constraints.items) |constraint| {
+            const pivot = &self.objects.items[constraint.pivot];
+            const a = &self.objects.items[constraint.a];
+            const b = &self.objects.items[constraint.b];
+
+            const va = a.current.sub(pivot.current);
+            const vb = b.current.sub(pivot.current);
+            const la = va.len();
+            const lb = vb.len();
+            if (la < 1e-6 or lb < 1e-6) continue;
+
+            const current_angle = std.math.atan2(va.y, va.x) - std.math.atan2(vb.y, vb.x);
+            var delta = current_angle - constraint.target_angle;
+            while (delta > std.math.pi) delta -= std.math.tau;
+            while (delta < -std.math.pi) delta += std.math.tau;
+
+            const half = delta * 0.5;
+            const c = @cos(half);
+            const s = @sin(half);
+            // Rotate a by -half and b by +half around the pivot.
+            const ra = Vec2.init(va.x * c + va.y * s, -va.x * s + va.y * c);
+            const rb = Vec2.init(vb.x * c - vb.y * s, vb.x * s + vb.y * c);
+
+            if (!a.is_static) a.current = pivot.current.add(ra);
+            if (!b.is_static) b.current = pivot.current.add(rb);
         }
     }
 
@@ -289,6 +340,17 @@ const VerletSolver = struct {
                 api.drawCircleOutline(grabbed.current, grabbed.radius + 4, 2, 16, Color.white);
             }
         }
+
+        // Highlight the chain of nodes selected for fusing with the F key.
+        var fi: usize = 0;
+        while (fi < fuse_count) : (fi += 1) {
+            const idx = fuse_nodes[fi];
+            if (idx < self.objects.items.len) {
+                const n = self.objects.items[idx];
+                const ring_col = if (fi == 0) Color.gold else Color.sky_blue;
+                api.drawCircleOutline(n.current, n.radius + 6, 2, 16, ring_col);
+            }
+        }
     }
 };
 
@@ -306,6 +368,28 @@ const grab_margin: f32 = 8.0;
 /// Index of the node currently being dragged with shift+left button, if any.
 var drag_index: ?usize = null;
 var last_drag_mouse: Vec2 = Vec2.zero;
+
+/// Chain of node indices being fused together with the F key. Each new node
+/// gets a distance constraint to the previous one, and once there are 3+ nodes
+/// an angle constraint locks the joint at the middle node - building rigid
+/// structures (triangles, etc.) from a handful of nodes, per the article.
+const max_fuse_nodes = 8;
+var fuse_nodes: [max_fuse_nodes]usize = undefined;
+var fuse_count: usize = 0;
+
+/// Finds the node under `mouse` (within radius + grab_margin), or null.
+fn pickNode(mouse: Vec2) ?usize {
+    var best: ?usize = null;
+    var best_dist: f32 = std.math.floatMax(f32);
+    for (solver.objects.items, 0..) |obj, i| {
+        const d = obj.current.sub(mouse).len();
+        if (d <= obj.radius + grab_margin and d < best_dist) {
+            best_dist = d;
+            best = i;
+        }
+    }
+    return best;
+}
 
 const palette = [_]Color{
     Color.sky_blue,
@@ -386,12 +470,64 @@ fn update() !void {
     if (pxl.input.keyPressed(.c)) {
         solver.clearObjects();
         drag_index = null;
+        fuse_count = 0;
     }
 
     if (pxl.input.keyPressed(.p)) paused = !paused;
 
     const mouse = pxl.input.mousePos();
     const shift_held = pxl.input.keyDown(.left_shift) or pxl.input.keyDown(.right_shift);
+
+    // Fuse nodes: press F on a node to add it to the chain. Consecutive nodes
+    // get a distance constraint; once 3+ nodes are chained, an angle constraint
+    // locks the joint at the middle node so the structure stays rigid. Press F
+    // on empty space (or X) to clear the selection.
+    if (pxl.input.keyPressed(.f)) {
+        if (pickNode(mouse)) |idx| {
+            if (fuse_count == 0 or fuse_nodes[fuse_count - 1] != idx) {
+                if (fuse_count < max_fuse_nodes) {
+                    if (fuse_count > 0) {
+                        const prev = fuse_nodes[fuse_count - 1];
+                        const a = solver.objects.items[prev];
+                        const b = solver.objects.items[idx];
+                        const dist = a.current.sub(b.current).len();
+                        if (solver.constraints.items.len < max_constraints) {
+                            solver.constraints.append(.{
+                                .a = prev,
+                                .b = idx,
+                                .target_distance = dist,
+                                .color = Color.fromRgb(0.6, 0.8, 1.0),
+                            });
+                        }
+                        // With 3+ nodes, lock the angle at the previous node
+                        // between the node before it and the new node.
+                        if (fuse_count >= 2) {
+                            const pivot = prev;
+                            const a_idx = fuse_nodes[fuse_count - 2];
+                            const va = solver.objects.items[a_idx].current.sub(solver.objects.items[pivot].current);
+                            const vb = solver.objects.items[idx].current.sub(solver.objects.items[pivot].current);
+                            const target_angle = std.math.atan2(va.y, va.x) - std.math.atan2(vb.y, vb.x);
+                            if (solver.angle_constraints.items.len < max_constraints) {
+                                solver.angle_constraints.append(.{
+                                    .pivot = pivot,
+                                    .a = a_idx,
+                                    .b = idx,
+                                    .target_angle = target_angle,
+                                    .color = Color.fromRgb(1.0, 0.6, 0.4),
+                                });
+                            }
+                        }
+                    }
+                    fuse_nodes[fuse_count] = idx;
+                    fuse_count += 1;
+                }
+            }
+        } else {
+            fuse_count = 0;
+        }
+    }
+
+    if (pxl.input.keyPressed(.x)) fuse_count = 0;
 
     if (pxl.input.mousePressed(.left) and !shift_held) {
         _ = solver.addObject(mouse, rand.range(f32, 6.0, 14.0), nextColor());
@@ -466,7 +602,7 @@ fn render() !void {
 
     solver.draw();
 
-    const hud = if (paused) "Verlet solver: LMB sphere, SHIFT+LMB drag, RMB rope, SPACE burst, C clear, P pause [PAUSED]" else "Verlet solver: LMB sphere, SHIFT+LMB drag, RMB rope, SPACE burst, C clear, P pause";
+    const hud = if (paused) "Verlet solver: LMB sphere, SHIFT+LMB drag, RMB rope, F fuse, X clear fuse, SPACE burst, C clear, P pause [PAUSED]" else "Verlet solver: LMB sphere, SHIFT+LMB drag, RMB rope, F fuse, X clear fuse, SPACE burst, C clear, P pause";
     api.drawText(null, .init(12, 12), hud, Color.light_gray);
 
     pxl.endPass();
