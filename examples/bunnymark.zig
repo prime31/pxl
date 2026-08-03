@@ -1,10 +1,25 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const pxl = @import("pxl");
 const api = pxl.api;
 const ig = pxl.ig;
 
 const Vec2 = pxl.math.Vec2;
+
+// On Android, sokol_main() is called by sokol's ANativeActivity_onCreate thread.
+// It must return sapp_desc with the app callbacks; sapp_run() is a no-op on Android.
+comptime {
+    if (builtin.target.abi.isAndroid()) {
+        @export(&sokolMain, .{ .name = "sokol_main" });
+    }
+}
+
+fn sokolMain() callconv(.c) pxl.sapp.Desc {
+    // _ = argc;
+    // _ = argv;
+    return pxl.androidEntry(pxlInit());
+}
 
 const Crab = struct {
     pos: Vec2,
@@ -18,8 +33,8 @@ var tex1: pxl.gpu.Texture = undefined;
 var tex2: pxl.gpu.Texture = undefined;
 var crabs: pxl.util.Vec(Crab) = .empty;
 
-pub fn main(init: std.process.Init) !void {
-    try pxl.run(init, .{
+pub fn pxlInit() pxl.Config {
+    return .{
         .setup = setup,
         .update = update,
         .render = render,
@@ -31,7 +46,11 @@ pub fn main(init: std.process.Init) !void {
                 .max_cmds = 3_000_000,
             },
         },
-    });
+    };
+}
+
+pub fn main(init: std.process.Init) !void {
+    try pxl.run(init, pxlInit());
 }
 
 fn setup() !void {
@@ -74,7 +93,7 @@ fn update() !void {
             crabs.append(spawnCrab(Vec2.init(w, h)));
     }
 
-    std.debug.print("total: {}, dt: {:.3}, fps: {}\n", .{
+    pxl.log("total: {}, dt: {:.3}, fps: {}", .{
         crabs.items.len,
         pxl.time.dt(),
         pxl.time.fps(),

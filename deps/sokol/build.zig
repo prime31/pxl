@@ -11,12 +11,23 @@ pub fn build(b: *Build) !void {
 
     const opt_imgui = b.option(bool, "imgui", "Build with Dear ImGui support") orelse true;
     const opt_docking = b.option(bool, "docking", "Build with docking support") orelse true;
+    const opt_dont_link_system_libs = b.option(bool, "dont_link_system_libs", "Do not link system libraries into the sokol static archive (use for Android targets)") orelse false;
 
-    const dep_sokol = b.dependency("sokol", .{
-        .target = target,
-        .optimize = optimize,
-        .with_sokol_imgui = opt_imgui,
-    });
+    // Only pass dont_link_system_libs when true — omitting vs explicit false produces
+    // different dep cache keys, which would cause duplicate sokol module instances.
+    const dep_sokol = if (opt_dont_link_system_libs)
+        b.dependency("sokol", .{
+            .target = target,
+            .optimize = optimize,
+            .with_sokol_imgui = opt_imgui,
+            .dont_link_system_libs = true,
+        })
+    else
+        b.dependency("sokol", .{
+            .target = target,
+            .optimize = optimize,
+            .with_sokol_imgui = opt_imgui,
+        });
     const dep_cimgui = b.dependency("cimgui", .{
         .target = target,
         .optimize = optimize,
@@ -54,7 +65,10 @@ pub fn build(b: *Build) !void {
 
         microui_lib.root_module.addCSourceFiles(.{
             .files = &.{ "src/microui.c", "src/microui_renderer.c" },
-            .flags = &.{ "-O3", "-std=c99", "-fno-sanitize=undefined", "-ObjC", resolveSokolBackend(target.result) },
+            .flags = if (target.result.os.tag.isDarwin())
+                &.{ "-O3", "-std=c99", "-fno-sanitize=undefined", "-ObjC", resolveSokolBackend(target.result) }
+            else
+                &.{ "-O3", "-std=c99", "-fno-sanitize=undefined", resolveSokolBackend(target.result) },
         });
 
         microui_mod.addIncludePath(sokol_clib.getEmittedIncludeTree());

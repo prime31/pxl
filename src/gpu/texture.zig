@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const pxl = @import("../pxl.zig");
 const sg = pxl.sokol.gfx;
 
@@ -63,16 +64,12 @@ pub const Texture = extern struct {
     }
 
     pub fn initFromFile(file: [:0]const u8) !Texture {
-        // const image_contents = try gg.fs.read(file, .temp);
-
-        // var w: c_int = undefined;
-        // var h: c_int = undefined;
-        // var channels: c_int = undefined;
-        // const load_res = gg.stb.stbi_load_from_memory(image_contents.ptr, @intCast(image_contents.len), &w, &h, &channels, 4);
-        // if (load_res == null) return error.ImageLoadFailed;
-        // defer gg.stb.stbi_image_free(load_res);
-
-        var img = try pxl.stb.Image.loadFromFile(file, 4);
+        // On Android assets live inside the APK and can't be opened by path, so
+        // fetch the bytes through pxl.fs (AAssetManager) and decode from memory.
+        var img = if (builtin.target.abi.isAndroid())
+            try pxl.stb.Image.loadFromMemory(try pxl.fs.read(file, .temp), 4)
+        else
+            try pxl.stb.Image.loadFromFile(file, 4);
         defer img.deinit();
         return Texture.initWithData(img.data, @intCast(img.width), @intCast(img.height));
     }

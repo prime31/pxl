@@ -8,6 +8,7 @@ const stb = @import("stb");
 const sokol_builder = @import("sokol_builder");
 const sokol = sokol_builder.sokol;
 const shdc = sokol.shdc;
+const android_build = @import("android");
 
 const examples = [_]Example{
     .{ .name = "check" },
@@ -35,7 +36,7 @@ const shaders = struct {
     const examples_shader_output_dir = "";
     const examples_shaders = .{ "", "" };
 
-    const slang = "metal_macos"; // glsl300es:glsl430:wgsl:metal_macos:hlsl4
+    const slang = "metal_macos:glsl300es"; // glsl300es:glsl430:wgsl:metal_macos:hlsl4
 };
 
 const Example = struct {
@@ -61,6 +62,13 @@ pub fn build(b: *Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // Android check first — early return to keep the native/wasm path clean
+    const android_targets = android_build.standardTargets(b, target);
+    if (android_targets.len > 0) {
+        try buildAndroid(b, optimize, android_targets);
+        return;
+    }
+
     const opt_docking = b.option(bool, "docking", "Build with docking support") orelse true;
     const opt_imgui = b.option(bool, "imgui", "Build with Dear ImGui support") orelse false;
 
@@ -85,7 +93,9 @@ pub fn build(b: *Build) !void {
     });
 
     // for now add all shaders in one module
-    const mod_shader = try compileShaderModule(b, dep_sokol, shaders.engine_shader_dir ++ shaders.engine_shaders[0]);
+    const shader_zig_path = try compileShaderPath(b, dep_sokol, shaders.engine_shader_dir ++ shaders.engine_shaders[0]);
+    const mod_shader = b.addModule("shader_module", .{ .root_source_file = shader_zig_path });
+    mod_shader.addImport("sokol", dep_sokol.module("sokol"));
 
     const mod_pxl = b.addModule("pxl", .{
         .root_source_file = b.path("src/pxl.zig"),
@@ -216,12 +226,119 @@ fn buildWeb(b: *Build, opts: BuildWasmOptions) !void {
     b.step("run", "Run pacman").dependOn(&run.step);
 }
 
-/// build shaders and compiles them into a module
-fn compileShaderModule(b: *Build, dep_sokol: *Build.Dependency, shader_file: []const u8) !*Build.Module {
-    const mod_sokol = dep_sokol.module("sokol");
-    const dep_shdc = dep_sokol.builder.dependency("shdc", .{});
+fn buildAndroid(b: *Build, optimize: OptimizeMode, android_targets: []ResolvedTarget) !void {
+    // Use the first android target's sokol to reach the shdc host binary.
+    // shdc always runs on the host regardless of target arch.
+    const first_target = android_targets[0];
+    const dep_sb_for_shdc = b.dependency("sokol_builder", .{
+        .target = first_target,
+        .optimize = optimize,
+        .imgui = false,
+        .dont_link_system_libs = true,
+    });
 
-    return shdc.createModule(b, "shader_module", mod_sokol, .{
+    // Compile shaders once — glsl300es output is target-agnostic (same source for all ABIs)
+    const shader_zig_path = try compileShaderPath(
+        b,
+        dep_sb_for_shdc.builder.dependency("sokol", .{
+            .target = first_target,
+            .optimize = optimize,
+            .with_sokol_imgui = false,
+            .dont_link_system_libs = true,
+        }),
+        shaders.engine_shader_dir ++ shaders.engine_shaders[0],
+    );
+
+    const android_sdk = android_build.Sdk.create(b, .{});
+    const apk = android_sdk.createApk(.{
+        .name = "bunnymark",
+        .api_level = .android12,
+        .build_tools_version = "35.0.1",
+        .ndk_version = "30.0.15729638",
+    });
+    apk.setKeyStore(android_sdk.createKeyStore(.example));
+    apk.setAndroidManifest(b.path("android/AndroidManifest.xml"));
+    apk.addResourceDirectory(b.path("android/res"));
+    // Bundle the source-tree asset folder into the APK so AAssetManager can read
+    // textures/fonts. pxl.fs serves these reads on Android via the asset manager.
+    apk.addAssetDirectory(b.path("examples/assets"));
+
+    for (android_targets) |android_target| {
+        // Pass dont_link_system_libs through sokol_builder so all sokol module
+        // instances for this target are consistent — prevents the "file in two modules" error.
+        const dep_sb = b.dependency("sokol_builder", .{
+            .target = android_target,
+            .optimize = optimize,
+            .imgui = false,
+            .dont_link_system_libs = true,
+        });
+        const dep_gamepad = b.dependency("gamepad", .{
+            .target = android_target,
+            .optimize = optimize,
+        });
+        const dep_stb = b.dependency("stb", .{
+            .target = android_target,
+            .optimize = optimize,
+        });
+
+        // Each ABI gets its own shader module pointing to the same compiled source
+        // but importing the right target's sokol module
+        const mod_shader = b.createModule(.{ .root_source_file = shader_zig_path });
+        mod_shader.addImport("sokol", dep_sb.module("sokol"));
+
+        const mod_pxl = b.createModule(.{
+            .root_source_file = b.path("src/pxl.zig"),
+            .target = android_target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "sokol", .module = dep_sb.module("sokol") },
+                .{ .name = "gamepad", .module = dep_gamepad.module("gamepad") },
+                .{ .name = "stb", .module = dep_stb.module("stb") },
+                .{ .name = "microui", .module = dep_sb.module("microui") },
+                .{ .name = "shaders", .module = mod_shader },
+            },
+        });
+        mod_shader.addImport("pxl", mod_pxl);
+
+        const mod_options = b.addOptions();
+        mod_options.addOption(bool, "imgui", false);
+        mod_options.addOption(bool, "docking", false);
+        mod_pxl.addOptions("build_options", mod_options);
+
+        const lib = b.addLibrary(.{
+            .name = "main",
+            .linkage = .dynamic,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("examples/bunnymark.zig"),
+                .target = android_target,
+                .optimize = optimize,
+                .imports = &.{.{ .name = "pxl", .module = mod_pxl }},
+            }),
+        });
+        // Link Android system libraries on the final .so (not in the intermediate
+        // static sokol archive, which would cause LLD warnings about .so stubs).
+        lib.root_module.linkSystemLibrary("GLESv3", .{});
+        lib.root_module.linkSystemLibrary("EGL", .{});
+        lib.root_module.linkSystemLibrary("android", .{});
+        lib.root_module.linkSystemLibrary("log", .{});
+        apk.addArtifact(lib);
+    }
+
+    const installed_apk = apk.addInstallApk();
+    b.getInstallStep().dependOn(&installed_apk.step);
+
+    const run_step = b.step("run", "Install and run bunnymark on a connected Android device");
+    const adb_install = android_sdk.addAdbInstall(installed_apk.source);
+    const adb_start = android_sdk.addAdbStart("com.zigpxl.bunnymark/android.app.NativeActivity");
+    adb_start.step.dependOn(&adb_install.step);
+    run_step.dependOn(&adb_start.step);
+}
+
+/// Compile shaders with shdc and return the LazyPath to the generated .zig file.
+/// Emits both metal_macos (native) and glsl300es (Android/GLES3) backends.
+fn compileShaderPath(b: *Build, dep_sokol: *Build.Dependency, shader_file: []const u8) !Build.LazyPath {
+    const dep_shdc = dep_sokol.builder.dependency("shdc", .{});
+    return shdc.compile(b, .{
         .shdc_dep = dep_shdc,
         .input = shader_file,
         .output = "shader.zig",
@@ -230,7 +347,7 @@ fn compileShaderModule(b: *Build, dep_sokol: *Build.Dependency, shader_file: []c
         .no_log_cmdline = false,
         .slang = .{
             .metal_macos = true,
-            .hlsl5 = false,
+            .glsl300es = true,
         },
         .genver = b.fmt("{b}", .{std.Io.Clock.now(.awake, b.graph.io).toNanoseconds()}),
     });

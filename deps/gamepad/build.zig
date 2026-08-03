@@ -20,7 +20,10 @@ pub fn build(b: *std.Build) void {
 
     gamepad_lib.root_module.addCSourceFiles(.{
         .files = &.{"src/sokol_gamepad.c"},
-        .flags = &.{ "-O3", "-std=c99", "-fno-sanitize=undefined", "-D=IMPL", "-ObjC" },
+        .flags = if (target.result.os.tag.isDarwin())
+            &.{ "-O3", "-std=c99", "-fno-sanitize=undefined", "-DIMPL", "-ObjC" }
+        else
+            &.{ "-O3", "-std=c99", "-fno-sanitize=undefined", "-DIMPL" },
     });
 
     if (target.result.os.tag == .macos) {

@@ -125,7 +125,6 @@ extern "C" {
 #ifndef SOKOL_ASSERT
     #include <assert.h>
     #define SOKOL_ASSERT(c) assert(c)
-    #define SOKOL_ASSERT(c)
 #endif
 #ifndef SOKOL_UNREACHABLE
     #define SOKOL_UNREACHABLE SOKOL_ASSERT(false)
@@ -572,7 +571,10 @@ _SOKOL_PRIVATE bool _sgamepad_android_input_handler(const AInputEvent* event) {
 }
 
 _SOKOL_PRIVATE void _sgamepad_android_init() {
-    _sapp.android.gamepad_event_handler = _sgamepad_android_input_handler;
+    /* Android gamepad input integration requires a sokol-app hook
+       (_sapp.android.gamepad_event_handler) that this sokol build does not
+       provide, so there is nothing to hook up here. Kept as a stub so the
+       header compiles for Android targets. */
 }
 
 _SOKOL_PRIVATE void _sgamepad_record_state() {

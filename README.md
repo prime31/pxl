@@ -41,3 +41,8 @@ In `shdc.createModule`:
 ```zig
 .genver = b.fmt("{b}", .{std.Io.Clock.now(.awake, b.graph.io).toNanoseconds()})
 ```
+
+
+
+### Android
+`zig build run -Dandroid=true`

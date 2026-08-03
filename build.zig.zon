@@ -13,6 +13,9 @@
         .stb = .{
             .path = "deps/stb",
         },
+        .android = .{
+            .path = "ANDROID",
+        },
     },
     .paths = .{
         "build.zig",

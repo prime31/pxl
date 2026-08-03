@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const pxl = @import("../pxl.zig");
 const sapp = pxl.sapp;
 const math = pxl.math;
@@ -46,6 +47,28 @@ pub fn handleEvent(evt: *const sapp.Event) void {
             mouse.wheel_x = evt.scroll_x;
             mouse.wheel_y = evt.scroll_y;
         },
+        .TOUCHES_BEGAN, .TOUCHES_MOVED, .TOUCHES_ENDED, .TOUCHES_CANCELLED => {
+            // On touch devices (Android/iOS/etc.) there's no physical mouse, so we
+            // emulate one from the first touch: it moves the mouse cursor and acts
+            // as the left button. This is hidden inside the input wrapper, so game
+            // code just uses the normal mouse API.
+            if (builtin.target.abi.isAndroid()) touchToMouse(evt);
+        },
+        else => {},
+    }
+}
+
+/// Converts the first touch point into a synthetic mouse event (Android only).
+fn touchToMouse(evt: *const sapp.Event) void {
+    const t = &evt.touches[0];
+
+    mouse.mouse_rel_x = t.pos_x - mouse.pos.x;
+    mouse.mouse_rel_y = mouse.pos.y - t.pos_y;
+    mouse.pos = .init(t.pos_x, t.pos_y);
+
+    switch (evt.type) {
+        .TOUCHES_BEGAN => mouse.buttons.press(.left),
+        .TOUCHES_ENDED, .TOUCHES_CANCELLED => mouse.buttons.release(.left),
         else => {},
     }
 }
