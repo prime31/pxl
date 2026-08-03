@@ -16,8 +16,6 @@ comptime {
 }
 
 fn sokolMain() callconv(.c) pxl.sapp.Desc {
-    // _ = argc;
-    // _ = argv;
     return pxl.androidEntry(pxlInit());
 }
 

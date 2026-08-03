@@ -327,7 +327,7 @@ fn buildAndroid(b: *Build, optimize: OptimizeMode, android_targets: []ResolvedTa
     const installed_apk = apk.addInstallApk();
     b.getInstallStep().dependOn(&installed_apk.step);
 
-    const run_step = b.step("run", "Install and run bunnymark on a connected Android device");
+    const run_step = b.step("android", "Install and run bunnymark on a connected Android device");
     const adb_install = android_sdk.addAdbInstall(installed_apk.source);
     const adb_start = android_sdk.addAdbStart("com.zigpxl.bunnymark/android.app.NativeActivity");
     adb_start.step.dependOn(&adb_install.step);
