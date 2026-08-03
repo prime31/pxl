@@ -1,0 +1,287 @@
+const std = @import("std");
+const Target = std.Target;
+const ResolvedTarget = std.Build.ResolvedTarget;
+const LazyPath = std.Build.LazyPath;
+const builtin = @import("builtin");
+
+const log = std.log.scoped(.@"zig-android-sdk");
+
+/// API Level is an enum the maps the Android OS version to the API level
+///
+/// https://en.wikipedia.org/wiki/Android_version_history
+/// https://apilevels.com/
+pub const ApiLevel = enum(u32) {
+    none = 0,
+    /// KitKat (2013)
+    /// Android 4.4 = 19
+    android4_4 = 19,
+    /// Lollipop (2014)
+    android5 = 21,
+    /// Marshmallow (2015)
+    android6 = 23,
+    /// Nougat (2016)
+    android7 = 24,
+    /// Oreo (2017)
+    android8 = 26,
+    /// Quince Tart (2018)
+    android9 = 28,
+    /// Quince Tart (2019)
+    android10 = 29,
+    /// Red Velvet Cake (2020)
+    android11 = 30,
+    /// Snow Cone (2021)
+    android12 = 31,
+    /// Tiramisu (2022)
+    android13 = 33,
+    /// Upside Down Cake (2023)
+    android14 = 34,
+    /// Vanilla Ice Cream
+    android15 = 35,
+    /// Baklava
+    android16 = 36,
+    /// Cinnamon Bun
+    android17 = 37,
+    // allow custom overrides (incase this library is not up to date with the latest android version)
+    _,
+};
+
+pub fn getAndroidTriple(target: ResolvedTarget) error{InvalidAndroidTarget}![]const u8 {
+    if (!target.result.abi.isAndroid()) return error.InvalidAndroidTarget;
+    return switch (target.result.cpu.arch) {
+        .x86 => "i686-linux-android",
+        .x86_64 => "x86_64-linux-android",
+        .arm => "arm-linux-androideabi",
+        .aarch64 => "aarch64-linux-android",
+        .riscv64 => "riscv64-linux-android",
+        else => error.InvalidAndroidTarget,
+    };
+}
+
+/// List of supported Android targets, this is used as a shorthand for API functions like "apk.addLibraryFile".
+pub const AndroidTarget = enum {
+    arm64_v8a,
+    armeabi_v7a,
+    x86_64,
+    x86,
+
+    pub fn target(at: AndroidTarget, b: *std.Build) ResolvedTarget {
+        const android_target_query: AndroidTargetQuery = switch (at) {
+            .arm64_v8a => .{
+                // aarch64-linux-android
+                .cpu_arch = .aarch64,
+                .cpu_features_add = Target.aarch64.featureSet(&.{.v8a}),
+            },
+            .armeabi_v7a => .{
+                // arm-linux-androideabi
+                .cpu_arch = .arm,
+                .cpu_features_add = Target.arm.featureSet(&.{.v7a}),
+            },
+            .x86_64 => .{
+                // x86_64-linux-android
+                .cpu_arch = .x86_64,
+            },
+            .x86 => .{
+                // i686-linux-android
+                .cpu_arch = .x86,
+            },
+        };
+        return b.resolveTargetQuery(android_target_query.queryTarget(.none));
+    }
+
+    /// The "lib/{AndroidTarget}" directory name as it appears in an APK
+    pub fn lib(at: AndroidTarget) []const u8 {
+        return switch (at) {
+            .arm64_v8a => "arm64-v8a",
+            .armeabi_v7a => "armeabi-v7a",
+            .x86_64 => "x86_64",
+            .x86 => "x86",
+        };
+    }
+};
+
+/// Will return a slice of Android targets
+/// - If -Dandroid=true, return all Android targets (x86, x86_64, aarch64, etc)
+/// - If -Dtarget=aarch64-linux-android, return a slice with the one specified Android target
+///
+/// If none of the above, then return a zero length slice.
+pub fn standardTargets(b: *std.Build, target: ResolvedTarget) []ResolvedTarget {
+    // NOTE(jae): 2026-04-11
+    // Seperated logic into "resolveTargets" so that consumers of this library can create this option themselves and use "b.lazyImport"
+    // See: https://github.com/silbinarywolf/zig-android-sdk/pull/82
+    const all_targets = b.option(bool, "android", "Build for all Android targets (x86, x86_64, aarch64, arm, etc)") orelse false;
+
+    return resolveTargets(b, .{
+        .default_target = target,
+        .all_targets = all_targets,
+    });
+}
+
+pub const ResolveTargetOptions = struct {
+    /// The target retrieved from b.standardTargetOptions
+    default_target: ResolvedTarget,
+    /// If true, then retrieve all Android targets rather than using the default target
+    all_targets: bool,
+    /// Target API level, defaults to `.android9` if unset
+    api_level: ApiLevel = .android9,
+
+    /// Shorthand to query all Android targets
+    pub const all: ResolveTargetOptions = .{
+        .default_target = undefined,
+        .all_targets = true,
+    };
+};
+
+/// Will return a slice of Android targets depending on the options given.
+/// Avoids setting up options
+pub fn resolveTargets(b: *std.Build, options: ResolveTargetOptions) []ResolvedTarget {
+    if (options.all_targets) {
+        return getAllAndroidTargets(b, options.api_level);
+    }
+    const target = options.default_target;
+    if (!target.result.abi.isAndroid()) {
+        return &[0]ResolvedTarget{};
+    }
+    if (target.result.os.tag != .linux) {
+        const linuxTriple = target.result.linuxTriple(b.allocator) catch @panic("OOM");
+        @panic(b.fmt("unsupported Android target given: {s}, expected linux to be target OS", .{linuxTriple}));
+    }
+    for (supported_android_targets) |android_target| {
+        if (target.result.cpu.arch == android_target.cpu_arch) {
+            const resolved_targets = b.allocator.alloc(ResolvedTarget, 1) catch @panic("OOM");
+            resolved_targets[0] = b.resolveTargetQuery(android_target.queryTarget(options.api_level));
+            return resolved_targets;
+        }
+    }
+    const linuxTriple = target.result.linuxTriple(b.allocator) catch @panic("OOM");
+    @panic(b.fmt("unsupported Android target given: {s}", .{linuxTriple}));
+}
+
+/// Get the library directory name of a given build target within an APK.
+/// - armeabi-v7a
+/// - arm64-v8a
+/// - x86_64
+/// - x86
+///
+/// Example of structure within an APK
+/// - lib/armeabi-v7a/libfoo.so
+/// - lib/arm64-v8a/libfoo.so
+/// - lib/x86/libfoo.so
+/// - lib/x86_64/libfoo.so
+///
+/// See documentation here: https://developer.android.com/ndk/guides/abis#native-code-in-app-packages
+pub fn getTargetLibDir(b: *std.Build, target: ResolvedTarget) []const u8 {
+    return switch (target.result.cpu.arch) {
+        .aarch64 => "arm64-v8a",
+        .arm => "armeabi-v7a",
+        .x86_64 => "x86_64",
+        .x86 => "x86",
+        else => @panic(b.fmt("cannot determine APK library directory, unsupported or unhandled arch: {s}", .{@tagName(target.result.cpu.arch)})),
+    };
+}
+
+fn getAllAndroidTargets(b: *std.Build, api_level: ApiLevel) []ResolvedTarget {
+    const resolved_targets = b.allocator.alloc(ResolvedTarget, supported_android_targets.len) catch @panic("OOM");
+    for (supported_android_targets, 0..) |android_target, i| {
+        const resolved_target = b.resolveTargetQuery(android_target.queryTarget(api_level));
+        resolved_targets[i] = resolved_target;
+    }
+    return resolved_targets;
+}
+
+pub fn runNameContext(comptime name: []const u8) []const u8 {
+    return "zig-android-sdk " ++ name;
+}
+
+pub fn printErrorsAndExit(b: *std.Build, message: []const u8, errors: []const []const u8) noreturn {
+    if (builtin.zig_version.major == 0 and builtin.zig_version.minor <= 15) {
+        nosuspend {
+            // Deprecated path for Zig 0.14.x and Zig 0.15.x
+            log.err("{s}", .{message});
+
+            const stderr = if (builtin.zig_version.major == 0 and builtin.zig_version.minor <= 14)
+                std.io.getStdErr().writer()
+            else if (builtin.zig_version.major == 0 and builtin.zig_version.minor == 15)
+                std.fs.File.stderr()
+            else
+                @compileError("NOTE: Handled below for newer zig cases");
+
+            for (errors) |err| {
+                var it = std.mem.splitScalar(u8, err, '\n');
+                const headline = it.next() orelse continue;
+                stderr.writeAll("- ") catch {};
+                stderr.writeAll(headline) catch {};
+                stderr.writeAll("\n") catch {};
+                while (it.next()) |line| {
+                    stderr.writeAll("  ") catch {};
+                    stderr.writeAll(line) catch {};
+                    stderr.writeAll("\n") catch {};
+                }
+            }
+            stderr.writeAll("\n") catch {};
+        }
+        std.process.exit(1);
+    }
+
+    // Format errors and then use the logger to show the user
+    var buf = b.allocator.alloc(u8, 16384) catch @panic("OOM");
+    defer b.allocator.free(buf);
+    var writer = std.Io.Writer.fixed(buf[0..]);
+    writer.writeAll(message) catch @panic("OOM");
+    writer.writeByte('\n') catch @panic("OOM");
+    if (errors.len == 0) {
+        writer.writeAll("- no errors written") catch @panic("OOM");
+    }
+    for (errors) |err| {
+        var it = std.mem.splitScalar(u8, err, '\n');
+        const headline = it.next() orelse continue;
+        writer.writeAll("- ") catch @panic("OOM");
+        writer.writeAll(headline) catch @panic("OOM");
+        writer.writeByte('\n') catch @panic("OOM");
+        while (it.next()) |line| {
+            writer.writeAll("  ") catch @panic("OOM");
+            writer.writeAll(line) catch @panic("OOM");
+            writer.writeByte('\n') catch @panic("OOM");
+        }
+    }
+    log.err("{s}", .{writer.buffered()});
+    std.process.exit(1);
+}
+
+const AndroidTargetQuery = struct {
+    cpu_arch: Target.Cpu.Arch,
+    cpu_features_add: Target.Cpu.Feature.Set = Target.Cpu.Feature.Set.empty,
+
+    fn queryTarget(android_target: AndroidTargetQuery, api_level: ApiLevel) Target.Query {
+        return .{
+            .os_tag = .linux,
+            .cpu_model = .baseline,
+            .abi = if (android_target.cpu_arch != .arm) .android else .androideabi,
+            .cpu_arch = android_target.cpu_arch,
+            .cpu_features_add = android_target.cpu_features_add,
+            .android_api_level = if (api_level == .none) null else @intFromEnum(api_level),
+        };
+    }
+};
+
+const supported_android_targets = [_]AndroidTargetQuery{
+    .{
+        // i686-linux-android
+        .cpu_arch = .x86,
+    },
+    .{
+        // x86_64-linux-android
+        .cpu_arch = .x86_64,
+    },
+    .{
+        // aarch64-linux-android
+        .cpu_arch = .aarch64,
+        .cpu_features_add = Target.aarch64.featureSet(&.{.v8a}),
+    },
+    // NOTE(jae): 2024-09-08
+    // 'arm-linux-androideabi' previously didn't work with Zig 0.13.0 for compiling C code like SDL2 or OpenXR due to "__ARM_ARCH" not being "7"
+    .{
+        // arm-linux-androideabi
+        .cpu_arch = .arm,
+        .cpu_features_add = Target.arm.featureSet(&.{.v7a}),
+    },
+};

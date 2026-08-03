@@ -1,0 +1,15 @@
+.{
+    .name = .minimal,
+    .version = "0.0.0",
+    .dependencies = .{
+        .android = .{
+            .path = "../..",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+    .fingerprint = 0x4037f28ad1eb4832,
+}

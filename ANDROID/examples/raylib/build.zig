@@ -1,0 +1,118 @@
+const std = @import("std");
+const LinkMode = std.builtin.LinkMode;
+
+const android = @import("android");
+
+const exe_name = "raylib";
+
+pub fn build(b: *std.Build) void {
+    const root_target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+    const android_targets = android.standardTargets(b, root_target);
+
+    var root_target_single = [_]std.Build.ResolvedTarget{root_target};
+    const targets: []std.Build.ResolvedTarget = if (android_targets.len == 0)
+        root_target_single[0..]
+    else
+        android_targets;
+
+    const android_apk: ?*android.Apk = blk: {
+        if (android_targets.len == 0) break :blk null;
+
+        const android_sdk = android.Sdk.create(b, .{});
+        const apk = android_sdk.createApk(.{
+            .name = exe_name,
+            .api_level = .android15,
+            .build_tools_version = "35.0.1",
+            .ndk_version = "29.0.13113456",
+        });
+
+        const key_store_file = android_sdk.createKeyStore(.example);
+        apk.setKeyStore(key_store_file);
+        apk.setAndroidManifest(b.path("android/AndroidManifest.xml"));
+        apk.addResourceDirectory(b.path("android/res"));
+
+        const generated_asset_dir = b.addNamedWriteFiles("android_asset_directory");
+        _ = generated_asset_dir.addCopyFile(b.path("src/zig.bmp"), "zig.bmp");
+        apk.addAssetDirectory(generated_asset_dir.getDirectory());
+
+        break :blk apk;
+    };
+
+    for (targets) |target| {
+        const app = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        });
+
+        const raylib_dep = if (android_apk) |apk|
+            b.dependency("raylib_zig", .{
+                .target = target,
+                .optimize = optimize,
+                .android_api_version = @as([]const u8, b.fmt("{}", .{@intFromEnum(apk.api_level)})),
+                .android_ndk = @as([]const u8, apk.ndk.path),
+                // NOTE(jae): 2026-04-09
+                // Must be statically built for Android, otherwise "android_main" is not handled here:
+                // https://github.com/raysan5/raylib/blob/f89d38b086c1d0a0c7e38c9c648aa91c05646300/src/platforms/rcore_android.c#L322
+                .linkage = LinkMode.static,
+            })
+        else
+            b.dependency("raylib_zig", .{
+                .target = target,
+                .optimize = optimize,
+                .linkage = LinkMode.dynamic,
+            });
+
+        const raylib_lib = raylib_dep.artifact("raylib");
+        // NOTE(jae): 2026-04-09
+        // Enable PIC=true for Raylib, otherwise it will not compile.
+        //
+        // ld.lld: relocation R_AARCH64_ADD_ABS_LO12_NC cannot be used against symbol 'CORE'; recompile with -fPIC
+        //         relocation R_X86_64_64 cannot be used against local symbol; recompile with -fPIC
+        raylib_lib.root_module.pic = true;
+        app.linkLibrary(raylib_lib);
+        app.addImport("raylib", raylib_dep.module("raylib"));
+
+        if (android_apk) |apk| {
+            const android_dep = b.dependency("android", .{
+                .target = target,
+                .optimize = optimize,
+            });
+            app.addImport("android", android_dep.module("android"));
+            app.linkSystemLibrary("android", .{});
+
+            const native_app_glue_dir: std.Build.LazyPath = .{ .cwd_relative = b.fmt("{s}/sources/android/native_app_glue", .{apk.ndk.path}) };
+            app.addCSourceFile(.{ .file = native_app_glue_dir.path(b, "android_native_app_glue.c") });
+            app.addIncludePath(native_app_glue_dir);
+
+            apk.addArtifact(b.addLibrary(.{
+                .name = "main",
+                .root_module = app,
+                .linkage = .dynamic,
+            }));
+        } else {
+            const exe = b.addExecutable(.{
+                .name = exe_name,
+                .root_module = app,
+            });
+            b.installArtifact(exe);
+
+            const run_exe = b.addRunArtifact(exe);
+            const run_step = b.step("run", "Run the application");
+            run_step.dependOn(&run_exe.step);
+        }
+    }
+    if (android_apk) |apk| {
+        const installed_apk = apk.addInstallApk();
+        b.getInstallStep().dependOn(&installed_apk.step);
+
+        const android_sdk = apk.sdk;
+        const run_step = b.step("run", "Install and run the application on an Android device");
+        const adb_install = android_sdk.addAdbInstall(installed_apk.source);
+        const adb_start = android_sdk.addAdbStart("com.zig.raylib/android.app.NativeActivity");
+        adb_start.step.dependOn(&adb_install.step);
+        run_step.dependOn(&adb_start.step);
+    }
+}

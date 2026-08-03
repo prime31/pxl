@@ -1,0 +1,245 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  # Cancels pending runs when a PR gets updated.
+  group: ${{ github.head_ref || github.run_id }}-${{ github.actor }}
+  cancel-in-progress: true
+
+env:
+  CI_JAVA_VERSION: 17
+  # 35.0.0 = Android 15
+  CI_ANDROID_SDK: "tools platform-tools platforms;android-35 build-tools;35.0.0 ndk;29.0.13113456"
+  CI_ZIG_PREVIOUS_STABLE_VERSION: "0.15.1"
+  CI_ZIG_STABLE_VERSION: "0.16.0"
+
+jobs:
+  # NOTE(jae): 2026-02-01
+  # Run a Zig format check before any other steps on latest Zig stable
+  format:
+    name: zig fmt --check
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Setup Zig
+      uses: mlugg/setup-zig@v2
+
+    # Run AST check
+    # 
+    # Specifically ignore ./src/android as the runtime has different Zig version for compile-time features
+    # like @EnumLiteral
+    - name: AST Check (src/androidbuild)
+      run: |
+        zig fmt --ast-check ./build.zig
+        zig fmt --ast-check ./src/androidbuild
+
+    # Run format check
+    - name: Zig Format Check
+      run: zig fmt --check .
+
+  # https://stackoverflow.com/questions/73797254/environment-variables-in-github-actions
+  setup:
+    name: setup environment variables as outputs
+    needs: [format]
+    runs-on: ubuntu-latest
+    steps:
+       - run: echo "null"
+    outputs:
+      java-version: ${{ env.CI_JAVA_VERSION }}
+      android-sdk: ${{ env.CI_ANDROID_SDK }}
+      zig-stable-version: ${{ env.CI_ZIG_STABLE_VERSION }}
+      zig-previous-stable-version: ${{ env.CI_ZIG_PREVIOUS_STABLE_VERSION }}
+
+
+  build-stable:
+    name: Build Zig Stable
+    needs: [setup]
+    runs-on: ${{matrix.os}}
+    strategy:
+      max-parallel: 1
+      matrix:
+        include:
+          - os: "ubuntu-latest"
+          - os: "windows-latest"
+          - os: "macos-14" # arm64 as per table: https://github.com/actions/runner-images/blob/8a1eeaf6ac70c66f675a04078d1a7222edd42008/README.md#available-images
+ 
+    steps:
+    - uses: actions/checkout@v6
+
+    # Setup Java and Android SDK
+    - name: Set up JDK ${{ needs.setup.outputs.java-version }}
+      uses: actions/setup-java@v5
+      with:
+        java-version: ${{ needs.setup.outputs.java-version }}
+        distribution: "temurin"
+
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+      with:
+        packages: ${{ needs.setup.outputs.android-sdk }}
+
+    # Setup Zig version and run examples
+    - name: Setup Zig
+      # note(jae): 2024-09-15
+      # Uses download mirror first as preferred by Zig Foundation
+      # see: https://ziglang.org/news/migrate-to-self-hosting/
+      uses: mlugg/setup-zig@v2
+      with:
+        version: ${{ needs.setup.outputs.zig-stable-version }}
+
+    - name: Build Test
+      run: zig build --verbose
+      working-directory: test
+
+    - name: Build Minimal Example
+      run: zig build -Dandroid=true --verbose
+      working-directory: examples/minimal
+
+    - name: Build SDL2 Example
+      run: |
+        zig build -Dandroid=true --verbose
+        zig build -Dandroid=true -Dcrash-on-exception --verbose
+      working-directory: examples/sdl2
+    
+    # NOTE(jae): 2026-04-09
+    # Raylib example only runs on 0.16.X due to downstream dependencies
+    #
+    # - name: Build Raylib Example
+    #  run: zig build -Dandroid=true --verbose
+    #  working-directory: examples/raylib
+
+    # NOTE(jae): 2025-03-30
+    # Need to figure out how to get 'adb shell monkey' to return an error code or be able to return an error code
+    # if the stdout of the command has 'Monkey aborted due to error.'
+
+    # - name: Enable KVM (For Android emulation)
+    #   if: startsWith(matrix.os, 'ubuntu-')
+    #   run: |
+    #     echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+    #     sudo udevadm control --reload-rules
+    #     sudo udevadm trigger --name-match=kvm
+
+    # - name: Run Minimal Example (Android Emulator)
+    #   if: startsWith(matrix.os, 'ubuntu-')
+    #   uses: reactivecircus/android-emulator-runner@v2
+    #   with:
+    #     api-level: 34
+    #     arch: x86_64
+    #     profile: Nexus 6
+    #     script: |
+    #       adb install ./zig-out/bin/minimal.apk
+    #       adb shell am start -S -W -n com.zig.minimal/android.app.NativeActivity
+    #     working-directory: examples/minimal
+
+    # - name: Run SDL2 Example (Android Emulator)
+    #   if: startsWith(matrix.os, 'ubuntu-')
+    #   uses: reactivecircus/android-emulator-runner@v2
+    #   with:
+    #     api-level: 34
+    #     arch: x86_64
+    #     profile: Nexus 6
+    #     script: |
+    #       adb install ./zig-out/bin/sdl-zig-demo.apk
+    #       adb shell monkey --kill-process-after-error --monitor-native-crashes --pct-touch 100 -p com.zig.sdl2 --throttle 1000 -v 2
+    #     working-directory: examples/sdl2
+
+  build-nightly:
+    name: Build Zig Nightly
+    needs: [setup]
+    runs-on: ${{matrix.os}}
+    strategy:
+      max-parallel: 1
+      matrix:
+        include:
+          - os: "ubuntu-latest"
+          - os: "windows-latest"
+          - os: "macos-14" # arm64 as per table: https://github.com/actions/runner-images/blob/8a1eeaf6ac70c66f675a04078d1a7222edd42008/README.md#available-images
+ 
+    steps:
+    - uses: actions/checkout@v6
+
+    # Setup Java and Android SDK
+    - name: Set up JDK ${{ needs.setup.outputs.java-version }}
+      uses: actions/setup-java@v5
+      with:
+        java-version: ${{ needs.setup.outputs.java-version }}
+        distribution: "temurin"
+
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+      with:
+        packages: ${{ needs.setup.outputs.android-sdk }}
+
+    # Setup Zig version and run examples
+    - name: Setup Zig Nightly
+      uses: mlugg/setup-zig@v2
+      with:
+        version: "master"
+
+    - name: Build Test
+      run: zig build --verbose
+      working-directory: test
+
+    - name: Build Minimal Example
+      run: zig build -Dandroid=true --verbose
+      working-directory: examples/minimal
+
+    - name: Build SDL2 Example
+      run: zig build -Dandroid=true --verbose
+      working-directory: examples/sdl2
+
+    # note(jae): 2026-04-09
+    # Downstream packages for Raylib only support 0.16.X-dev right now.
+    - name: Build Raylib Example
+      run: zig build -Dandroid=true --verbose
+      working-directory: examples/raylib
+  build-previous-stable:
+    name: Build Zig Previous
+    needs: [setup]
+    runs-on: ${{matrix.os}}
+    strategy:
+      max-parallel: 1
+      matrix:
+        include:
+          - os: "ubuntu-latest"
+          - os: "windows-latest"
+          - os: "macos-14" # arm64 as per table: https://github.com/actions/runner-images/blob/8a1eeaf6ac70c66f675a04078d1a7222edd42008/README.md#available-images
+ 
+    steps:
+    - uses: actions/checkout@v6
+
+    # Setup Java and Android SDK
+    - name: Set up JDK ${{ needs.setup.outputs.java-version }}
+      uses: actions/setup-java@v5
+      with:
+        java-version: ${{ needs.setup.outputs.java-version }}
+        distribution: "temurin"
+
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+      with:
+        packages: ${{ needs.setup.outputs.android-sdk }}
+
+    # Setup Zig version and run examples
+    - name: Setup Zig
+      uses: mlugg/setup-zig@v2
+      with:
+        version: ${{ needs.setup.outputs.zig-previous-stable-version }}
+
+    - name: Build Test
+      run: zig build --verbose
+      working-directory: test
+
+    - name: Build Minimal Example
+      run: zig build -Dandroid=true --verbose
+      working-directory: examples/minimal
+
+    - name: Build SDL2 Example
+      run: zig build -Dandroid=true --verbose
+      working-directory: examples/sdl2
