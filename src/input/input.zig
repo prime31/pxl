@@ -52,23 +52,20 @@ pub fn handleEvent(evt: *const sapp.Event) void {
             // emulate one from the first touch: it moves the mouse cursor and acts
             // as the left button. This is hidden inside the input wrapper, so game
             // code just uses the normal mouse API.
-            if (builtin.target.abi.isAndroid()) touchToMouse(evt);
+            if (builtin.target.abi.isAndroid()) {
+                const t = &evt.touches[0];
+
+                mouse.mouse_rel_x = t.pos_x - mouse.pos.x;
+                mouse.mouse_rel_y = mouse.pos.y - t.pos_y;
+                mouse.pos = .init(t.pos_x, t.pos_y);
+
+                switch (evt.type) {
+                    .TOUCHES_BEGAN => mouse.buttons.press(.left),
+                    .TOUCHES_ENDED, .TOUCHES_CANCELLED => mouse.buttons.release(.left),
+                    else => {},
+                }
+            }
         },
-        else => {},
-    }
-}
-
-/// Converts the first touch point into a synthetic mouse event (Android only).
-fn touchToMouse(evt: *const sapp.Event) void {
-    const t = &evt.touches[0];
-
-    mouse.mouse_rel_x = t.pos_x - mouse.pos.x;
-    mouse.mouse_rel_y = mouse.pos.y - t.pos_y;
-    mouse.pos = .init(t.pos_x, t.pos_y);
-
-    switch (evt.type) {
-        .TOUCHES_BEGAN => mouse.buttons.press(.left),
-        .TOUCHES_ENDED, .TOUCHES_CANCELLED => mouse.buttons.release(.left),
         else => {},
     }
 }

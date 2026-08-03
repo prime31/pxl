@@ -46,3 +46,4 @@ In `shdc.createModule`:
 
 ### Android
 `zig build run -Dandroid=true`
+`zig build -Dtarget=aarch64-linux-android`
