@@ -7,18 +7,6 @@ const ig = pxl.ig;
 
 const Vec2 = pxl.math.Vec2;
 
-// On Android, sokol_main() is called by sokol's ANativeActivity_onCreate thread.
-// It must return sapp_desc with the app callbacks; sapp_run() is a no-op on Android.
-comptime {
-    if (builtin.target.abi.isAndroid()) {
-        @export(&sokolMain, .{ .name = "sokol_main" });
-    }
-}
-
-fn sokolMain() callconv(.c) pxl.sapp.Desc {
-    return pxl.androidEntry(pxlInit());
-}
-
 const Crab = struct {
     pos: Vec2,
     vel: Vec2,
@@ -45,6 +33,18 @@ pub fn pxlInit() pxl.Config {
             },
         },
     };
+}
+
+// On Android, sokol_main() is called by sokol's ANativeActivity_onCreate thread.
+// It must return sapp_desc with the app callbacks; sapp_run() is a no-op on Android.
+comptime {
+    if (builtin.target.abi.isAndroid()) {
+        @export(&sokolMain, .{ .name = "sokol_main" });
+    }
+}
+
+fn sokolMain() callconv(.c) pxl.sapp.Desc {
+    return pxl.androidEntry(pxlInit());
 }
 
 pub fn main(init: std.process.Init) !void {
