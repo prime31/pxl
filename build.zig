@@ -257,8 +257,8 @@ fn buildAndroid(b: *Build, optimize: OptimizeMode, android_targets: []ResolvedTa
         .ndk_version = "30.0.15729638",
     });
     apk.setKeyStore(android_sdk.createKeyStore(.example));
-    apk.setAndroidManifest(b.path("android/AndroidManifest.xml"));
-    apk.addResourceDirectory(b.path("android/res"));
+    apk.setAndroidManifest(b.path("deps/android/AndroidManifest.xml"));
+    apk.addResourceDirectory(b.path("deps/android/res"));
     // Bundle the source-tree asset folder into the APK so AAssetManager can read
     // textures/fonts. pxl.fs serves these reads on Android via the asset manager.
     apk.addAssetDirectory(b.path("examples/assets"));
