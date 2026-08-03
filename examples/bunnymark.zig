@@ -75,7 +75,7 @@ fn update() !void {
         bounce(&crab.pos, &crab.vel, bounds, 32);
     }
 
-    if (pxl.input.mousePressed(.right)) {
+    if (pxl.input.mousePressed(.left)) {
         const w: f32 = @floatFromInt(pxl.sapp.width());
         const h: f32 = @floatFromInt(pxl.sapp.height());
 
@@ -83,7 +83,7 @@ fn update() !void {
             crabs.append(spawnCrab(Vec2.init(w, h)));
     }
 
-    if (pxl.input.mouseDown(.left)) {
+    if (pxl.input.mouseDown(.right)) {
         const w: f32 = @floatFromInt(pxl.sapp.width());
         const h: f32 = @floatFromInt(pxl.sapp.height());
 
