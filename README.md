@@ -4,10 +4,25 @@
 - should Batcher Mesh just have a ?Pipeline and pushMesh takes in the uniforms to keep it as one api?
 - zig-frm parallax_tilemap.zig has decent player starter
 
-zig build --release=small -Dtarget=wasm32-emscripten base
 
-## Bloom (WIP)
+`zig build --release=small -Dtarget=wasm32-emscripten base`
+`zig build --summary all`
 
+
+
+### App
+All callback are optional
+
+```zig
+pub fn config() pxl.Config {}
+pub fn setup() !void {}
+pub fn update() !void {}
+pub fn render() !void {}
+pub fn shutdown() !void {}
+```
+
+
+### Bloom (WIP)
 The renderer now supports a startup bloom toggle in `pxl.Config.gfx`.
 
 ```zig

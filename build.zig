@@ -51,7 +51,7 @@ const Options = struct {
 };
 
 const BuildWasmOptions = struct {
-    mod_main: *Build.Module,
+    mod_pxl: *Build.Module,
     dep_sokol: *Build.Dependency,
     opt_imgui: bool = false,
     dep_cimgui: *Build.Dependency,
@@ -125,7 +125,7 @@ pub fn build(b: *Build) !void {
         try buildWeb(b, .{
             // .target = target,
             // .optimize = optimize,
-            .mod_main = mod_pxl,
+            .mod_pxl = mod_pxl,
             // .dep = dep_sokol_builder,
             .dep_sokol = dep_sokol,
             .dep_cimgui = undefined,
@@ -157,17 +157,28 @@ fn buildNative(b: *Build, opts: ExeConfig) !void {
     inline for (examples) |example| {
         const is_check = std.mem.eql(u8, example.name, "check");
 
+        const mod_example = b.createModule(.{
+            .root_source_file = b.path(try std.fmt.allocPrint(b.allocator, "examples/{s}.zig", .{example.name})),
+            .target = opts.target,
+            .optimize = opts.optimize,
+            .imports = &.{
+                .{ .name = "pxl", .module = opts.mod_pxl },
+            },
+        });
+
         const exe = b.addExecutable(.{
             .name = example.name,
             .root_module = b.createModule(.{
-                .root_source_file = b.path(try std.fmt.allocPrint(b.allocator, "examples/{s}.zig", .{example.name})),
+                .root_source_file = b.path("src/entrypoint.zig"),
                 .target = opts.target,
                 .optimize = opts.optimize,
                 .imports = &.{
                     .{ .name = "pxl", .module = opts.mod_pxl },
+                    .{ .name = "app", .module = mod_example },
                 },
             }),
         });
+
         // only install the artifact for non-check examples
         if (!is_check) {
             b.installArtifact(exe);
@@ -201,15 +212,15 @@ fn buildWeb(b: *Build, opts: BuildWasmOptions) !void {
 
     const lib = b.addLibrary(.{
         .name = "pacman",
-        .root_module = opts.mod_main,
+        .root_module = opts.mod_pxl,
     });
 
     // create a build step which invokes the Emscripten linker
     const emsdk = opts.dep_sokol.builder.dependency("emsdk", .{});
     const link_step = try sokol.emLinkStep(b, .{
         .lib_main = lib,
-        .target = opts.mod_main.resolved_target.?,
-        .optimize = opts.mod_main.optimize.?,
+        .target = opts.mod_pxl.resolved_target.?,
+        .optimize = opts.mod_pxl.optimize.?,
         .emsdk = emsdk,
         .use_webgl2 = true,
         .use_emmalloc = true,
@@ -305,16 +316,29 @@ fn buildAndroid(b: *Build, optimize: OptimizeMode, android_targets: []ResolvedTa
         mod_options.addOption(bool, "docking", false);
         mod_pxl.addOptions("build_options", mod_options);
 
+        const mod_example = b.createModule(.{
+            .root_source_file = b.path("examples/bunnymark.zig"),
+            .target = android_target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "pxl", .module = mod_pxl },
+            },
+        });
+
         const lib = b.addLibrary(.{
             .name = "main",
             .linkage = .dynamic,
             .root_module = b.createModule(.{
-                .root_source_file = b.path("examples/bunnymark.zig"),
+                .root_source_file = b.path("src/entrypoint.zig"),
                 .target = android_target,
                 .optimize = optimize,
-                .imports = &.{.{ .name = "pxl", .module = mod_pxl }},
+                .imports = &.{
+                    .{ .name = "pxl", .module = mod_pxl },
+                    .{ .name = "app", .module = mod_example },
+                },
             }),
         });
+
         // Link Android system libraries on the final .so (not in the intermediate
         // static sokol archive, which would cause LLD warnings about .so stubs).
         lib.root_module.linkSystemLibrary("GLESv3", .{});

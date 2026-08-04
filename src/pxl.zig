@@ -38,6 +38,12 @@ pub const Config = struct {
     update: ?*const fn () anyerror!void = null,
     render: ?*const fn () anyerror!void = null,
     shutdown: ?*const fn () anyerror!void = null,
+    win: WindowConfig = .{},
+    gfx: gpu.Config = .{},
+    debug_render_enabled: bool = true,
+};
+
+pub const WindowConfig = struct {
     sample_count: i32 = 0,
     swap_interval: i32 = 0,
     high_dpi: bool = false,
@@ -45,8 +51,6 @@ pub const Config = struct {
     width: i32 = 1024,
     height: i32 = 768,
     window_title: [*c]const u8 = "Pxl",
-    debug_render_enabled: bool = true,
-    gfx: gpu.Config = .{},
 };
 
 pub const Camera = gpu.Camera;
@@ -67,44 +71,46 @@ pub var font: text.BMFont = undefined;
 var current_pass: ?Pass = null;
 var cfg: Config = undefined;
 
-/// Called from the root module's exported `sokol_main` on Android. Sets up
-/// pxl state (io, mem, stb, cfg) and returns the sapp.Desc for sokol's event loop.
-pub fn androidEntry(config: Config) sapp.Desc {
+pub fn run(init: std.process.Init, config: Config) !void {
+    io = init.io;
+    cfg = config;
+
+    sapp.run(buildSappDesc(config));
+}
+
+pub fn runAndroid(config: Config) sapp.Desc {
     io = std.Io.Threaded.global_single_threaded.io();
     cfg = config;
-    mem.init();
-    stb.init(mem.allocator);
-    // Give Android a truly full-screen app: hide the system status + nav bars.
-    if (android.is_android) android.hideSystemBars(sapp.androidGetNativeActivity());
+
+    android.hideSystemBars(sapp.androidGetNativeActivity());
+
     return buildSappDesc(config);
 }
 
 fn buildSappDesc(c: Config) sapp.Desc {
-    // Mobile should always run fullscreen (no window chrome) and at the device's
-    // native resolution so the whole screen is used.
-    const use_fullscreen = if (android.is_android) true else c.fullscreen;
-    const use_high_dpi = if (android.is_android) true else c.high_dpi;
-
     return .{
         .init_cb = sokolInit,
         .frame_cb = sokolFrame,
         .cleanup_cb = sokolCleanup,
         .event_cb = sokolEvent,
-        .sample_count = c.sample_count,
-        .swap_interval = c.swap_interval,
-        .high_dpi = use_high_dpi,
-        .fullscreen = use_fullscreen,
-        .window_title = c.window_title,
-        .width = c.width,
-        .height = c.height,
+        .sample_count = c.win.sample_count,
+        .swap_interval = c.win.swap_interval,
+        .high_dpi = if (android.is_android) true else c.win.high_dpi,
+        .fullscreen = if (android.is_android) true else c.win.fullscreen,
+        .window_title = c.win.window_title,
+        .srgb = false,
+        .hdr = false,
+        .disable_vsync = false,
+        .enable_clipboard = false,
+        .enable_dragndrop = false,
+        .width = c.win.width,
+        .height = c.win.height,
         .icon = .{ .sokol_default = true },
         .logger = .{ .func = sokol.log.func },
     };
 }
 
-/// Logs a formatted message. On Android this writes to logcat (visible with
-/// `adb logcat -s pxl:V`); everywhere else it behaves like `std.debug.print`.
-/// Delegates to `android.log` so the platform-specific bits stay isolated.
+/// Logs a formatted message. On Android this writes to logcat (visible with `adb logcat -s pxl:V`
 pub fn log(comptime fmt: []const u8, args: anytype) void {
     if (!android.is_android) {
         std.debug.print(fmt ++ "\n", args);
@@ -113,31 +119,10 @@ pub fn log(comptime fmt: []const u8, args: anytype) void {
     android.log(fmt, args);
 }
 
-pub fn run(init: std.process.Init, config: Config) !void {
-    io = init.io;
-    cfg = config;
-
-    // setup
+export fn sokolInit() void {
     mem.init();
     stb.init(mem.allocator);
 
-    if (android.is_android) {
-        // sapp.run() is a no-op stub on Android; sokol_main already provided the
-        // desc and sokol handles the event loop. Returning here prevents the
-        // spurious shutdown/teardown that would fire immediately after the no-op.
-        return;
-    }
-
-    sapp.run(buildSappDesc(config));
-
-    if (config.shutdown) |cb| try cb();
-
-    // teardown
-    mem.deinit();
-    stb.deinit();
-}
-
-export fn sokolInit() void {
     sg.setup(.{
         .environment = sokol.glue.environment(),
         .logger = .{ .func = sokol.log.func },
