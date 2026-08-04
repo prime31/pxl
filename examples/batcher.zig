@@ -10,19 +10,11 @@ var shader_pip: ?sg.Pipeline = null;
 var vs_uniform: pxl.shaders.GpExampleVsUniforms = undefined;
 var fs_uniform: pxl.shaders.GpExampleFsUniforms = undefined;
 
-pub fn main(init: std.process.Init) !void {
-    try pxl.run(init, .{
-        .setup = setup,
-        .render = render,
-        .shutdown = shutdown,
-    });
-}
-
-fn setup() !void {
+pub fn setup() !void {
     ferris = try pxl.gpu.Texture.initFromFile("examples/assets/ferris_smol.png");
 }
 
-fn render() !void {
+pub fn render() !void {
     pxl.beginPass(.{ .clear_color = pxl.math.Color.aya });
 
     const t = pxl.util.cast(f32, pxl.time.frameCount()) / 60.0;
@@ -107,6 +99,6 @@ fn render() !void {
     pxl.endPass();
 }
 
-fn shutdown() !void {
+pub fn shutdown() !void {
     ferris.deinit();
 }

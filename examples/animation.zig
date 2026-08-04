@@ -19,21 +19,17 @@ var parsed_sprites: []Sprite = undefined;
 var sprite_animations: SpriteAnimations = .{};
 var animator: AnimationPlayer = .{};
 
-pub fn main(init: std.process.Init) !void {
-    try pxl.run(init, .{
-        .setup = setup,
-        .update = update,
-        .render = render,
-        .shutdown = shutdown,
+pub fn config() pxl.Config {
+    return .{
         .gfx = .{
             .design_width = 640,
             .design_height = 320,
             .resolution_policy = .show_all_pixel_perfect,
         },
-    });
+    };
 }
 
-fn setup() !void {
+pub fn setup() !void {
     sprites_tex = try Texture.initFromFile("examples/assets/sprites.png");
     tiles_tex = try Texture.initFromFile("examples/assets/blacknwhite.png");
 
@@ -47,7 +43,7 @@ fn setup() !void {
     animator.play(@enumFromInt(0));
 }
 
-fn shutdown() !void {
+pub fn shutdown() !void {
     sprites_tex.deinit();
     tiles_tex.deinit();
     pxl.mem.free(parsed_sprites);
@@ -55,9 +51,7 @@ fn shutdown() !void {
     sprite_animations.sprites.deinit();
 }
 
-fn update() !void {}
-
-fn render() !void {
+pub fn render() !void {
     pxl.beginPass(.{ .clear_color = Color.fromBytes(11, 15, 22, 255) });
 
     var pos = Vec2.one;

@@ -280,29 +280,25 @@ const Trail = struct {
 
 var trail: Trail = undefined;
 
-pub fn main(init: std.process.Init) !void {
-    try pxl.run(init, .{
-        .setup = setup,
-        .update = update,
-        .render = render,
-        .shutdown = shutdown,
+pub fn config() pxl.Config {
+    return .{
         .gfx = .{
             .clear_color = Color.fromBytes(8, 10, 20, 255),
         },
-    });
+    };
 }
 
-fn setup() !void {
+pub fn setup() !void {
     trail = try Trail.init(18.0, 220.0, Color.fromRgba(0.18, 0.48, 1.0, 1.0), Color.fromRgba(1.0, 0.3, 0.35, 0.0));
     trail.min_point_distance = 8.0;
     trail.max_vertices = 64;
 }
 
-fn shutdown() !void {
+pub fn shutdown() !void {
     trail.deinit();
 }
 
-fn update() !void {
+pub fn update() !void {
     const mouse = pxl.input.mousePos();
 
     if (pxl.input.keyPressed(.e)) {
@@ -320,7 +316,7 @@ fn update() !void {
     }
 }
 
-fn render() !void {
+pub fn render() !void {
     pxl.beginPass(.{ .clear_color = Color.fromBytes(8, 10, 20, 255) });
 
     const w = pxl.gpu.renderWidthf();

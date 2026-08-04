@@ -28,27 +28,23 @@ var emitter: pxl.EmitterParams = .{
 
 var is_fountain_active: bool = true;
 
-pub fn main(init: std.process.Init) !void {
-    try pxl.run(init, .{
-        .setup = setup,
-        .update = update,
-        .render = render,
-        .shutdown = shutdown,
+pub fn config() pxl.Config {
+    return .{
         .gfx = .{
             .clear_color = Color.dark_gray,
         },
-    });
+    };
 }
 
-fn setup() !void {
+pub fn setup() !void {
     ps = pxl.ParticleSystem.init(5000);
 }
 
-fn shutdown() !void {
+pub fn shutdown() !void {
     ps.deinit();
 }
 
-fn update() !void {
+pub fn update() !void {
     const dt = pxl.time.dt();
 
     // Continuous emitter
@@ -119,7 +115,7 @@ fn update() !void {
     }
 }
 
-fn render() !void {
+pub fn render() !void {
     pxl.beginPass(.{
         .clear_color = Color.fromBytes(20, 20, 30, 255),
     });

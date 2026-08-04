@@ -19,23 +19,21 @@ var camera: pxl.Camera = .{
     .rotation = 0,
 };
 
-pub fn main(init: std.process.Init) !void {
-    try pxl.run(init, .{
-        .setup = setup,
-        .update = update,
-        .render = render,
-        .shutdown = shutdown,
-        .width = 640 * 2,
-        .height = 360 * 2,
+pub fn config() pxl.Config {
+    return .{
+        .win = .{
+            .width = 640 * 2,
+            .height = 360 * 2,
+        },
         .gfx = .{
             .design_width = 640,
             .design_height = 360,
             .resolution_policy = .show_all_pixel_perfect,
         },
-    });
+    };
 }
 
-fn setup() !void {
+pub fn setup() !void {
     textures = std.AutoHashMap(i64, Texture).init(pxl.mem.allocator);
 
     // map = try LDtk.parse(try pxl.fs.read("examples/assets/ldtk.ldtk", .persistent));
@@ -60,7 +58,7 @@ fn setup() !void {
     player.h = grid_size;
 }
 
-fn update() !void {
+pub fn update() !void {
     var move = Vec2{};
     const speed: f32 = 1.0;
 
@@ -98,14 +96,14 @@ fn update() !void {
     }
 }
 
-fn render() !void {
+pub fn render() !void {
     pxl.beginPass(.{ .clear_color = Color.aya, .camera = camera });
     for (map.root.levels) |level| renderLevel(level);
     api.drawRect(player.pos(), player.size(), Color.orange);
     pxl.endPass();
 }
 
-fn shutdown() !void {
+pub fn shutdown() !void {
     map.deinit();
     textures.deinit();
 }

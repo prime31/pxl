@@ -408,19 +408,15 @@ fn nextColor() Color {
     return c;
 }
 
-pub fn main(init: std.process.Init) !void {
-    try pxl.run(init, .{
-        .setup = setup,
-        .update = update,
-        .render = render,
-        .shutdown = shutdown,
+pub fn config() pxl.Config {
+    return .{
         .gfx = .{
             .clear_color = Color.fromBytes(10, 12, 18, 255),
         },
-    });
+    };
 }
 
-fn setup() !void {
+pub fn setup() !void {
     const w = pxl.gpu.renderWidthf();
     const h = pxl.gpu.renderHeightf();
 
@@ -448,11 +444,11 @@ fn setup() !void {
     }
 }
 
-fn shutdown() !void {
+pub fn shutdown() !void {
     solver.deinit();
 }
 
-fn update() !void {
+pub fn update() !void {
     const w = pxl.gpu.renderWidthf();
     const h = pxl.gpu.renderHeightf();
 
@@ -584,7 +580,7 @@ fn update() !void {
     }
 }
 
-fn render() !void {
+pub fn render() !void {
     pxl.beginPass(.{ .clear_color = Color.fromBytes(10, 12, 18, 255) });
 
     const w = pxl.gpu.renderWidthf();

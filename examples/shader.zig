@@ -21,16 +21,7 @@ var noise_fs_uni: pxl.shaders.FogNoiseFsUniforms = .{
     .iTime = 0.0,
 };
 
-pub fn main(init: std.process.Init) !void {
-    try pxl.run(init, .{
-        .setup = setup,
-        .shutdown = shutdown,
-        .update = update,
-        .render = render,
-    });
-}
-
-fn setup() !void {
+pub fn setup() !void {
     sdf_pip = api.makePipeline(sg.makeShader(pxl.shaders.gpExampleShaderDesc(sg.queryBackend())), .blend);
     noise_pip = api.makePipeline(sg.makeShader(pxl.shaders.fogNoiseShaderDesc(sg.queryBackend())), .blend);
     noise_tex = try pxl.gpu.Texture.initFromFile("examples/assets/perlin.png");
@@ -42,14 +33,14 @@ fn setup() !void {
     });
 }
 
-fn shutdown() !void {
+pub fn shutdown() !void {
     sg.destroyPipeline(sdf_pip);
     sg.destroyPipeline(noise_pip);
     noise_tex.deinit();
     sg.destroySampler(noise_smp);
 }
 
-fn update() !void {
+pub fn update() !void {
     if (mu.beginWindowEx("Particle Controls", .{ .x = 10, .y = 10, .w = 260, .h = 280 }, .{ .align_center = false })) {
         mu.layoutRow(2, &[_]c_int{ 100, -1 }, 0);
 
@@ -72,7 +63,7 @@ fn update() !void {
     }
 }
 
-fn render() !void {
+pub fn render() !void {
     pxl.beginPass(.{ .clear_color = Color.aya });
 
     {

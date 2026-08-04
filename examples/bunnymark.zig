@@ -19,12 +19,8 @@ var tex1: pxl.gpu.Texture = undefined;
 var tex2: pxl.gpu.Texture = undefined;
 var crabs: pxl.util.Vec(Crab) = .empty;
 
-pub fn pxlInit() pxl.Config {
+pub fn config() pxl.Config {
     return .{
-        .setup = setup,
-        .update = update,
-        .render = render,
-        .shutdown = shutdown,
         .gfx = .{
             .batcher = .{
                 .max_verts = 3_000_000,
@@ -35,23 +31,7 @@ pub fn pxlInit() pxl.Config {
     };
 }
 
-// On Android, sokol_main() is called by sokol's ANativeActivity_onCreate thread.
-// It must return sapp_desc with the app callbacks; sapp_run() is a no-op on Android.
-comptime {
-    if (builtin.target.abi.isAndroid()) {
-        @export(&sokolMain, .{ .name = "sokol_main" });
-    }
-}
-
-fn sokolMain() callconv(.c) pxl.sapp.Desc {
-    return pxl.androidEntry(pxlInit());
-}
-
-pub fn main(init: std.process.Init) !void {
-    try pxl.run(init, pxlInit());
-}
-
-fn setup() !void {
+pub fn setup() !void {
     tex1 = try pxl.gpu.Texture.initFromFile("examples/assets/ferris_smol.png");
     tex2 = try pxl.gpu.Texture.initFromFile("examples/assets/zig.png");
 
@@ -61,13 +41,13 @@ fn setup() !void {
     crabs.append(spawnCrab(Vec2.init(w, h)));
 }
 
-fn shutdown() !void {
+pub fn shutdown() !void {
     tex1.deinit();
     tex2.deinit();
     crabs.deinit();
 }
 
-fn update() !void {
+pub fn update() !void {
     const bounds = Vec2.init(@floatFromInt(pxl.sapp.width()), @floatFromInt(pxl.sapp.height()));
 
     for (crabs.items) |*crab| {
@@ -98,7 +78,7 @@ fn update() !void {
     });
 }
 
-fn render() !void {
+pub fn render() !void {
     pxl.beginPass(.{ .clear_color = pxl.math.Color.dark_gray });
     for (crabs.items, 0..) |*crab, i| {
         const t = if (@mod(i, flip_tex_every_count) == 0) tex1 else tex2;

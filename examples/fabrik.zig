@@ -92,16 +92,13 @@ var chains: [3]FabrikChain = undefined;
 var target: Vec2 = .zero; // smoothed target both tentacles chase
 var actual_target: Vec2 = .zero; // raw target: mouse (shift) or screen center
 
-pub fn main(init: std.process.Init) !void {
-    try pxl.run(init, .{
-        .setup = setup,
-        .update = update,
-        .render = render,
+pub fn config() pxl.Config {
+    return .{
         .gfx = .{ .clear_color = Color.fromBytes(10, 12, 18, 255) },
-    });
+    };
 }
 
-fn setup() !void {
+pub fn setup() !void {
     const w = pxl.gpu.renderWidthf();
     const h = pxl.gpu.renderHeightf();
 
@@ -115,7 +112,7 @@ fn setup() !void {
     chains[2] = FabrikChain.init(.init(w - 22, h * 0.68), 15, 34, .init(-1, 0), Color.aya, 4);
 }
 
-fn update() !void {
+pub fn update() !void {
     const w = pxl.gpu.renderWidthf();
     const h = pxl.gpu.renderHeightf();
     const mouse = pxl.input.mousePos();
@@ -132,7 +129,7 @@ fn update() !void {
     for (&chains) |*chain| chain.solve(target, 12);
 }
 
-fn render() !void {
+pub fn render() !void {
     pxl.beginPass(.{ .clear_color = Color.fromBytes(10, 12, 18, 255) });
     const w = pxl.gpu.renderWidthf();
     const h = pxl.gpu.renderHeightf();

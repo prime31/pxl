@@ -7,12 +7,8 @@ const Color = pxl.math.Color;
 
 var ferris: pxl.gpu.Texture = undefined;
 
-pub fn main(init: std.process.Init) !void {
-    try pxl.run(init, .{
-        .setup = setup,
-        .update = update,
-        .render = render,
-        .shutdown = shutdown,
+pub fn config() pxl.Config {
+    return .{
         .gfx = .{
             .design_width = 320,
             .design_height = 180,
@@ -23,10 +19,10 @@ pub fn main(init: std.process.Init) !void {
             .bloom_intensity = 1.25,
             .bloom_blur_radius = 1.0,
         },
-    });
+    };
 }
 
-fn update() !void {
+pub fn update() !void {
     if (mu.beginWindowEx("Bloom Controls", .{ .x = 10, .y = 10, .w = 220, .h = 140 }, .{})) {
         mu.layoutRow(2, &[_]c_int{ 85, -1 }, 0);
 
@@ -43,15 +39,15 @@ fn update() !void {
     }
 }
 
-fn setup() !void {
+pub fn setup() !void {
     ferris = try pxl.gpu.Texture.initFromFile("examples/assets/ferris_smol.png");
 }
 
-fn shutdown() !void {
+pub fn shutdown() !void {
     ferris.deinit();
 }
 
-fn render() !void {
+pub fn render() !void {
     const t = @as(f32, @floatFromInt(pxl.time.frameCount())) / 60.0;
     const rw = pxl.gpu.renderWidthf();
     const rh = pxl.gpu.renderHeightf();

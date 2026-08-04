@@ -117,8 +117,8 @@ const Worm = struct {
     }
 };
 
-pub fn main(init: std.process.Init) !void {
-    try pxl.run(init, .{
+pub fn config() pxl.Config {
+    return .{
         .setup = setup,
         .update = update,
         .render = render,
@@ -128,18 +128,18 @@ pub fn main(init: std.process.Init) !void {
             .design_height = 180,
             .resolution_policy = .show_all_pixel_perfect,
         },
-    });
+    };
 }
 
-fn setup() !void {
+pub fn setup() !void {
     ferris = try pxl.gpu.Texture.initFromFile("examples/assets/ferris_smol.png");
 }
 
-fn shutdown() !void {
+pub fn shutdown() !void {
     ferris.deinit();
 }
 
-fn update() !void {
+pub fn update() !void {
     // MicroUI Controls Window
     if (mu.beginWindowEx("Camera Controls", .{ .x = 10, .y = 10, .w = 200, .h = 160 }, .{ .align_center = false })) {
         mu.layoutRow(2, &[_]c_int{ 75, -1 }, 0);
@@ -165,7 +165,7 @@ fn update() !void {
     worm.update(mouse_world);
 }
 
-fn render() !void {
+pub fn render() !void {
     pxl.beginPass(.{
         .clear_color = Color.aya,
         .camera = camera,

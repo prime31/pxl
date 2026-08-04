@@ -3,14 +3,7 @@ const std = @import("std");
 const pxl = @import("pxl");
 const mu = pxl.mu;
 
-pub fn main(init: std.process.Init) !void {
-    try pxl.run(init, .{
-        .update = update,
-        .render = render,
-    });
-}
-
-fn update() !void {
+pub fn update() !void {
     if (mu.beginWindowEx("Poop Window", .{ .x = 200, .y = 50, .w = 200, .h = 250 }, .{ .no_close = true, .align_center = false })) {
         mu.text("wtf man, text");
 
@@ -65,7 +58,7 @@ fn update() !void {
     }
 }
 
-fn render() !void {
+pub fn render() !void {
     pxl.beginPass(.{ .clear_color = pxl.math.Color.aya });
     pxl.endPass();
 }
