@@ -119,10 +119,6 @@ const Worm = struct {
 
 pub fn config() pxl.Config {
     return .{
-        .setup = setup,
-        .update = update,
-        .render = render,
-        .shutdown = shutdown,
         .gfx = .{
             .design_width = 320,
             .design_height = 180,

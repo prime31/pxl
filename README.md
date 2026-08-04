@@ -4,10 +4,8 @@
 - should Batcher Mesh just have a ?Pipeline and pushMesh takes in the uniforms to keep it as one api?
 - zig-frm parallax_tilemap.zig has decent player starter
 
-
-`zig build --release=small -Dtarget=wasm32-emscripten base`
+### Build all with summary
 `zig build --summary all`
-
 
 
 ### App
@@ -30,9 +28,6 @@ try pxl.run(init, .{
 	.setup = setup,
 	.render = render,
 	.gfx = .{
-		.design_width = 320,
-		.design_height = 180,
-		.resolution_policy = .show_all_pixel_perfect,
 		.bloom_enabled = true,
 		.bloom_downsample = 2,
 		.bloom_threshold = 0.7,
@@ -51,12 +46,10 @@ MicroUI/imgui remain unbloomed because UI is rendered after scene composite.
 
 
 ### Bust Shadc Cache
-
 In `shdc.createModule`:
 ```zig
 .genver = b.fmt("{b}", .{std.Io.Clock.now(.awake, b.graph.io).toNanoseconds()})
 ```
-
 
 
 ### Android
@@ -67,3 +60,7 @@ Build just arm:
 `zig build -Dtarget=aarch64-linux-android`
 
 Logging is redirected to logcat if `std.log.*` methods are used
+
+
+### Web
+`zig build --release=small -Dtarget=wasm32-emscripten base`

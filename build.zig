@@ -261,101 +261,109 @@ fn buildAndroid(b: *Build, optimize: OptimizeMode, android_targets: []ResolvedTa
     );
 
     const android_sdk = android_build.Sdk.create(b, .{});
-    const apk = android_sdk.createApk(.{
-        .name = "bunnymark",
-        .api_level = .android12,
-        .build_tools_version = "35.0.1",
-        .ndk_version = "30.0.15729638",
-    });
-    apk.setKeyStore(android_sdk.createKeyStore(.example));
-    apk.setAndroidManifest(b.path("deps/android/AndroidManifest.xml"));
-    apk.addResourceDirectory(b.path("deps/android/res"));
-    // Bundle the source-tree asset folder into the APK so AAssetManager can read
-    // textures/fonts. pxl.fs serves these reads on Android via the asset manager.
-    apk.addAssetDirectory(b.path("examples/assets"));
 
-    for (android_targets) |android_target| {
-        // Pass dont_link_system_libs through sokol_builder so all sokol module
-        // instances for this target are consistent — prevents the "file in two modules" error.
-        const dep_sb = b.dependency("sokol_builder", .{
-            .target = android_target,
-            .optimize = optimize,
-            .imgui = false,
-            .dont_link_system_libs = true,
+    for (examples) |example| {
+        if (std.mem.eql(u8, example.name, "check")) continue;
+
+        const apk = android_sdk.createApk(.{
+            .name = example.name,
+            .api_level = .android12,
+            .build_tools_version = "35.0.1",
+            .ndk_version = "30.0.15729638",
         });
-        const dep_gamepad = b.dependency("gamepad", .{
-            .target = android_target,
-            .optimize = optimize,
-        });
-        const dep_stb = b.dependency("stb", .{
-            .target = android_target,
-            .optimize = optimize,
-        });
+        apk.setKeyStore(android_sdk.createKeyStore(.example));
+        apk.setAndroidManifest(b.path("deps/android/AndroidManifest.xml"));
+        apk.addResourceDirectory(b.path("deps/android/res"));
+        // Bundle the source-tree asset folder into the APK so AAssetManager can read
+        // textures/fonts. pxl.fs serves these reads on Android via the asset manager.
+        apk.addAssetDirectory(b.path("examples/assets"));
 
-        // Each ABI gets its own shader module pointing to the same compiled source
-        // but importing the right target's sokol module
-        const mod_shader = b.createModule(.{ .root_source_file = shader_zig_path });
-        mod_shader.addImport("sokol", dep_sb.module("sokol"));
+        for (android_targets) |android_target| {
+            // Pass dont_link_system_libs through sokol_builder so all sokol module
+            // instances for this target are consistent — prevents the "file in two modules" error.
+            const dep_sb = b.dependency("sokol_builder", .{
+                .target = android_target,
+                .optimize = optimize,
+                .imgui = false,
+                .dont_link_system_libs = true,
+            });
+            const dep_gamepad = b.dependency("gamepad", .{
+                .target = android_target,
+                .optimize = optimize,
+            });
+            const dep_stb = b.dependency("stb", .{
+                .target = android_target,
+                .optimize = optimize,
+            });
 
-        const mod_pxl = b.createModule(.{
-            .root_source_file = b.path("src/pxl.zig"),
-            .target = android_target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "sokol", .module = dep_sb.module("sokol") },
-                .{ .name = "gamepad", .module = dep_gamepad.module("gamepad") },
-                .{ .name = "stb", .module = dep_stb.module("stb") },
-                .{ .name = "microui", .module = dep_sb.module("microui") },
-                .{ .name = "shaders", .module = mod_shader },
-            },
-        });
-        mod_shader.addImport("pxl", mod_pxl);
+            // Each ABI gets its own shader module pointing to the same compiled source
+            // but importing the right target's sokol module
+            const mod_shader = b.createModule(.{ .root_source_file = shader_zig_path });
+            mod_shader.addImport("sokol", dep_sb.module("sokol"));
 
-        const mod_options = b.addOptions();
-        mod_options.addOption(bool, "imgui", false);
-        mod_options.addOption(bool, "docking", false);
-        mod_pxl.addOptions("build_options", mod_options);
+            const mod_pxl = b.createModule(.{
+                .root_source_file = b.path("src/pxl.zig"),
+                .target = android_target,
+                .optimize = optimize,
+                .imports = &.{
+                    .{ .name = "sokol", .module = dep_sb.module("sokol") },
+                    .{ .name = "gamepad", .module = dep_gamepad.module("gamepad") },
+                    .{ .name = "stb", .module = dep_stb.module("stb") },
+                    .{ .name = "microui", .module = dep_sb.module("microui") },
+                    .{ .name = "shaders", .module = mod_shader },
+                },
+            });
+            mod_shader.addImport("pxl", mod_pxl);
 
-        const mod_example = b.createModule(.{
-            .root_source_file = b.path("examples/bunnymark.zig"),
-            .target = android_target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "pxl", .module = mod_pxl },
-            },
-        });
+            const mod_options = b.addOptions();
+            mod_options.addOption(bool, "imgui", false);
+            mod_options.addOption(bool, "docking", false);
+            mod_pxl.addOptions("build_options", mod_options);
 
-        const lib = b.addLibrary(.{
-            .name = "main",
-            .linkage = .dynamic,
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("src/entrypoint.zig"),
+            const mod_example = b.createModule(.{
+                .root_source_file = b.path(try std.fmt.allocPrint(b.allocator, "examples/{s}.zig", .{example.name})),
                 .target = android_target,
                 .optimize = optimize,
                 .imports = &.{
                     .{ .name = "pxl", .module = mod_pxl },
-                    .{ .name = "app", .module = mod_example },
                 },
-            }),
-        });
+            });
 
-        // Link Android system libraries on the final .so (not in the intermediate
-        // static sokol archive, which would cause LLD warnings about .so stubs).
-        lib.root_module.linkSystemLibrary("GLESv3", .{});
-        lib.root_module.linkSystemLibrary("EGL", .{});
-        lib.root_module.linkSystemLibrary("android", .{});
-        lib.root_module.linkSystemLibrary("log", .{});
-        apk.addArtifact(lib);
+            const lib = b.addLibrary(.{
+                .name = "main",
+                .linkage = .dynamic,
+                .root_module = b.createModule(.{
+                    .root_source_file = b.path("src/entrypoint.zig"),
+                    .target = android_target,
+                    .optimize = optimize,
+                    .imports = &.{
+                        .{ .name = "pxl", .module = mod_pxl },
+                        .{ .name = "app", .module = mod_example },
+                    },
+                }),
+            });
+
+            // Link Android system libraries on the final .so (not in the intermediate
+            // static sokol archive, which would cause LLD warnings about .so stubs).
+            lib.root_module.linkSystemLibrary("GLESv3", .{});
+            lib.root_module.linkSystemLibrary("EGL", .{});
+            lib.root_module.linkSystemLibrary("android", .{});
+            lib.root_module.linkSystemLibrary("log", .{});
+            apk.addArtifact(lib);
+        }
+
+        const installed_apk = apk.addInstallApk();
+        b.getInstallStep().dependOn(&installed_apk.step);
+
+        const step_name = try std.fmt.allocPrint(b.allocator, "run-{s}", .{example.name});
+        const step_desc = try std.fmt.allocPrint(b.allocator, "run {s}", .{example.name});
+
+        const run_step = b.step(step_name, step_desc);
+        const adb_install = android_sdk.addAdbInstall(installed_apk.source);
+        const adb_start = android_sdk.addAdbStart("com.zigpxl.bunnymark/android.app.NativeActivity");
+        adb_start.step.dependOn(&adb_install.step);
+        run_step.dependOn(&adb_start.step);
     }
-
-    const installed_apk = apk.addInstallApk();
-    b.getInstallStep().dependOn(&installed_apk.step);
-
-    const run_step = b.step("android", "Install and run bunnymark on a connected Android device");
-    const adb_install = android_sdk.addAdbInstall(installed_apk.source);
-    const adb_start = android_sdk.addAdbStart("com.zigpxl.bunnymark/android.app.NativeActivity");
-    adb_start.step.dependOn(&adb_install.step);
-    run_step.dependOn(&adb_start.step);
 }
 
 /// Compile shaders with shdc and return the LazyPath to the generated .zig file.

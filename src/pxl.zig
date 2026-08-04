@@ -1,10 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-pub const android = @import("android.zig");
-
-pub const has_imgui = @import("build_options").imgui;
-pub const has_imgui_docking = @import("build_options").docking;
+const has_imgui = @import("build_options").imgui;
+const has_imgui_docking = @import("build_options").docking;
 pub const ig = if (@import("build_options").imgui) @import("cimgui") else struct {};
 
 pub const sokol = @import("sokol");
@@ -24,6 +22,7 @@ pub const time = @import("time.zig");
 pub var batcher: gpu.Batcher = undefined;
 
 // top level imports
+pub const android = @import("android.zig");
 pub const fs = @import("fs.zig");
 pub const math = @import("math/math.zig");
 pub const mem = @import("mem.zig");
