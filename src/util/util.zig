@@ -1,4 +1,6 @@
 const std = @import("std");
+const builtin = @import("builtin");
+const pxl = @import("../pxl.zig");
 
 pub const Vec = @import("vec.zig").Vec;
 pub const SlotMap = @import("slotmap.zig").SlotMap;
@@ -15,8 +17,11 @@ pub fn assertMsg(ok: bool, comptime msg: []const u8, args: anytype) void {
     }
 }
 
-pub fn printLn(comptime msg: []const u8, args: anytype) void {
-    std.debug.print(msg ++ "\n", args);
+/// Logs a formatted message. On Android this writes to logcat (visible with `adb logcat -s pxl:V`
+pub fn log(comptime fmt: []const u8, args: anytype) void {
+    if (builtin.target.abi.isAndroid()) {
+        pxl.android.log(fmt, args);
+    } else std.debug.print(fmt ++ "\n", args);
 }
 
 pub fn cast(comptime T: type, value: anytype) T {

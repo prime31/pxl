@@ -60,5 +60,10 @@ In `shdc.createModule`:
 
 
 ### Android
+Build all Android targets:
 `zig build run -Dandroid=true`
+
+Build just arm:
 `zig build -Dtarget=aarch64-linux-android`
+
+Logging is redirected to logcat if `std.log.*` methods are used

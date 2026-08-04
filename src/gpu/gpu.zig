@@ -182,7 +182,6 @@ pub fn createOffscreenAttachments() void {
     sg.destroyImage(offscreen.img);
     sg.destroyView(offscreen.pass.attachments.colors[0]);
     sg.destroyView(offscreen.bind.views[pxl.shaders.VIEW_tex]);
-    if (gfx_config.bloom_enabled) destroyBloomAttachments();
 
     offscreen.img = sg.makeImage(.{
         .usage = .{ .color_attachment = true },
@@ -246,6 +245,8 @@ pub fn blitRenderTexture(comptime has_imgui: bool) void {
 }
 
 fn createBloomAttachments(rt_w: i32, rt_h: i32) void {
+    destroyBloomAttachments();
+
     const downsample = @max(1, gfx_config.bloom_downsample);
     const bloom_w = @max(1, @divTrunc(rt_w, downsample));
     const bloom_h = @max(1, @divTrunc(rt_h, downsample));

@@ -71,7 +71,7 @@ pub fn update() !void {
             crabs.append(spawnCrab(Vec2.init(w, h)));
     }
 
-    pxl.log("total: {}, dt: {:.3}, fps: {}", .{
+    std.log.debug("total: {}, dt: {:.3}, fps: {}", .{
         crabs.items.len,
         pxl.time.dt(),
         pxl.time.fps(),

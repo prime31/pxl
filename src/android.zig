@@ -8,25 +8,45 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-/// Comptime-known: are we compiling for Android?
-pub const is_android = builtin.target.abi.isAndroid();
-
 // ---------------------------------------------------------------------------
 // Logging
 // ---------------------------------------------------------------------------
 
+pub const LogPriority = enum(c_int) {
+    unknown = 0,
+    default = 1,
+    verbose = 2,
+    debug = 3,
+    info = 4,
+    warn = 5,
+    err = 6,
+    fatal = 7,
+    silent = 8,
+    _,
+};
+
 /// Logs a formatted message. On Android this writes to logcat (visible with
 /// `adb logcat -s pxl:V`); everywhere else it behaves like `std.debug.print`.
 pub fn log(comptime fmt: []const u8, args: anytype) void {
-    logcatWrite(fmt ++ "\n", args);
+    logcatWrite(.warn, fmt ++ "\n", args);
+}
+
+pub fn logLevel(level: std.log.Level, comptime fmt: []const u8, args: anytype) void {
+    const lvl: LogPriority = switch (level) {
+        .info => .info,
+        .debug => .debug,
+        .warn => .debug,
+        .err => .err,
+    };
+    logcatWrite(lvl, fmt ++ "\n", args);
 }
 
 extern "log" fn __android_log_write(prio: c_int, tag: [*:0]const u8, text: [*:0]const u8) c_int;
 
-fn logcatWrite(comptime fmt: []const u8, args: anytype) void {
+fn logcatWrite(prio: LogPriority, comptime fmt: []const u8, args: anytype) void {
     var buf: [1024]u8 = undefined;
     const msg = std.fmt.bufPrintZ(&buf, fmt, args) catch return;
-    _ = __android_log_write(6, "pxl", msg.ptr); // ANDROID_LOG_ERROR
+    _ = __android_log_write(@intFromEnum(prio), "pxl", msg.ptr);
 }
 
 // ---------------------------------------------------------------------------
@@ -129,8 +149,31 @@ const JNIEnv = extern struct {
 };
 
 /// Minimal ANativeActivity (native_activity.h) — only the fields we need.
+const ANativeWindow = opaque {};
+const AInputQueue = opaque {};
+const ARect = extern struct { left: i32, top: i32, right: i32, bottom: i32 };
+
+const NativeActivityCallbacks = extern struct {
+    onStart: ?*const fn (*NativeActivity) callconv(.c) void,
+    onResume: ?*const fn (*NativeActivity) callconv(.c) void,
+    onSaveInstanceState: ?*const fn (*NativeActivity, *usize) callconv(.c) ?[*]u8,
+    onPause: ?*const fn (*NativeActivity) callconv(.c) void,
+    onStop: ?*const fn (*NativeActivity) callconv(.c) void,
+    onDestroy: ?*const fn (*NativeActivity) callconv(.c) void,
+    onWindowFocusChanged: ?*const fn (*NativeActivity, c_int) callconv(.c) void,
+    onNativeWindowCreated: ?*const fn (*NativeActivity, *ANativeWindow) callconv(.c) void,
+    onNativeWindowResized: ?*const fn (*NativeActivity, *ANativeWindow) callconv(.c) void,
+    onNativeWindowRedrawNeeded: ?*const fn (*NativeActivity, *ANativeWindow) callconv(.c) void,
+    onNativeWindowDestroyed: ?*const fn (*NativeActivity, *ANativeWindow) callconv(.c) void,
+    onInputQueueCreated: ?*const fn (*NativeActivity, *AInputQueue) callconv(.c) void,
+    onInputQueueDestroyed: ?*const fn (*NativeActivity, *AInputQueue) callconv(.c) void,
+    onContentRectChanged: ?*const fn (*NativeActivity, *const ARect) callconv(.c) void,
+    onConfigurationChanged: ?*const fn (*NativeActivity) callconv(.c) void,
+    onLowMemory: ?*const fn (*NativeActivity) callconv(.c) void,
+};
+
 const NativeActivity = extern struct {
-    callbacks: *const anyopaque,
+    callbacks: *NativeActivityCallbacks,
     vm: ?*anyopaque,
     env: ?*anyopaque,
     clazz: jobject,

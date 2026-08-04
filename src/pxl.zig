@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 pub const android = @import("android.zig");
 
@@ -33,11 +34,14 @@ pub const tilemap = @import("tilemap/tilemap.zig");
 
 pub var io: std.Io = undefined;
 
-pub const Config = struct {
+const Callbacks = struct {
     setup: ?*const fn () anyerror!void = null,
     update: ?*const fn () anyerror!void = null,
     render: ?*const fn () anyerror!void = null,
     shutdown: ?*const fn () anyerror!void = null,
+};
+
+pub const Config = struct {
     win: WindowConfig = .{},
     gfx: gpu.Config = .{},
     debug_render_enabled: bool = true,
@@ -70,53 +74,37 @@ pub const Pass = struct {
 pub var font: text.BMFont = undefined;
 var current_pass: ?Pass = null;
 var cfg: Config = undefined;
+var cbs: Callbacks = undefined;
 
-pub fn run(init: std.process.Init, config: Config) !void {
-    io = init.io;
+pub fn run(init: ?std.process.Init, config: Config, callbacks: Callbacks) sapp.Desc {
+    io = if (init) |i| i.io else std.Io.Threaded.global_single_threaded.io();
     cfg = config;
-
-    sapp.run(buildSappDesc(config));
-}
-
-pub fn runAndroid(config: Config) sapp.Desc {
-    io = std.Io.Threaded.global_single_threaded.io();
-    cfg = config;
+    cbs = callbacks;
 
     android.hideSystemBars(sapp.androidGetNativeActivity());
 
-    return buildSappDesc(config);
-}
-
-fn buildSappDesc(c: Config) sapp.Desc {
-    return .{
+    const desc = sapp.Desc{
         .init_cb = sokolInit,
         .frame_cb = sokolFrame,
         .cleanup_cb = sokolCleanup,
         .event_cb = sokolEvent,
-        .sample_count = c.win.sample_count,
-        .swap_interval = c.win.swap_interval,
-        .high_dpi = if (android.is_android) true else c.win.high_dpi,
-        .fullscreen = if (android.is_android) true else c.win.fullscreen,
-        .window_title = c.win.window_title,
+        .sample_count = config.win.sample_count,
+        .swap_interval = config.win.swap_interval,
+        .high_dpi = if (builtin.target.abi.isAndroid()) true else config.win.high_dpi,
+        .fullscreen = if (builtin.target.abi.isAndroid()) true else config.win.fullscreen,
+        .window_title = config.win.window_title,
         .srgb = false,
         .hdr = false,
         .disable_vsync = false,
         .enable_clipboard = false,
         .enable_dragndrop = false,
-        .width = c.win.width,
-        .height = c.win.height,
+        .width = config.win.width,
+        .height = config.win.height,
         .icon = .{ .sokol_default = true },
         .logger = .{ .func = sokol.log.func },
     };
-}
-
-/// Logs a formatted message. On Android this writes to logcat (visible with `adb logcat -s pxl:V`
-pub fn log(comptime fmt: []const u8, args: anytype) void {
-    if (!android.is_android) {
-        std.debug.print(fmt ++ "\n", args);
-        return;
-    }
-    android.log(fmt, args);
+    sapp.run(desc);
+    return desc;
 }
 
 export fn sokolInit() void {
@@ -146,7 +134,7 @@ export fn sokolInit() void {
     gpu.init(cfg.gfx);
     time.init();
 
-    if (cfg.setup) |cb| cb() catch unreachable;
+    if (cbs.setup) |cb| cb() catch unreachable;
 }
 
 export fn sokolFrame() void {
@@ -160,8 +148,8 @@ export fn sokolFrame() void {
     }
 
     mu.begin();
-    if (cfg.update) |cb| cb() catch unreachable;
-    if (cfg.render) |cb| cb() catch unreachable;
+    if (cbs.update) |cb| cb() catch unreachable;
+    if (cbs.render) |cb| cb() catch unreachable;
     mu.end();
 
     gpu.blitRenderTexture(has_imgui);
@@ -186,7 +174,7 @@ export fn sokolEvent(evt: [*c]const sapp.Event) void {
 }
 
 export fn sokolCleanup() void {
-    if (cfg.shutdown) |cb| cb() catch {};
+    if (cbs.shutdown) |cb| cb() catch {};
 
     gpu.deinit();
 
