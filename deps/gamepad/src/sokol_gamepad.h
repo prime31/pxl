@@ -24,7 +24,7 @@ sokol_gamepad.h -- cross-platform gamepad API
     (PS1/PS2/PS3/PS4/Xbox/Xbox360/Xbox One/Switch map directly, just for start)
 
     To use:
-    - In your app initialization code call sgamepad_init()
+    - (Android only) Pass the sgamepad_android_input_handler with your sapp_desc
     - At the exact time you want to record input state call sgamepad_record_state()
     - Get the state for a particular gamepad like this:
         sgamepad_gamepad_state state;
@@ -90,11 +90,11 @@ extern "C" {
         bool connected;
     } sgamepad_gamepad_state;
 
+    SOKOL_API_DECL bool sgamepad_android_input_handler(void* native_event);
+
     SOKOL_API_DECL unsigned int sgamepad_get_max_supported_gamepads();
 
     SOKOL_API_DECL bool sgamepad_is_connected(unsigned int index);
-
-    SOKOL_API_DECL void sgamepad_init();
 
     SOKOL_API_DECL void sgamepad_record_state();
 
@@ -142,7 +142,7 @@ extern "C" {
     #ifdef SOKOL_DEBUG
         #if defined(__ANDROID__)
             #include <android/log.h>
-            #define SOKOL_LOG(s) { SOKOL_ASSERT(s); __android_log_write(ANDROID_LOG_INFO, "SOKOL_APP", s); }
+            #define SOKOL_LOG(s) { SOKOL_ASSERT(s); __android_log_write(ANDROID_LOG_INFO, "pxl", s); }
         #else
             #include <stdio.h>
             #define SOKOL_LOG(s) { SOKOL_ASSERT(s); puts(s); }
@@ -559,22 +559,17 @@ _SOKOL_PRIVATE bool _sgamepad_android_motion_handler(const AInputEvent* event) {
     return false;
 }
 
-_SOKOL_PRIVATE bool _sgamepad_android_input_handler(const AInputEvent* event) {
+_SOKOL_PRIVATE bool _sgamepad_android_input_handler(void* native_event) {
+    const AInputEvent* event = (const AInputEvent*)native_event;
+
     switch(AInputEvent_getType(event)) {
         case AINPUT_EVENT_TYPE_KEY:
-        return _sgamepad_android_key_handler(event);
+            return _sgamepad_android_key_handler(event);
         case AINPUT_EVENT_TYPE_MOTION:
-        return _sgamepad_android_motion_handler(event);
+            return _sgamepad_android_motion_handler(event);
         default:
         return false;
     }
-}
-
-_SOKOL_PRIVATE void _sgamepad_android_init() {
-    /* Android gamepad input integration requires a sokol-app hook
-       (_sapp.android.gamepad_event_handler) that this sokol build does not
-       provide, so there is nothing to hook up here. Kept as a stub so the
-       header compiles for Android targets. */
 }
 
 _SOKOL_PRIVATE void _sgamepad_record_state() {
@@ -592,14 +587,17 @@ _SOKOL_PRIVATE void _sgamepad_record_state() {
 #endif
 
 /*=== PUBLIC API FUNCTIONS ===================================================*/
-SOKOL_API_IMPL unsigned int sgamepad_get_max_supported_gamepads() {
-    return SGAMEPAD_MAX_SUPPORTED_GAMEPADS;
+typedef bool (*sgamepad_input_handler_t)(void*);
+
+SOKOL_API_IMPL sgamepad_input_handler_t sgamepad_get_android_input_handler(void) {
+    #if defined(__ANDROID__)
+        return _sgamepad_android_input_handler;
+    #endif
+    return NULL;
 }
 
-SOKOL_API_IMPL void sgamepad_init() {
-#if defined(__ANDROID__)
-    _sgamepad_android_init();
-#endif
+SOKOL_API_IMPL unsigned int sgamepad_get_max_supported_gamepads() {
+    return SGAMEPAD_MAX_SUPPORTED_GAMEPADS;
 }
 
 SOKOL_API_IMPL void sgamepad_record_state() {

@@ -25,6 +25,7 @@ const examples = [_]Example{
     .{ .name = "bloom" },
     .{ .name = "verlet" },
     .{ .name = "fabrik" },
+    .{ .name = "gamepad" },
 };
 
 const shaders = struct {

@@ -59,7 +59,7 @@ Build all Android targets:
 Build just arm:
 `zig build -Dtarget=aarch64-linux-android`
 
-Logging is redirected to logcat if `std.log.*` methods are used
+Logging is redirected to logcat if `std.log.*` methods are used and can be viewed with `adb logcat -s pxl`
 
 
 ### Web

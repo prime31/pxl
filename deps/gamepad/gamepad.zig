@@ -35,13 +35,17 @@ pub const GamepadState = extern struct {
     connected: bool = @import("std").mem.zeroes(bool),
 };
 
+extern fn sgamepad_get_android_input_handler() ?*const fn (?*const anyopaque) callconv(.c) bool;
 extern fn sgamepad_get_max_supported_gamepads(...) c_uint;
 extern fn sgamepad_is_connected(index: c_uint) bool;
-extern fn sgamepad_init(...) void; // android only
 extern fn sgamepad_record_state(...) void;
 extern fn sgamepad_get_gamepad_state(index: c_uint, pstate: [*c]GamepadState) c_uint;
 
 // public API
+pub fn getAndroidInputHandler() ?*const fn (?*const anyopaque) callconv(.c) bool {
+    return sgamepad_get_android_input_handler();
+}
+
 pub fn getMaxSupportedGamepads() c_uint {
     return sgamepad_get_max_supported_gamepads();
 }
@@ -51,7 +55,7 @@ pub fn recordState() void {
 }
 
 pub fn getGamepadState(index: c_uint, pstate: *GamepadState) bool {
-    return sgamepad_get_gamepad_state(index, pstate) != index;
+    return sgamepad_get_gamepad_state(index, pstate) == index;
 }
 
 pub fn isConnected(index: c_uint) bool {
