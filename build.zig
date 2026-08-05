@@ -268,7 +268,7 @@ fn buildAndroid(b: *Build, optimize: OptimizeMode, android_targets: []ResolvedTa
 
         const apk = android_sdk.createApk(.{
             .name = example.name,
-            .api_level = .android12,
+            .api_level = .android15,
             .build_tools_version = "35.0.1",
             .ndk_version = "30.0.15729638",
         });

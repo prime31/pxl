@@ -4,6 +4,7 @@
 - should Batcher Mesh just have a ?Pipeline and pushMesh takes in the uniforms to keep it as one api?
 - zig-frm parallax_tilemap.zig has decent player starter
 
+
 ### Build all with summary
 `zig build --summary all`
 
@@ -41,8 +42,6 @@ Current implementation is RGBA8-first and uses a minimal post stack:
 - bright-pass extraction
 - half-res separable blur
 - final composite onto the swapchain
-
-MicroUI/imgui remain unbloomed because UI is rendered after scene composite.
 
 
 ### Bust Shadc Cache
