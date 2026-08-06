@@ -13,7 +13,7 @@ const Vec2 = pxl.math.Vec2;
 var map: LDtk = undefined;
 var textures: std.AutoHashMap(i64, Texture) = undefined;
 var player: Rect = .{};
-var action: pxl.input.InputAction = undefined;
+var manager: pxl.input.InputManager = undefined;
 var camera: pxl.Camera = .{
     .position = .init(160, 90),
     .zoom = 1.0,
@@ -58,16 +58,19 @@ pub fn setup() !void {
     player.w = grid_size;
     player.h = grid_size;
 
-    action = pxl.input.InputAction.initVec(&.{
-        .{ .source = .{ .key = .left } },
-        .{ .source = .{ .key = .right } },
-        .{ .source = .{ .key = .up } },
-        .{ .source = .{ .key = .down } },
-    });
+    manager = .init();
+    manager.addBinding("left", .{ .source = .key(.left) });
+    manager.addBinding("left", .{ .source = .key(.a) });
+    manager.addBinding("right", .{ .source = .key(.right) });
+    manager.addBinding("right", .{ .source = .key(.d) });
+    manager.addBinding("up", .{ .source = .key(.up) });
+    manager.addBinding("up", .{ .source = .key(.w) });
+    manager.addBinding("down", .{ .source = .key(.down) });
+    manager.addBinding("down", .{ .source = .key(.s) });
 }
 
 pub fn update() !void {
-    var move = action.getVector(.raw);
+    var move = manager.getVector("left", "right", "up", "down", .raw);
 
     if (move.x != 0 or move.y != 0) {
         pxl.tilemap.move(&map, player.asRectI(), &move);
@@ -101,6 +104,7 @@ pub fn render() !void {
 pub fn shutdown() !void {
     map.deinit();
     textures.deinit();
+    manager.deinit();
 }
 
 /// Main level rendering routine
