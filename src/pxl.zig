@@ -13,7 +13,6 @@ pub const simgui = sokol.imgui;
 pub const api = @import("api.zig");
 pub const dbg = @import("util/debug.zig");
 pub const input = @import("input/input.zig");
-pub const gamepad = @import("gamepad");
 pub const mu = @import("microui");
 pub const shaders = @import("shaders");
 pub const stb = @import("stb");
@@ -102,7 +101,7 @@ pub fn run(init: ?std.process.Init, config: Config, callbacks: Callbacks) sapp.D
         .height = config.win.height,
         .icon = .{ .sokol_default = true },
         .logger = .{ .func = sokol.log.func },
-        .android = .{ .native_event_cb = gamepad.getAndroidInputHandler() },
+        .android = .{ .native_event_cb = @import("gamepad").getAndroidInputHandler() },
     };
     sapp.run(desc);
     return desc;

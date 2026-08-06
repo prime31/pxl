@@ -8,8 +8,12 @@ const gamepad = @import("gamepad");
 const kb = @import("keyboard.zig");
 const mouse = @import("mouse.zig");
 
-const MouseButton = mouse.MouseButton;
-const Keycode = @import("keycode.zig").Keycode;
+pub const GamepadState = gamepad.GamepadState;
+pub const AnalogStickState = gamepad.AnalogStickState;
+pub const DigitalInputs = gamepad.DigitalInputs;
+
+pub const MouseButton = mouse.MouseButton;
+pub const Keycode = @import("keycode.zig").Keycode;
 
 pub fn newFrame() void {
     mouse.newFrame();
@@ -159,8 +163,8 @@ pub fn isGamepadConnected(index: usize) bool {
     return gamepad.isConnected(index);
 }
 
-pub fn getGamepadState(index: usize) ?gamepad.GamepadState {
-    var state: *gamepad.GamepadState = undefined;
-    if (gamepad.getGamepadState(index, &state)) return state;
+pub fn getGamepadState(index: usize) ?GamepadState {
+    var state: gamepad.GamepadState = undefined;
+    if (gamepad.getGamepadState(@intCast(index), &state)) return state;
     return null;
 }

@@ -3,14 +3,14 @@ const std = @import("std");
 const pxl = @import("pxl");
 const api = pxl.api;
 const mu = pxl.mu;
-const pad = pxl.gamepad;
+const input = pxl.input;
 
 const Color = pxl.math.Color;
 const Vec2 = pxl.math.Vec2;
 
 /// Most recent polled state of the first (index 0) gamepad. Both the microui
 /// readout (update) and the on-canvas schematic (render) draw from this.
-var state: pad.GamepadState = undefined;
+var state: input.GamepadState = undefined;
 var has_state: bool = false;
 
 var fmt_buf: [256]u8 = undefined;
@@ -34,7 +34,7 @@ fn valueRow(name: [*c]const u8, value: [:0]const u8) void {
 
 // ---------- on-canvas drawing helpers ----------
 
-fn drawStickPad(center: Vec2, radius: f32, stick: pad.AnalogStickState, color: Color, label: []const u8) void {
+fn drawStickPad(center: Vec2, radius: f32, stick: input.AnalogStickState, color: Color, label: []const u8) void {
     // outer boundary, dead-zone ring and crosshair
     api.drawCircleOutline(center, radius, 4, 48, Color.light_gray);
     api.drawCircleOutline(center, radius * 0.35, 2, 48, Color.gray);
@@ -85,14 +85,18 @@ fn drawMeter(pos: Vec2, w: f32, h: f32, label: []const u8, value: f32, color: Co
 // ---------- app callbacks ----------
 
 pub fn update() !void {
-    pad.recordState();
-    has_state = pad.getGamepadState(0, &state);
+    state = input.getGamepadState(0) orelse {
+        has_state = false;
+        state = .{};
+        return;
+    };
+    has_state = true;
 
     if (mu.beginWindowEx("Gamepad 0", .{ .x = 740, .y = 20, .w = 268, .h = 460 }, .{ .no_close = true })) {
         mu.layoutRow(2, &[_]c_int{ 84, -1 }, 0);
         mu.label("Connected");
         mu.label(if (has_state and state.connected) "YES" else "NO");
-        valueRow("Max pads", fmt("{d}", .{pad.getMaxSupportedGamepads()}));
+        valueRow("Max pads", fmt("{d}", .{input.getMaxSupportedGamepads()}));
 
         if (mu.headerEx("Buttons", .{ .expanded = true })) {
             buttonRow("D-Pad Up", state.digital_inputs.dpad_up);
@@ -175,4 +179,3 @@ pub fn render() !void {
     drawMeter(.init(90, 720), 130, 16, "LT", state.left_trigger, Color.green);
     drawMeter(.init(250, 720), 130, 16, "RT", state.right_trigger, Color.green);
 }
-
