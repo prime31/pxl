@@ -8,6 +8,33 @@ pub const LDtk = @import("LDtk.zig");
 const LayerInstance = LDtk.LayerInstance;
 const CollisionIterator = @import("collision_iterator.zig").CollisionIterator;
 
+/// Accumulates fractional pixel movement while still letting the body move in
+/// whole-pixel steps. This is what makes smooth low-res movement possible: a
+/// velocity of e.g. 0.4 px/frame is carried in `remainder` until it crosses a
+/// whole pixel, so a 1.5 px/frame speed produces 1,2,1,2... steps instead of
+/// being truncated to 1 every frame. It also means a joystick reading well below
+/// 1.0 never stalls the player.
+pub const SubpixelFloat = struct {
+    remainder: f32 = 0,
+
+    /// Feeds `velocity` (in pixels per frame, i.e. px/sec * dt) into the
+    /// accumulator and returns the number of whole pixels to move this frame.
+    /// The remaining fraction is kept for the next frame. `@trunc` rounds toward
+    /// zero so a resting (0) velocity never drifts into a pixel.
+    pub fn update(self: *SubpixelFloat, velocity: f32) i32 {
+        const acc: f32 = self.remainder + velocity;
+        const integral: i32 = @intFromFloat(@trunc(acc));
+        self.remainder = acc - @as(f32, @floatFromInt(integral));
+        return integral;
+    }
+
+    /// Drops any saved fraction. Called when that axis is blocked by a collision
+    /// so leftover subpixel velocity can't push through the wall next frame.
+    pub fn reset(self: *SubpixelFloat) void {
+        self.remainder = 0;
+    }
+};
+
 pub const CollisionState = struct {
     below: bool = false,
     above: bool = false,
@@ -15,10 +42,14 @@ pub const CollisionState = struct {
     left: bool = false,
     was_grounded_last_frame: bool = false,
     became_grounded_this_frame: bool = false,
-    // x_remainder: SubpixelFloat = .{},
-    // y_remainder: SubpixelFloat = .{},
+    /// When true the body moves in whole-pixel steps (crisp low-res / pixel art)
+    /// using the subpixel accumulators. When false it moves fractionally and
+    /// smoothly (for non-pixel-art) against the same collision map.
+    pixel_perfect: bool = true,
+    x: SubpixelFloat = .{},
+    y: SubpixelFloat = .{},
 
-    pub fn reset(self: *CollisionState, motion: *math.Vec2) void {
+    pub fn reset(self: *CollisionState, motion: *const math.Vec2) void {
         if (motion.x == 0) {
             self.right = false;
             self.left = false;
@@ -30,15 +61,6 @@ pub const CollisionState = struct {
         }
 
         self.became_grounded_this_frame = false;
-
-        // self.x_remainder.update(&motion.x);
-        // self.y_remainder.update(&motion.y);
-
-        // due to subpixel movement we might end up with 0 gravity when we really want there to be at least 1 pixel so slopes can work
-        // if (self.below and motion.y == 0 and self.y_remainder.remainder > 0) {
-        //     motion.y = 1;
-        //     self.y_remainder.remainder = 0;
-        // }
     }
 };
 
@@ -46,31 +68,67 @@ pub const CollisionState = struct {
 const horiz_inset = 2;
 const vert_inset = 2;
 
-pub fn move(map: *LDtk, rect: math.RectI, movement: *math.Vec2) void {
-    // save off our current grounded state which we will use for was_grounded_last_frame and became_grounded_this_frame
-    // state.was_grounded_last_frame = state.below;
-    // state.reset(movement);
+/// Moves `rect` by `velocity` (in pixels/sec), clamped against the collision
+/// layer, and fills in the collision state. When `state.pixel_perfect` is true
+/// the velocity is scaled by the frame time and fed through the subpixel
+/// accumulators so the body only ever moves in whole pixels while retaining its
+/// fractional speed. When false the body moves fractionally for smooth
+/// non-pixel-art movement.
+pub fn moveBody(map: *LDtk, rect: *math.Rect, state: *CollisionState, velocity: math.Vec2) void {
+    // save off our current grounded state for was_grounded_last_frame / became_grounded_this_frame
+    state.was_grounded_last_frame = state.below;
+    state.reset(&velocity);
 
     const layer_index = 1; // TODO: layer needs to be passed in at some point
     const layer = map.root.levels[0].layerInstances.?[layer_index];
+    const dt = pxl.time.dt();
 
-    var local_rect = rect;
-
-    // TODO: should we still run through x movement even if there is none so the insets can push the player to the right spot?
-    // we would need to fix the edge code because it uses move_x to determine which direction to look
-    if (movement.x != 0) {
-        const x = moveX(map, layer, rect, @as(i32, @intFromFloat(movement.x)));
-        movement.x = @as(f32, @floatFromInt(x));
-        local_rect.x += x;
+    // --- X axis ---
+    if (state.pixel_perfect) {
+        const step = state.x.update(velocity.x * dt); // whole pixels for this frame
+        if (step != 0) {
+            const local = rect.asRectI();
+            const moved = moveX(map, layer, local, step, state);
+            if (@abs(moved) < @abs(step)) state.x.reset(); // hit a wall: drop leftover remainder
+            rect.x += @floatFromInt(moved);
+        }
+    } else {
+        rect.x += moveXFloat(map, layer, rect.*, velocity.x * dt, state);
     }
 
-    movement.y = @as(f32, @floatFromInt(moveY(map, layer, local_rect, @as(i32, @intFromFloat(movement.y)))));
+    // --- Y axis ---
+    if (state.pixel_perfect) {
+        const step = state.y.update(velocity.y * dt);
+        if (step != 0) {
+            const local = rect.asRectI();
+            const moved = moveY(map, layer, local, step, state);
+            if (@abs(moved) < @abs(step)) state.y.reset();
+            rect.y += @floatFromInt(moved);
+        }
+    } else {
+        rect.y += moveYFloat(map, layer, rect.*, velocity.y * dt, state);
+    }
 
-    // if (!state.was_grounded_last_frame and state.below)
-    //     state.became_grounded_this_frame = true;
+    if (!state.was_grounded_last_frame and state.below)
+        state.became_grounded_this_frame = true;
 }
 
-pub fn moveX(map: *LDtk, layer: LayerInstance, rect: math.RectI, move_x: i32) i32 {
+/// A convenience wrapper around `moveBody` for the common player case.
+pub const Player = struct {
+    rect: math.Rect = .{},
+    state: CollisionState = .{},
+    speed: f32 = 60,
+
+    pub fn move(self: *Player, map: *LDtk, input: math.Vec2) void {
+        const velocity = math.Vec2{
+            .x = input.x * self.speed,
+            .y = input.y * self.speed,
+        };
+        moveBody(map, &self.rect, &self.state, velocity);
+    }
+};
+
+pub fn moveX(map: *LDtk, layer: LayerInstance, rect: math.RectI, move_x: i32, state: *CollisionState) i32 {
     const edge: math.Edge = if (move_x > 0) .right else .left;
     var bounds = rect.halfRect(edge);
 
@@ -92,10 +150,10 @@ pub fn moveX(map: *LDtk, layer: LayerInstance, rect: math.RectI, move_x: i32) i3
             const tile_size = cast(i32, layer.__gridSize);
             const world_x = tile_size * pt.x;
             if (move_x < 0) {
-                // state.left = true;
+                state.left = true;
                 return world_x + tile_size - rect.x;
             } else {
-                // state.right = true;
+                state.right = true;
                 return world_x - rect.right();
             }
         }
@@ -134,7 +192,7 @@ pub fn moveX(map: *LDtk, layer: LayerInstance, rect: math.RectI, move_x: i32) i3
     return move_x;
 }
 
-pub fn moveY(map: *LDtk, layer: LayerInstance, rect: math.RectI, move_y: i32) i32 {
+pub fn moveY(map: *LDtk, layer: LayerInstance, rect: math.RectI, move_y: i32, state: *CollisionState) i32 {
     const edge: math.Edge = if (move_y >= 0) .bottom else .top;
     var bounds = rect.halfRect(edge);
 
@@ -152,10 +210,10 @@ pub fn moveY(map: *LDtk, layer: LayerInstance, rect: math.RectI, move_y: i32) i3
             const tile_size = cast(i32, layer.__gridSize);
             const world_y = tile_size * pt.y;
             if (move_y < 0) {
-                // state.above = true;
+                state.above = true;
                 return world_y + tile_size - rect.y;
             } else {
-                // state.below = true;
+                state.below = true;
                 return world_y - rect.bottom();
             }
         }
@@ -204,6 +262,102 @@ pub fn moveY(map: *LDtk, layer: LayerInstance, rect: math.RectI, move_y: i32) i3
     return move_y;
 }
 
+/// Fractional variant of `moveX` for non-pixel-perfect (smooth) movement. The
+/// body rect may sit at a fractional position; collisions are still resolved
+/// against integer tile cells, and the returned distance is the exact
+/// fractional distance to the blocking wall (so motion stays smooth, not
+/// snapped to whole pixels).
+fn moveXFloat(map: *LDtk, layer: LayerInstance, rect: math.Rect, move_x: f32, state: *CollisionState) f32 {
+    const edge: math.Edge = if (move_x > 0) .right else .left;
+    // leading half of the body
+    var bounds: math.Rect = if (edge == .right)
+        .{ .x = rect.x + rect.w / 2, .y = rect.y, .w = rect.w / 2, .h = rect.h }
+    else
+        .{ .x = rect.x, .y = rect.y, .w = rect.w / 2, .h = rect.h };
+
+    // contract vertically, then expand the leading edge in the direction of movement
+    bounds.y += vert_inset;
+    bounds.h -= 2 * vert_inset;
+    const amt = @abs(move_x);
+    if (edge == .right) {
+        bounds.w += amt;
+    } else {
+        bounds.x -= amt;
+        bounds.w += amt;
+    }
+
+    const ib = math.RectI{
+        .x = @intFromFloat(@floor(bounds.x)),
+        .y = @intFromFloat(@floor(bounds.y)),
+        .w = @intFromFloat(@ceil(bounds.w)),
+        .h = @intFromFloat(@ceil(bounds.h)),
+    };
+
+    var iter = CollisionIterator.init(map, ib, edge);
+    while (iter.next()) |pt| {
+        if (layer.isCellSolid(@intCast(pt.x), @intCast(pt.y))) {
+            // world_x is the LEFT of the tile
+            const tile_size = cast(f32, layer.__gridSize);
+            const world_x = tile_size * @as(f32, @floatFromInt(pt.x));
+            if (move_x < 0) {
+                state.left = true;
+                return world_x + tile_size - rect.x;
+            } else {
+                state.right = true;
+                return world_x - rect.right();
+            }
+        }
+    }
+
+    return move_x;
+}
+
+/// Fractional variant of `moveY`, see `moveXFloat`.
+fn moveYFloat(map: *LDtk, layer: LayerInstance, rect: math.Rect, move_y: f32, state: *CollisionState) f32 {
+    const edge: math.Edge = if (move_y >= 0) .bottom else .top;
+    // leading half of the body
+    var bounds: math.Rect = if (edge == .bottom)
+        .{ .x = rect.x, .y = rect.y + rect.h / 2, .w = rect.w, .h = rect.h / 2 }
+    else
+        .{ .x = rect.x, .y = rect.y, .w = rect.w, .h = rect.h / 2 };
+
+    // contract horizontally, then expand the leading edge in the direction of movement
+    bounds.x += horiz_inset;
+    bounds.w -= 2 * horiz_inset;
+    const amt = @abs(move_y);
+    if (edge == .bottom) {
+        bounds.h += amt;
+    } else {
+        bounds.y -= amt;
+        bounds.h += amt;
+    }
+
+    const ib = math.RectI{
+        .x = @intFromFloat(@floor(bounds.x)),
+        .y = @intFromFloat(@floor(bounds.y)),
+        .w = @intFromFloat(@ceil(bounds.w)),
+        .h = @intFromFloat(@ceil(bounds.h)),
+    };
+
+    var iter = CollisionIterator.init(map, ib, edge);
+    while (iter.next()) |pt| {
+        if (layer.isCellSolid(@intCast(pt.x), @intCast(pt.y))) {
+            // world_y is the TOP of the tile
+            const tile_size = cast(f32, layer.__gridSize);
+            const world_y = tile_size * @as(f32, @floatFromInt(pt.y));
+            if (move_y < 0) {
+                state.above = true;
+                return world_y + tile_size - rect.y;
+            } else {
+                state.below = true;
+                return world_y - rect.bottom();
+            }
+        }
+    }
+
+    return move_y;
+}
+
 fn debugOverlaps(map: *LDtk, bounds: math.RectI, edge: math.Edge) void {
     const layer = map.root.levels[0].layerInstances.?[1];
     var tile_cnt: i32 = 0;
@@ -223,4 +377,26 @@ fn debugOverlaps(map: *LDtk, bounds: math.RectI, edge: math.Edge) void {
         pxl.dbg.drawHollowRect(.{ .x = xw, .y = yw }, tile_size, tile_size, 1, color);
         tile_cnt += 1;
     }
+}
+
+test "SubpixelFloat accumulates fractional velocity into whole-pixel steps" {
+    var sp: SubpixelFloat = .{};
+
+    // 0.4 px/frame for 5 frames should produce one move of 1 px on the 3rd
+    // frame (0.4+0.4+0.4 = 1.2) and keep a remainder, never truncating below 1.
+    const steps = [_]i32{ sp.update(0.4), sp.update(0.4), sp.update(0.4), sp.update(0.4), sp.update(0.4) };
+    try std.testing.expectEqualSlices(i32, &[_]i32{ 0, 0, 1, 0, 1 }, &steps);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), sp.remainder, 0.0001);
+
+    // A 1.5 px/frame velocity alternates 1,2,1,2 and does not lose the fraction.
+    var sp2: SubpixelFloat = .{};
+    const steps2 = [_]i32{ sp2.update(1.5), sp2.update(1.5), sp2.update(1.5), sp2.update(1.5) };
+    try std.testing.expectEqualSlices(i32, &[_]i32{ 1, 2, 1, 2 }, &steps2);
+
+    // reset() drops any saved fraction.
+    var sp3: SubpixelFloat = .{};
+    _ = sp3.update(0.6);
+    sp3.reset();
+    try std.testing.expectEqual(@as(i32, 0), sp3.update(0.6));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.6), sp3.remainder, 0.0001);
 }

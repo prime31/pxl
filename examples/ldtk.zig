@@ -12,8 +12,7 @@ const Vec2 = pxl.math.Vec2;
 
 var map: LDtk = undefined;
 var textures: std.AutoHashMap(i64, Texture) = undefined;
-var player: Rect = .{};
-var manager: pxl.input.InputManager = undefined;
+var player: pxl.tilemap.Player = .{};
 var camera: pxl.Camera = .{
     .position = .init(160, 90),
     .zoom = 1.0,
@@ -55,39 +54,35 @@ pub fn setup() !void {
     }
 
     const grid_size: f32 = @floatFromInt(map.root.defs.?.tilesets[0].tileGridSize);
-    player.w = grid_size;
-    player.h = grid_size;
+    player.rect.w = grid_size;
+    player.rect.h = grid_size;
 
-    manager = .init();
-    manager.addBinding("left", .key(.left));
-    manager.addBinding("left", .key(.a));
-    manager.addBinding("left", .gamepadButton(.dpad_left));
-    manager.addBinding("left", .gamepadAxis(.left_stick_left));
+    input.addBinding("left", .key(.left));
+    input.addBinding("left", .key(.a));
+    input.addBinding("left", .gamepadButton(.dpad_left));
+    input.addBinding("left", .gamepadAxis(.left_stick_left));
 
-    manager.addBinding("right", .key(.right));
-    manager.addBinding("right", .key(.d));
-    manager.addBinding("right", .gamepadButton(.dpad_right));
-    manager.addBinding("right", .gamepadAxis(.left_stick_right));
+    input.addBinding("right", .key(.right));
+    input.addBinding("right", .key(.d));
+    input.addBinding("right", .gamepadButton(.dpad_right));
+    input.addBinding("right", .gamepadAxis(.left_stick_right));
 
-    manager.addBinding("up", .key(.up));
-    manager.addBinding("up", .key(.w));
-    manager.addBinding("up", .gamepadButton(.dpad_up));
-    manager.addBinding("up", .gamepadAxis(.left_stick_up));
+    input.addBinding("up", .key(.up));
+    input.addBinding("up", .key(.w));
+    input.addBinding("up", .gamepadButton(.dpad_up));
+    input.addBinding("up", .gamepadAxis(.left_stick_up));
 
-    manager.addBinding("down", .key(.down));
-    manager.addBinding("down", .key(.s));
-    manager.addBinding("down", .gamepadButton(.dpad_down));
-    manager.addBinding("down", .gamepadAxis(.left_stick_down));
+    input.addBinding("down", .key(.down));
+    input.addBinding("down", .key(.s));
+    input.addBinding("down", .gamepadButton(.dpad_down));
+    input.addBinding("down", .gamepadAxis(.left_stick_down));
 }
 
 pub fn update() !void {
-    var move = manager.getVector("left", "right", "up", "down", .digital);
-
-    if (move.x != 0 or move.y != 0) {
-        pxl.tilemap.move(&map, player.asRectI(), &move);
-        player.x += move.x;
-        player.y += move.y;
-    }
+    // `.square` keeps the fractional analog magnitude (unlike `.digital`, which
+    // would snap everything to 1.0 and throw away sub-pixel joystick input).
+    const move = input.getVector("left", "right", "up", "down", .square);
+    player.move(&map, move);
 
     if (mu.beginWindowEx("Camera Controls", .{ .x = 10, .y = 10, .w = 200, .h = 160 }, .{ .align_center = false })) {
         mu.layoutRow(2, &[_]c_int{ 75, -1 }, 0);
@@ -101,6 +96,12 @@ pub fn update() !void {
         mu.label("Zoom:");
         _ = mu.slider(&camera.zoom, 0.5, 4.0, 0.1);
 
+        mu.label("Pixel Perfect:");
+        _ = mu.checkbox("Pixel Perfect", &player.state.pixel_perfect);
+
+        mu.label("Speed:");
+        _ = mu.slider(&player.speed, 10, 400, 1);
+
         mu.endWindow();
     }
 }
@@ -108,14 +109,13 @@ pub fn update() !void {
 pub fn render() !void {
     pxl.beginPass(.{ .clear_color = Color.aya, .camera = camera });
     for (map.root.levels) |level| renderLevel(level);
-    api.drawRect(player.pos(), player.size(), Color.orange);
+    api.drawRect(player.rect.pos(), player.rect.size(), Color.orange);
     pxl.endPass();
 }
 
 pub fn shutdown() !void {
     map.deinit();
     textures.deinit();
-    manager.deinit();
 }
 
 /// Main level rendering routine
