@@ -223,6 +223,22 @@ pub const InputBinding = struct {
     pub fn init(src: InputSource) InputBinding {
         return .{ .source = src };
     }
+
+    pub fn key(k: Keycode) InputBinding {
+        return .{ .source = .key(k) };
+    }
+
+    pub fn mouse(button: MouseButton) InputBinding {
+        return .{ .source = .mouse(button) };
+    }
+
+    pub fn gamepadButton(button: GamepadButton) InputBinding {
+        return .{ .source = .gamepadButton(button) };
+    }
+
+    pub fn gamepadAxis(axis: GamepadAxis) InputBinding {
+        return .{ .source = .gamepadAxis(axis), .deadzone = 0.15 };
+    }
 };
 
 pub const InputAction = struct {
@@ -405,7 +421,7 @@ pub const InputManager = struct {
         pos_x_action: []const u8,
         neg_y_action: []const u8,
         pos_y_action: []const u8,
-        diagonal: enum { raw, normalized },
+        diagonal: enum { raw, normalized, square, digital },
     ) pxl.math.Vec2 {
         var vec = pxl.math.Vec2{
             .x = self.getActionAxis1D(pos_x_action) - self.getActionAxis1D(neg_x_action),
@@ -413,6 +429,36 @@ pub const InputManager = struct {
         };
 
         if (diagonal == .raw) return vec;
+
+        // --- Digital Snap Mode (Ideal for Pixel Art Platformers) ---
+        if (diagonal == .digital) {
+            // Any stick movement past the deadzone snaps immediately to full 1.0 / -1.0
+            if (vec.x > 0.0) vec.x = 1.0 else if (vec.x < 0.0) vec.x = -1.0;
+            if (vec.y > 0.0) vec.y = 1.0 else if (vec.y < 0.0) vec.y = -1.0;
+
+            return vec;
+        }
+
+        if (diagonal == .square) {
+            // Stretch the circular joystick bounds into a square box
+            const abs_x = @abs(vec.x);
+            const abs_y = @abs(vec.y);
+            const max_axis = @max(abs_x, abs_y);
+
+            // best for top-down, this stretches circuler stick to a square so diagonals can be 1,1
+            if (max_axis > 0.0) {
+                // If max_axis is 0.77 on a diagonal, this divides by 0.77, scaling both X and Y up to 1.0!
+                const stretch_factor = 1.0 / max_axis;
+
+                // We multiply by length to retain analog walking sensitivity
+                const len = @sqrt(vec.x * vec.x + vec.y * vec.y);
+                const applied_stretch = @min(stretch_factor * len, stretch_factor);
+
+                vec.x *= applied_stretch;
+                vec.y *= applied_stretch;
+            }
+            return vec;
+        }
 
         // Radial Normalization (Prevents diagonal movement speed boost)
         const len_sq = vec.x * vec.x + vec.y * vec.y;
@@ -430,7 +476,7 @@ pub const InputManager = struct {
             .keycode => |k| keyDown(k),
             .mouse_button => |m| mouseDown(m),
             .gamepad_button => |gb| gamepad.isButtonDown(gb),
-            .gamepad_axis => evaluateBindingValue(b) > b.deadzone,
+            .gamepad_axis => evaluateBindingValue(b),
         };
     }
 
