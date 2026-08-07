@@ -196,18 +196,6 @@ pub const InputSource = union(enum) {
     gamepad_button: GamepadButton,
     gamepad_axis: GamepadAxis,
 
-    pub fn init(src: anytype) InputSource {
-        const T = @TypeOf(src);
-
-        return switch (T) {
-            Keycode => .{ .keycode = src },
-            MouseButton => .{ .mouse_button = src },
-            GamepadButton => .{ .gamepad_button = src },
-            GamepadAxis => .{ .gamepad_axis = src },
-            else => @compileError("Unsupported input source type: " ++ @typeName(T)),
-        };
-    }
-
     pub fn key(k: Keycode) InputSource {
         return .{ .keycode = k };
     }
@@ -229,13 +217,11 @@ pub const InputBinding = struct {
     source: InputSource,
     /// Multiplier (e.g., -1.0 for 'A' key, +1.0 for 'D' key, -1.0 to invert stick Y)
     scale: f32 = 1.0,
-    deadzone: f32 = 0.15,
+    deadzone: f32 = 0.0,
     gamepad_index: usize = 0,
 
-    pub fn init(src: anytype) InputBinding {
-        return .{
-            .source = .init(src),
-        };
+    pub fn init(src: InputSource) InputBinding {
+        return .{ .source = src };
     }
 };
 
@@ -335,7 +321,6 @@ pub const InputAction = struct {
     }
 
     fn evaluateBindingValue(b: InputBinding) f32 {
-        std.debug.print("wtf: {}\n", .{b});
         return switch (b.source) {
             .keycode => |k| if (keyDown(k)) 1.0 else 0.0,
             .mouse_button => |m| if (mouseDown(m)) 1.0 else 0.0,
@@ -394,7 +379,7 @@ pub const InputManager = struct {
         return false;
     }
 
-    /// Checks frame 0 press (Godot's is_action_just_pressed)
+    /// Checks frame 0 release
     pub fn isActionJustReleased(self: *const InputManager, action_name: []const u8) bool {
         const bindings = self.actions.get(action_name) orelse return false;
         for (bindings.items) |b| {
@@ -429,7 +414,7 @@ pub const InputManager = struct {
 
         if (diagonal == .raw) return vec;
 
-        // Radial Normalization (Prevents diagonal movement boost)
+        // Radial Normalization (Prevents diagonal movement speed boost)
         const len_sq = vec.x * vec.x + vec.y * vec.y;
         if (len_sq > 1.0) {
             const len = @sqrt(len_sq);
@@ -440,10 +425,9 @@ pub const InputManager = struct {
     }
 
     // --- Internal Helpers ---
-
     fn evaluateBindingDown(b: InputBinding) bool {
         return switch (b.source) {
-            .key => |k| keyDown(k),
+            .keycode => |k| keyDown(k),
             .mouse_button => |m| mouseDown(m),
             .gamepad_button => |gb| gamepad.isButtonDown(gb),
             .gamepad_axis => evaluateBindingValue(b) > b.deadzone,
@@ -452,10 +436,10 @@ pub const InputManager = struct {
 
     fn evaluateBindingJustPressed(b: InputBinding) bool {
         return switch (b.source) {
-            .key => |k| keyPressed(k),
+            .keycode => |k| keyPressed(k),
             .mouse_button => |m| mousePressed(m),
             .gamepad_button => |gb| gamepad.isButtonJustPressed(gb),
-            .gamepad_axis => false, // Axis triggering is handled via thresholds
+            .gamepad_axis => false,
         };
     }
 
@@ -464,7 +448,7 @@ pub const InputManager = struct {
             .keycode => |k| keyUp(k),
             .mouse_button => |m| mouseUp(m),
             .gamepad_button => |gb| gamepad.isButtonJustReleased(gb),
-            .gamepad_axis => false, // Axis triggering is handled via thresholds
+            .gamepad_axis => false,
         };
     }
 
@@ -478,8 +462,14 @@ pub const InputManager = struct {
     }
 
     fn readGamepadAxis(axis: GamepadAxis, deadzone: f32) f32 {
-        const val = gamepad.getAxis(axis);
-        if (@abs(val) < deadzone) return 0.0;
-        return val;
+        const raw_val = gamepad.getAxis(axis);
+
+        // Deadzone check
+        const abs_val = @abs(raw_val);
+        if (abs_val < deadzone) return 0.0;
+
+        // Remap remaining range (deadzone..1.0) smoothly to (0.0..1.0)
+        const sign: f32 = if (raw_val > 0.0) 1.0 else -1.0;
+        return sign * ((abs_val - deadzone) / (1.0 - deadzone));
     }
 };

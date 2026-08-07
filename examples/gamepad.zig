@@ -44,7 +44,7 @@ fn drawStickPad(center: Vec2, radius: f32, stick: input.AnalogStickState, color:
     // direction vector
     api.drawLine(
         center,
-        .init(center.x + stick.direction_x * radius, center.y + stick.direction_y * radius),
+        .init(center.x + stick.direction_x * radius, center.y - stick.direction_y * radius),
         3,
         color,
     );
@@ -53,7 +53,7 @@ fn drawStickPad(center: Vec2, radius: f32, stick: input.AnalogStickState, color:
     const max_deflect = radius * 0.72;
     const knob = Vec2.init(
         center.x + stick.normalized_x * max_deflect,
-        center.y + stick.normalized_y * max_deflect,
+        center.y - stick.normalized_y * max_deflect,
     );
     api.drawCircle(knob, 20, 32, color);
     api.drawCircleOutline(knob, 20, 3, 32, Color.black);

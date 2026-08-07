@@ -22,12 +22,25 @@ pub const GamepadButton = enum {
 };
 
 pub const GamepadAxis = enum {
+    // Raw bidirectional axes (-1.0 to +1.0)
     left_x,
     left_y,
     right_x,
     right_y,
+
+    // Triggers (0.0 to 1.0)
     left_trigger,
     right_trigger,
+
+    // Explicit directional variants for easy 4-way action mapping
+    left_stick_left,
+    left_stick_right,
+    left_stick_up,
+    left_stick_down,
+    right_stick_left,
+    right_stick_right,
+    right_stick_up,
+    right_stick_down,
 };
 
 var current_pad: GamepadState = .{};
@@ -72,15 +85,27 @@ pub fn getAxis(axis: GamepadAxis) f32 {
 }
 
 pub fn getAxisUnclamped(axis: GamepadAxis) f32 {
-    if (!current_pad.connected) return 0;
+    if (!current_pad.connected) return 0.0;
 
     return switch (axis) {
-        .left_x => current_pad.left_stick.direction_x,
-        .right_x => current_pad.right_stick.direction_x,
-        .left_y => current_pad.left_stick.direction_y,
-        .right_y => current_pad.right_stick.direction_y,
+        // Raw Bidirectional Axes (Use raw .x / .y instead of .direction_x)
+        .left_x => current_pad.left_stick.direction_x * current_pad.left_stick.magnitude,
+        .left_y => current_pad.left_stick.direction_y * current_pad.left_stick.magnitude,
+        .right_x => current_pad.right_stick.direction_x * current_pad.right_stick.magnitude,
+        .right_y => current_pad.right_stick.direction_y * current_pad.right_stick.magnitude,
         .left_trigger => current_pad.left_trigger,
         .right_trigger => current_pad.right_trigger,
+
+        // Directional Helpers (Restored your original Y polarity!)
+        .left_stick_left => @max(0.0, -current_pad.left_stick.direction_x * current_pad.left_stick.magnitude),
+        .left_stick_right => @max(0.0, current_pad.left_stick.direction_x * current_pad.left_stick.magnitude),
+        .left_stick_up => @max(0.0, current_pad.left_stick.direction_y * current_pad.left_stick.magnitude),
+        .left_stick_down => @max(0.0, -current_pad.left_stick.direction_y * current_pad.left_stick.magnitude),
+
+        .right_stick_left => @max(0.0, -current_pad.right_stick.direction_x * current_pad.right_stick.magnitude),
+        .right_stick_right => @max(0.0, current_pad.right_stick.direction_x * current_pad.right_stick.magnitude),
+        .right_stick_up => @max(0.0, current_pad.right_stick.direction_y * current_pad.right_stick.magnitude),
+        .right_stick_down => @max(0.0, -current_pad.right_stick.direction_y * current_pad.right_stick.magnitude),
     };
 }
 

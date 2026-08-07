@@ -20,6 +20,11 @@ var camera: pxl.Camera = .{
     .rotation = 0,
 };
 
+var fmt_buf: [256]u8 = undefined;
+fn fmt(comptime f: []const u8, args: anytype) [:0]const u8 {
+    return std.fmt.bufPrintZ(&fmt_buf, f, args) catch unreachable;
+}
+
 pub fn config() pxl.Config {
     return .{
         .win = .{
@@ -59,14 +64,25 @@ pub fn setup() !void {
     player.h = grid_size;
 
     manager = .init();
-    manager.addBinding("left", .{ .source = .key(.left) });
+    manager.addBinding("left", .init(.key(.left)));
     manager.addBinding("left", .{ .source = .key(.a) });
+    manager.addBinding("left", .{ .source = .gamepadButton(.dpad_left) });
+    manager.addBinding("left", .{ .source = .gamepadAxis(.left_stick_left) });
+
     manager.addBinding("right", .{ .source = .key(.right) });
     manager.addBinding("right", .{ .source = .key(.d) });
+    manager.addBinding("right", .{ .source = .gamepadButton(.dpad_right) });
+    manager.addBinding("right", .{ .source = .gamepadAxis(.left_stick_right) });
+
     manager.addBinding("up", .{ .source = .key(.up) });
     manager.addBinding("up", .{ .source = .key(.w) });
+    manager.addBinding("up", .{ .source = .gamepadButton(.dpad_up) });
+    manager.addBinding("up", .{ .source = .gamepadAxis(.left_stick_up) });
+
     manager.addBinding("down", .{ .source = .key(.down) });
     manager.addBinding("down", .{ .source = .key(.s) });
+    manager.addBinding("down", .{ .source = .gamepadButton(.dpad_down) });
+    manager.addBinding("down", .{ .source = .gamepadAxis(.left_stick_down) });
 }
 
 pub fn update() !void {
@@ -98,6 +114,16 @@ pub fn render() !void {
     pxl.beginPass(.{ .clear_color = Color.aya, .camera = camera });
     for (map.root.levels) |level| renderLevel(level);
     api.drawRect(player.pos(), player.size(), Color.orange);
+
+    const state: input.GamepadState = input.getGamepadState(0) orelse .{};
+
+    api.drawText(
+        null,
+        .init(0, -50),
+        fmt("x:{d:.2} y:{d:.2} mag:{d:.2}", .{ state.left_stick.normalized_x, state.left_stick.normalized_y, state.left_stick.magnitude }),
+        Color.white,
+    );
+
     pxl.endPass();
 }
 
