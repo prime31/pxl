@@ -553,8 +553,25 @@ _SOKOL_PRIVATE bool _sgamepad_android_motion_handler(const AInputEvent* event) {
     stick_y = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_RZ, 0);
     _sgamepad_generate_analog_stick_state(stick_x, -stick_y, 1.0f, 0.01f, &(target->right_stick));
 
-    target->left_trigger = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_LTRIGGER, 0);
-    target->right_trigger = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_RTRIGGER, 0);
+    float left = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_LTRIGGER, 0);
+    if (left == 0.0f)
+        left = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_BRAKE, 0);
+
+    float right = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_RTRIGGER, 0);
+    if (right == 0.0f)
+        right = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_GAS, 0);
+
+    target->left_trigger = left;
+    target->right_trigger = right;
+
+    // __android_log_print(
+    //     ANDROID_LOG_INFO,
+    //     "pxl",
+    //     "Player %d breke: %f, gas: %f)",
+    //     player_id,
+    //     AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_BRAKE, 0),
+    //     AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_GAS, 0)
+    // );
 
     return false;
 }

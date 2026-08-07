@@ -161,9 +161,9 @@ pub fn render() !void {
     // face buttons (A/B/X/Y)
     const fb = Vec2.init(560, 520);
     drawButton(fb.add(.init(0, -34)), 16, state.digital_inputs.x, Color.blue, "X");
-    drawButton(fb.add(.init(0, 34)), 16, state.digital_inputs.a, Color.green, "A");
     drawButton(fb.add(.init(-34, 0)), 16, state.digital_inputs.y, Color.gold, "Y");
-    drawButton(fb.add(.init(34, 0)), 16, state.digital_inputs.b, Color.red, "B");
+    drawButton(fb.add(.init(34, 0)), 16, state.digital_inputs.a, Color.red, "A");
+    drawButton(fb.add(.init(0, 34)), 16, state.digital_inputs.b, Color.green, "B");
 
     // thumbstick (L3 / R3) press indicators
     drawButton(.init(200, 250), 24, state.digital_inputs.left_thumb, Color.green, "L3");

@@ -162,6 +162,45 @@ bool r_event(const sapp_event *ev) {
             return over_ui;
         }
 
+
+        case SAPP_EVENTTYPE_TOUCHES_BEGAN:
+        case SAPP_EVENTTYPE_TOUCHES_MOVED:
+        case SAPP_EVENTTYPE_TOUCHES_ENDED:
+        case SAPP_EVENTTYPE_TOUCHES_CANCELLED: {
+            const sapp_touchpoint* t = &ev->touches[0];
+            if (!t->changed) return false;
+
+            switch (ev->type) {
+                case SAPP_EVENTTYPE_TOUCHES_BEGAN:
+                    mu_input_mousemove(&mu_ctx, (int)t->pos_x, (int)t->pos_y);
+                    mu_input_mousedown(&mu_ctx, (int)t->pos_x, (int)t->pos_y, MU_MOUSE_LEFT);
+
+                    if (mu_mouse_over_ui(&mu_ctx, (int)t->pos_x, (int)t->pos_y)) {
+                        mu_mouse_captured = true;
+                        return true;
+                    }
+                    return false;
+
+                case SAPP_EVENTTYPE_TOUCHES_MOVED:
+                    mu_input_mousemove(&mu_ctx, (int)t->pos_x, (int)t->pos_y);
+                    return mu_mouse_captured;
+
+                case SAPP_EVENTTYPE_TOUCHES_ENDED:
+                case SAPP_EVENTTYPE_TOUCHES_CANCELLED:
+                    mu_input_mousemove(&mu_ctx, (int)t->pos_x, (int)t->pos_y);
+                    mu_input_mouseup(&mu_ctx, (int)t->pos_x, (int)t->pos_y, MU_MOUSE_LEFT);
+
+                    if (mu_mouse_captured) {
+                        mu_mouse_captured = false;
+                        return true;
+                    }
+
+                    return false;
+            }
+
+            return false;
+        }
+
         case SAPP_EVENTTYPE_KEY_DOWN: {
             const int key = key_map[ev->key_code & 511];
             mu_input_keydown(&mu_ctx, key);
