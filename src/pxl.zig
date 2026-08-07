@@ -133,6 +133,7 @@ export fn sokolInit() void {
     font = text.BMFont.init("examples/assets/minecraftia.fnt") catch unreachable;
     gpu.init(cfg.gfx);
     time.init();
+    input.init();
 
     if (cbs.setup) |cb| cb() catch unreachable;
 }
@@ -176,6 +177,7 @@ export fn sokolEvent(evt: [*c]const sapp.Event) void {
 export fn sokolCleanup() void {
     if (cbs.shutdown) |cb| cb() catch {};
 
+    input.deinit();
     gpu.deinit();
 
     batcher.deinit();
