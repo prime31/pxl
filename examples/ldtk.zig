@@ -19,6 +19,11 @@ var camera: pxl.Camera = .{
     .rotation = 0,
 };
 
+/// Renders "yes" when a collision-state bool is set, otherwise "-".
+fn stateMark(b: bool) []const u8 {
+    return if (b) "yes" else "-";
+}
+
 pub fn config() pxl.Config {
     return .{
         .win = .{
@@ -84,8 +89,8 @@ pub fn update() !void {
     const move = input.getVector("left", "right", "up", "down", .square);
     player.move(&map, move);
 
-    if (mu.beginWindowEx("Camera Controls", .{ .x = 10, .y = 10, .w = 200, .h = 160 }, .{ .align_center = false })) {
-        mu.layoutRow(2, &[_]c_int{ 75, -1 }, 0);
+    if (mu.beginWindowEx("Camera Controls", .{ .x = 10, .y = 10, .w = 220, .h = 300 }, .{ .align_center = false })) {
+        mu.layoutRow(2, &[_]c_int{ 95, -1 }, 0);
 
         mu.label("Pos X:");
         _ = mu.slider(&camera.position.x, 0, 700, 1);
@@ -101,6 +106,17 @@ pub fn update() !void {
 
         mu.label("Speed:");
         _ = mu.slider(&player.speed, 10, 400, 1);
+
+        // --- Collision state ---
+        mu.layoutRow(1, &[_]c_int{ -1, -1 }, 0);
+        var st_buf: [24]u8 = undefined;
+
+        mu.label((std.fmt.bufPrintZ(&st_buf, "right   {s}", .{stateMark(player.state.right)}) catch unreachable).ptr);
+        mu.label((std.fmt.bufPrintZ(&st_buf, "left    {s}", .{stateMark(player.state.left)}) catch unreachable).ptr);
+        mu.label((std.fmt.bufPrintZ(&st_buf, "below   {s}", .{stateMark(player.state.below)}) catch unreachable).ptr);
+        mu.label((std.fmt.bufPrintZ(&st_buf, "above   {s}", .{stateMark(player.state.above)}) catch unreachable).ptr);
+        mu.label((std.fmt.bufPrintZ(&st_buf, "wasGround  {s}", .{stateMark(player.state.was_grounded_last_frame)}) catch unreachable).ptr);
+        mu.label((std.fmt.bufPrintZ(&st_buf, "justLanded {s}", .{stateMark(player.state.became_grounded_this_frame)}) catch unreachable).ptr);
 
         mu.endWindow();
     }
