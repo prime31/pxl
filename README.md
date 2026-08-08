@@ -52,6 +52,20 @@ In `shdc.createModule`:
 
 
 ### Android
+Install Android SDK and setup ANDROID_HOME and install Build Tools and NDK
+`sdkmanager "build-tools;35.0.1"`
+`sdkmanager "ndk;30.0.15729638"`
+`sdkmanager "platforms;android-35"`
+`android install "platform-tools"`
+
+Add Java/Android jank to PATH (.zshrc)
+```
+export JAVA_HOME=$(/usr/libexec/java_home)
+export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
+export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
+export PATH=$PATH:/opt/homebrew/share/android-commandlinetools/platform-tools
+```
+
 Build all Android targets:
 `zig build -Dandroid=true run-EXAMPLE`
 

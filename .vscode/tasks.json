@@ -12,6 +12,16 @@
             }
         },
         {
+            "label": "Build ldtk for Android",
+            "type": "shell",
+            "command": "zig build -Dtarget=aarch64-linux-android run-ldtk",
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            }
+        },
+        {
             "label": "Zig build with runner",
             "type": "shell",
             "command": ".vscode/cargo_runner",
