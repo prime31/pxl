@@ -238,8 +238,8 @@ pub fn SlotMap(Val: type) type {
 }
 
 test "slot map" {
-    var slots: SlotMap(u8, .{}) = try .init(std.testing.allocator, 3);
-    defer slots.deinit(std.testing.allocator);
+    var slots: SlotMap(u8) = .init(3);
+    defer slots.deinit();
     try std.testing.expectEqual(0, slots.count());
 
     try std.testing.expectEqual(null, @TypeOf(slots).Key.Optional.none.unwrap());

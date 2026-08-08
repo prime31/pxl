@@ -221,4 +221,6 @@ pub fn endPass() void {
 
 test {
     std.testing.refAllDecls(@This());
+    _ = @import("util/util.zig");
+    _ = @import("util/slotmap.zig");
 }
