@@ -53,7 +53,7 @@ In `shdc.createModule`:
 
 ### Android
 Build all Android targets:
-`zig build run -Dandroid=true`
+`zig build -Dandroid=true run-EXAMPLE`
 
 Build just arm:
 `zig build -Dtarget=aarch64-linux-android run-EXAMPLE`
