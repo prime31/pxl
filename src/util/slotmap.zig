@@ -24,7 +24,7 @@ const KeyOptions = struct {
 ///
 /// # Example
 /// ```zig
-/// var slots: SlotMap(u8, []const u8) = try .init(gpa, 100);
+/// var slots: SlotMap(u8) = try .init(gpa, 100);
 /// defer slots.deinit(gpa);
 ///
 /// const key = slots.put("hello, world!");
@@ -244,17 +244,17 @@ test "slot map" {
 
     try std.testing.expectEqual(null, @TypeOf(slots).Key.Optional.none.unwrap());
 
-    const a = try slots.put('a');
+    const a = slots.put('a');
     try std.testing.expectEqual(0, a.index);
     try std.testing.expectEqual(1, @intFromEnum(a.generation));
     try std.testing.expectEqual(1, slots.count());
 
-    const b = try slots.put('b');
+    const b = slots.put('b');
     try std.testing.expectEqual(1, b.index);
     try std.testing.expectEqual(1, @intFromEnum(b.generation));
     try std.testing.expectEqual(2, slots.count());
 
-    const c = try slots.put('c');
+    const c = slots.put('c');
     try std.testing.expectEqual(2, c.index);
     try std.testing.expectEqual(1, @intFromEnum(c.generation));
     try std.testing.expectEqual(3, slots.count());
@@ -270,7 +270,7 @@ test "slot map" {
     try std.testing.expect(a.toOptional() != @TypeOf(slots).Key.Optional.none);
     try std.testing.expect(a.toOptional().unwrap().? == a);
 
-    try std.testing.expectError(error.Overflow, slots.put('d'));
+    // try std.testing.expectError(error.Overflow, slots.put('d'));
 
     try std.testing.expect(slots.containsKey(a));
     slots.remove(a);
@@ -295,7 +295,7 @@ test "slot map" {
     try std.testing.expect(a != c);
     try std.testing.expect(b != c);
 
-    const d = try slots.put('d');
+    const d = slots.put('d');
     try std.testing.expectEqual(2, d.index);
     try std.testing.expectEqual(2, @intFromEnum(d.generation));
     try std.testing.expectEqual(2, slots.count());
@@ -305,12 +305,12 @@ test "slot map" {
     try std.testing.expect(d != c);
     try std.testing.expect(d == d);
 
-    const e = try slots.put('e');
+    const e = slots.put('e');
     try std.testing.expectEqual(0, e.index);
     try std.testing.expectEqual(2, @intFromEnum(e.generation));
     try std.testing.expectEqual(3, slots.count());
 
-    try std.testing.expectError(error.Overflow, slots.put('f'));
+    // try std.testing.expectError(error.Overflow, slots.put('f'));
 
     try std.testing.expectEqual(null, slots.get(a));
     try std.testing.expectEqual('b', slots.get(b).?.*);
@@ -330,7 +330,7 @@ test "slot map" {
     try std.testing.expectEqual(0, slots.saturated);
 
     for (0..2) |_| {
-        const e_new = try slots.put('z');
+        const e_new = slots.put('z');
         try std.testing.expectEqual(1, slots.count());
         try std.testing.expectEqual(e.index, e_new.index);
         slots.remove(e_new);
@@ -340,7 +340,7 @@ test "slot map" {
     try std.testing.expectEqual(1, slots.saturated);
 
     for (0..2) |_| {
-        const d_new = try slots.put('z');
+        const d_new = slots.put('z');
         try std.testing.expectEqual(1, slots.count());
         try std.testing.expectEqual(d.index, d_new.index);
         slots.remove(d_new);
@@ -350,7 +350,7 @@ test "slot map" {
     try std.testing.expectEqual(2, slots.saturated);
 
     for (0..2) |_| {
-        const b_new = try slots.put('z');
+        const b_new = slots.put('z');
         try std.testing.expectEqual(1, slots.count());
         try std.testing.expectEqual(b.index, b_new.index);
         slots.remove(b_new);
@@ -360,7 +360,7 @@ test "slot map" {
     try std.testing.expectEqual(3, slots.saturated);
     try std.testing.expectEqual(0, slots.count());
 
-    try std.testing.expectError(error.Overflow, slots.put('z'));
+    // try std.testing.expectError(error.Overflow, slots.put('z'));
 
     slots.recycleAll();
     try std.testing.expectEqual(3, slots.capacity);
@@ -369,25 +369,25 @@ test "slot map" {
 }
 
 test "recycle key" {
-    var slots: SlotMap(u8, .{}) = try .init(std.testing.allocator, 3);
-    defer slots.deinit(std.testing.allocator);
+    var slots: SlotMap(u8) = .init(3);
+    defer slots.deinit();
     try std.testing.expectEqual(0, slots.count());
 
     try std.testing.expectEqual(null, @TypeOf(slots).Key.Optional.none.unwrap());
 
-    const a = try slots.put('a');
+    const a = slots.put('a');
     try std.testing.expectEqual(0, a.index);
     try std.testing.expectEqual(1, @intFromEnum(a.generation));
     try std.testing.expectEqual(1, slots.count());
 
     slots.recycle(a);
 
-    const b = try slots.put('b');
+    const b = slots.put('b');
     try std.testing.expectEqual(0, b.index);
     try std.testing.expectEqual(1, @intFromEnum(b.generation));
     try std.testing.expectEqual(1, slots.count());
 
-    const c = try slots.put('c');
+    const c = slots.put('c');
     try std.testing.expectEqual(1, c.index);
     try std.testing.expectEqual(1, @intFromEnum(c.generation));
     try std.testing.expectEqual(2, slots.count());
@@ -395,7 +395,7 @@ test "recycle key" {
 
 // Basically just making sure it compiles
 test "format key" {
-    const Key = SlotMap(void, .{}).Key;
+    const Key = SlotMap(void).Key;
     try std.testing.expectFmt("0xA:B", "{f}", .{Key{
         .index = 10,
         .generation = @enumFromInt(11),
@@ -410,7 +410,7 @@ test "format key" {
 }
 
 test "eql" {
-    const Key = SlotMap(void, .{}).Key;
+    const Key = SlotMap(u8).Key;
     const a: Key = .{ .index = 1, .generation = @enumFromInt(2) };
     const b: Key = .{ .index = 2, .generation = @enumFromInt(2) };
     const c: Key = .{ .index = 1, .generation = @enumFromInt(3) };
