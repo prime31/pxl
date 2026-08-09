@@ -5,8 +5,6 @@
 
 ## Toolchain & Requirements
 - **Zig Version**: `0.16.0` (Always ensure all code and build scripts target Zig 0.16)
-- temporary allocations are handled by `pxl.mem.scratch` and general alloctions are handled by `pxl.mem.alloc`
-- we do not use `std.ArrayList`, instead use `pxl.util.Vec`
 
 
 ## Build Commands
@@ -24,7 +22,10 @@
 ## Development Guidelines
 - **Testing**: Test compile all code changes (`zig build` or `zig build check`) before declaring a task complete.
 - **Examples**: Every `.zig` file in `examples/` must be exposed in `build.zig` as an executable run step.
-
+- **Iterating**: when working only in an example test just that example with `zig build EXAMPLE_NAME`
+- temporary allocations are handled by `pxl.mem.scratch` and general alloctions are handled by `pxl.mem.alloc`
+- we do not use `std.ArrayList`, instead use `pxl.util.Vec`
+- 
 
 ## Inspiration
 - Comfy: https://github.com/darthdeus/comfy
