@@ -194,6 +194,12 @@ pub fn moveX(map: *LDtk, layer: LayerInstance, rect: math.RectI, move_x: i32, st
 
 pub fn moveY(map: *LDtk, layer: LayerInstance, rect: math.RectI, move_y: i32, state: *CollisionState) i32 {
     const edge: math.Edge = if (move_y >= 0) .bottom else .top;
+    // The vertical contact flags are derived fresh from this move: moving up
+    // leaves the ground, moving down can't touch the ceiling, and a move with
+    // no contact clears both. (Without this, `below` stayed true for the whole
+    // arc of a jump, so grounded checks never saw the body leave the ground.)
+    state.below = false;
+    state.above = false;
     var bounds = rect.halfRect(edge);
 
     // we contract horizontally for vertical movement and vertically for horizontal movement
@@ -315,6 +321,9 @@ fn moveXFloat(map: *LDtk, layer: LayerInstance, rect: math.Rect, move_x: f32, st
 /// Fractional variant of `moveY`, see `moveXFloat`.
 fn moveYFloat(map: *LDtk, layer: LayerInstance, rect: math.Rect, move_y: f32, state: *CollisionState) f32 {
     const edge: math.Edge = if (move_y >= 0) .bottom else .top;
+    // Same freshness rule as `moveY`: the flags reflect only this frame's move.
+    state.below = false;
+    state.above = false;
     // leading half of the body
     var bounds: math.Rect = if (edge == .bottom)
         .{ .x = rect.x, .y = rect.y + rect.h / 2, .w = rect.w, .h = rect.h / 2 }

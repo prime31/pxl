@@ -96,7 +96,7 @@ pub const InputMapper = struct {
     pub fn isActionPressed(self: *const InputMapper, action_name: []const u8) bool {
         const bindings = self.actions.get(action_name) orelse return false;
         for (bindings.items) |b| {
-            if (self.evaluateBindingDown(b)) return true;
+            if (evaluateBindingDown(b)) return true;
         }
         return false;
     }
@@ -105,7 +105,7 @@ pub const InputMapper = struct {
     pub fn isActionJustPressed(self: *const InputMapper, action_name: []const u8) bool {
         const bindings = self.actions.get(action_name) orelse return false;
         for (bindings.items) |b| {
-            if (self.evaluateBindingJustPressed(b)) return true;
+            if (evaluateBindingJustPressed(b)) return true;
         }
         return false;
     }
@@ -114,7 +114,7 @@ pub const InputMapper = struct {
     pub fn isActionJustReleased(self: *const InputMapper, action_name: []const u8) bool {
         const bindings = self.actions.get(action_name) orelse return false;
         for (bindings.items) |b| {
-            if (self.evaluateBindingJustReleased(b)) return true;
+            if (evaluateBindingJustReleased(b)) return true;
         }
         return false;
     }

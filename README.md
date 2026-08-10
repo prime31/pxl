@@ -3,6 +3,7 @@
 - steal Particles: https://github.com/darthdeus/comfy/blob/31aa6efce135ec3d8feeb8b1b2483f2c0e915d12/comfy/src/particles.rs#L17
 - should Batcher Mesh just have a ?Pipeline and pushMesh takes in the uniforms to keep it as one api?
 - zig-frm parallax_tilemap.zig has decent player starter
+- when making an LDtk map that starts in negative x (just drag left map border to make map expand into it) collision and/or rendering get fucked up
 
 
 ### Build all with summary
