@@ -191,7 +191,7 @@ pub const InputMapper = struct {
             .keycode => |k| input.keyDown(k),
             .mouse_button => |m| input.mouseDown(m),
             .gamepad_button => |gb| gamepad.isButtonDown(gb),
-            .gamepad_axis => evaluateBindingValue(b),
+            .gamepad_axis => evaluateBindingValue(b) != 0,
         };
     }
 
