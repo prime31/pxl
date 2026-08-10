@@ -111,7 +111,7 @@ pub fn drawText(text: []const u8, pos: Vec2, color: ?Color) void {
 }
 
 pub fn drawTextFmt(comptime fmt: []const u8, args: anytype, pos: Vec2, color: ?Color) void {
-    const text = std.fmt.allocPrint(pxl.mem.tmp_allocator, fmt, args) catch |err| {
+    const text = std.fmt.allocPrint(pxl.mem.scratch, fmt, args) catch |err| {
         std.debug.print("drawTextFormat error: {}\n", .{err});
         return;
     };
