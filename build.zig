@@ -15,6 +15,7 @@ const examples = [_]Example{
     .{ .name = "text" },
     .{ .name = "animation" },
     .{ .name = "ldtk" },
+    .{ .name = "slugcat" },
     .{ .name = "microui" },
     .{ .name = "shader", .has_shader = true },
     .{ .name = "bunnymark" },
