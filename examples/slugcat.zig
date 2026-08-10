@@ -37,9 +37,12 @@ const moveBody = pxl.tilemap.moveBody;
 // Tuning. Rain World steps its simulation at 60 Hz with px/frame units; pxl
 // runs at real dt, so the constants below are Rain World's values x60 (px/s).
 // ---------------------------------------------------------------------------
-const gravity: f32 = 3420; // 0.95 px/frame^2
+const gravity: f32 = 3240; // 0.9 px/frame^2 (Player.cs: base.gravity = 0.9)
 const run_speed: f32 = 258; // 4.3 px/frame
-const jump_upper: f32 = -400; // ~ -8.5 px/frame at 20px tiles, scaled to 12px
+const jump_speed: f32 = 340; // ~7 px/frame impulse (Player.cs Jump())
+const jump_hop: f32 = 90; // 1.5 px/frame forward hop on a grounded jump (RW num5)
+const jump_boost_rate: f32 = 750; // (jumpBoost+1) * 0.3 px/frame^2 while holding (RW)
+const jump_boost_decay: f32 = 90; // 1.5 boost units per frame
 const max_fall: f32 = 960; // 16 px/frame terminal fall speed
 const ground_accel_rate: f32 = 25; // vel.x lerp ~0.34/frame on the ground
 const air_accel_rate: f32 = 9.5; // vel.x lerp ~0.15/frame in the air
@@ -82,13 +85,79 @@ fn rotate2D(v: Vec2, ang: f32) Vec2 {
     return .init(v.x * c - v.y * s, v.x * s + v.y * c);
 }
 
+/// Is the tilemap cell solid?
+fn cellSolid(tx: i32, ty: i32) bool {
+    if (tx < 0 or ty < 0 or tx >= collision.width() or ty >= collision.height()) return false;
+    return collision.isCellSolid(@intCast(tx), @intCast(ty));
+}
+
 /// Is the world-space point inside a solid IntGrid cell?
 fn solidAt(w: Vec2) bool {
     const gi: i32 = @intFromFloat(tile_size);
     const tx = @divFloor(@as(i32, @intFromFloat(@floor(w.x))), gi);
     const ty = @divFloor(@as(i32, @intFromFloat(@floor(w.y))), gi);
-    if (tx < 0 or ty < 0 or tx >= collision.width() or ty >= collision.height()) return false;
-    return collision.isCellSolid(@intCast(tx), @intCast(ty));
+    return cellSolid(tx, ty);
+}
+
+/// Tail segments collide with the tilemap (RW's BodyPart.PushOutOfTerrain,
+/// simplified): a segment whose centre is inside a solid cell is pushed out
+/// through the nearest free cell edge, and its velocity into the wall is
+/// killed so it drags along the ground instead of pressing into it.
+fn pushPartOutOfTerrain(p: *Part) void {
+    if (!solidAt(p.pos)) return;
+    const gi: i32 = @intFromFloat(tile_size);
+    const tx = @divFloor(@as(i32, @intFromFloat(@floor(p.pos.x))), gi);
+    const ty = @divFloor(@as(i32, @intFromFloat(@floor(p.pos.y))), gi);
+    const cell_x = @as(f32, @floatFromInt(tx)) * tile_size;
+    const cell_y = @as(f32, @floatFromInt(ty)) * tile_size;
+    const fx = p.pos.x - cell_x;
+    const fy = p.pos.y - cell_y;
+
+    var best: f32 = 1e9;
+    var out = p.pos;
+    var pushed_x: bool = false;
+    // Push the segment's centre a full radius past the cell edge so the tail
+    // visibly rests on the floor instead of sinking halfway into it.
+    if (!cellSolid(tx - 1, ty) and fx + p.rad < best) {
+        best = fx + p.rad;
+        out.x = cell_x - p.rad;
+        pushed_x = true;
+    }
+    if (!cellSolid(tx + 1, ty) and tile_size - fx + p.rad < best) {
+        best = tile_size - fx + p.rad;
+        out.x = cell_x + tile_size + p.rad;
+        pushed_x = true;
+    }
+    if (!cellSolid(tx, ty - 1) and fy + p.rad < best) {
+        best = fy + p.rad;
+        out.y = cell_y - p.rad;
+        pushed_x = false;
+    }
+    if (!cellSolid(tx, ty + 1) and tile_size - fy + p.rad < best) {
+        best = tile_size - fy + p.rad;
+        out.y = cell_y + tile_size + p.rad;
+        pushed_x = false;
+    }
+    p.pos = out;
+    if (pushed_x) {
+        p.vel.x = 0;
+    } else {
+        p.vel.y = 0;
+    }
+}
+
+/// Would a chunk of size `w`x`h` centered at `c` overlap any solid cell?
+/// The bottom ~2.5px strip is ignored: resting chunks legitimately sit a
+/// pixel or two into the floor, and the pose constraint must not fight that.
+fn rectOverlapsSolid(c: Vec2, w: f32, h: f32) bool {
+    var y = c.y - h / 2 + 1;
+    while (y <= c.y + h / 2 - 2.5) : (y += 4) {
+        var x = c.x - w / 2 + 1;
+        while (x <= c.x + w / 2 - 1) : (x += 4) {
+            if (solidAt(.init(x, y))) return true;
+        }
+    }
+    return false;
 }
 
 /// Returns the surface point (top of the first solid tile) directly below
@@ -131,6 +200,8 @@ const Chunk = struct {
         // (a resting chunk otherwise accumulates gravity forever).
         if (self.state.above and self.vel.y < 0) self.vel.y = 0;
         if (self.state.below and self.vel.y > 0) self.vel.y = 0;
+        if (self.state.left and self.vel.x < 0) self.vel.x = 0;
+        if (self.state.right and self.vel.x > 0) self.vel.x = 0;
 
         // Keep the chunk inside the collision layer bounds.
         if (self.rect.x < 0) {
@@ -210,23 +281,35 @@ const Leg = struct {
     target: Vec2 = .zero,
     knee: Vec2 = .zero,
     planted: bool = false,
+    dangling: bool = false, // true while airborne: target is a mid-air dangle point
     front: bool = true,
     thigh: f32 = 9,
     shin: f32 = 9,
 
     const max_step: f32 = 13;
-    const chase_rate: f32 = 12;
+    const chase_rate: f32 = 60; // swing snap speed
 
     fn update(self: *Leg, hip: Vec2, flip: f32, grounded: bool, moving: bool, dt: f32) void {
         if (grounded) {
             if (!self.planted) {
-                // Reach for the ground ahead of the hip.
-                const fwd = if (self.front) flip * 9 else -flip * 6;
-                const desired = hip.add(.init(fwd, 0));
-                self.target = groundBelow(desired, 90) orelse desired.add(.init(0, 8));
-            } else if (moving and hip.sub(self.foot).len() > max_step) {
-                // The body outran this foot: lift it and step forward.
+                if (self.dangling) {
+                    // Just landed: aim at the ground ahead of the hip instead
+                    // of the mid-air dangle point.
+                    self.dangling = false;
+                    const stride: f32 = if (moving) 11 else 7;
+                    const fwd = if (self.front) flip * stride else -flip * (stride - 4);
+                    const desired = hip.add(.init(fwd, 0));
+                    self.target = groundBelow(desired, 90) orelse desired.add(.init(0, 8));
+                }
+            } else if (hip.sub(self.foot).len() > max_step) {
+                // The body outran this foot (running, crawling, or walking
+                // after a turn-around): lift it and step forward. The release
+                // is distance-based, not gated on speed — gating it on the
+                // `moving` flag left feet planted far behind the body while
+                // the slugcat crawled slowly, stretching the legs into long
+                // broken strands (and the debug target lines with them).
                 self.planted = false;
+                self.dangling = false;
                 const fwd = if (self.front) flip * 11 else -flip * 7;
                 const desired = hip.add(.init(fwd, 0));
                 self.target = groundBelow(desired, 90) orelse desired.add(.init(0, 9));
@@ -234,14 +317,22 @@ const Leg = struct {
         } else {
             // Airborne: dangle the foot below the body.
             self.planted = false;
+            self.dangling = true;
             const dir: f32 = if (self.front) 7 else -5;
             self.target = hip.add(.init(flip * dir, 6));
         }
 
+        // Chase the target — shared by the grounded swing and the airborne
+        // dangle. A swinging foot chasing a target that is re-aimed every
+        // frame at the running hip can never catch it, so grounded targets
+        // are fixed at release time. The airborne foot must keep chasing too:
+        // when the chase lived only in the grounded branch, airborne feet
+        // froze at the takeoff spot and the legs stretched to twice their
+        // length while the body rose.
         if (!self.planted) {
             const blend = 1.0 - std.math.exp(-chase_rate * dt);
             self.foot = lerpVec(self.foot, self.target, blend);
-            if (self.foot.sub(self.target).len() < 1.2) {
+            if (grounded and self.foot.sub(self.target).len() < 1.5) {
                 self.foot = self.target;
                 self.planted = true;
             }
@@ -311,6 +402,7 @@ const Slugcat = struct {
     chunks: [2]Chunk = .{ .{}, .{} }, // [0] = upper/main body, [1] = lower body
     rest_dist: f32 = 16, // BodyChunkConnection distance (RW: 17 at 20px tiles)
     can_jump: i32 = 0,
+    jump_boost: f32 = 0, // holding jump lifts further while this lasts (RW)
     flip: f32 = 1, // which way the slugcat faces
     anim_frame: i32 = 0, // run-cycle frame, 0..6 (Rain World's animationFrame)
     left_foot: bool = false,
@@ -367,6 +459,19 @@ const Slugcat = struct {
         self.head.pos = .init(spawn.x + 5, spawn.y - 6);
     }
 
+    /// Is there enough headroom above the lower chunk to stand up? Used to
+    /// stop the slugcat rising upright under a low ceiling — instead it stays
+    /// crouched on all fours (Rain World drops to Default mode when the room
+    /// is too short to Stand).
+    fn standingFits(self: *const Slugcat) bool {
+        const c1 = self.chunks[1].rect.center();
+        return !rectOverlapsSolid(
+            c1.add(.init(0, -self.rest_dist)),
+            self.chunks[0].rect.w,
+            self.chunks[0].rect.h,
+        );
+    }
+
     /// Is the chunk's bottom edge resting on (or within ~2.5px of) a solid
     /// tile? Used to kill downward velocity after the chunk connection nudges
     /// a resting chunk. Deliberately tolerant: it is only a velocity damp, so
@@ -384,7 +489,7 @@ const Slugcat = struct {
         return false;
     }
 
-    fn update(self: *Slugcat, move_x: f32, move_up: bool, jump_pressed: bool, dt: f32) void {
+    fn update(self: *Slugcat, move_x: f32, move_up: bool, jump_pressed: bool, jump_held: bool, dt: f32) void {
         // Grounding source of truth: the swept-contact flags. These are
         // frame-fresh (pxl clears them at the start of every Y move), which
         // matters on the jump's takeoff frame — a tilemap sample taken a
@@ -417,13 +522,32 @@ const Slugcat = struct {
             self.chunks[1].vel.x = lerpf(self.chunks[1].vel.x, 0, blend);
         }
 
-        // --- jump (Rain World: canJump > 0 consumed by a fresh press) ---
+        // --- jump (Rain World: a fresh press consumes canJump and fires the
+        // impulse; holding jump then keeps lifting via jumpBoost, so a tap is
+        // a short hop and a held jump is the floaty full jump) ---
         if (jump_pressed and self.can_jump > 0) {
             self.can_jump = 0;
             // Both chunks launch with the same impulse: the pose constraint
             // keeps them at rest distance, so they fly as one rigid body.
-            self.chunks[0].vel.y = jump_upper;
-            self.chunks[1].vel.y = jump_upper;
+            self.chunks[0].vel.y = -jump_speed;
+            self.chunks[1].vel.y = -jump_speed;
+            // RW's crouch-hop: a grounded jump pushes forward while running.
+            if (move_x != 0) {
+                self.chunks[0].vel.x += move_x * jump_hop;
+                self.chunks[1].vel.x += move_x * jump_hop;
+            }
+            // Standing jumps carry a bit more boost than all-fours jumps.
+            self.jump_boost = if (self.stand_blend > 0.5) 8 else 6;
+        }
+        // The boost drains every frame (release cuts the jump short) and,
+        // while jump is held, keeps lifting — RW's tap = hop / hold = float.
+        if (self.jump_boost > 0) {
+            if (jump_held) {
+                const lift = (self.jump_boost + 1) * jump_boost_rate * dt;
+                self.chunks[0].vel.y -= lift;
+                self.chunks[1].vel.y -= lift;
+            }
+            self.jump_boost = @max(0, self.jump_boost - jump_boost_decay * dt);
         }
 
         // terminal fall speed (both directions)
@@ -435,7 +559,10 @@ const Slugcat = struct {
         // creature stands upright when idle or holding up, and drops to all
         // fours when it runs.
         if (on_ground) {
-            const want_stand = move_x == 0 or move_up;
+            // Don't try to stand up when there's no headroom (crawling under
+            // a low ceiling): stay crouched on all fours, which is what Rain
+            // World's slugcat does when the room is too short to Stand.
+            const want_stand = (move_x == 0 or move_up) and self.standingFits();
             const stand_target: f32 = if (want_stand) 1 else 0;
             self.stand_blend = lerpf(self.stand_blend, stand_target, 1.0 - std.math.exp(-7 * dt));
         }
@@ -443,16 +570,53 @@ const Slugcat = struct {
         // --- physics ---
         self.chunks[0].update(&map, dt);
         self.chunks[1].update(&map, dt);
-        // --- chunk connection (RW BodyChunkConnection: restore exact rest
+
+        // --- pose constraint: pin the head chunk to its pose position
+        // relative to the lower chunk. Standing = straight up over the hips
+        // (upright, ~2 tiles); running = ahead on the ground (all fours,
+        // ~1 tile). The head chunk inherits the lower chunk's velocity so the
+        // swept collision never fights the constraint. The pose computes the
+        // distance it actually pinned at (slid back out of solid tiles when
+        // bonking a ceiling/wall) and the connection below caps at that —
+        // otherwise the two would fight forever: the connection restores the
+        // full rest distance, pushing the head chunk back into the ceiling,
+        // and the pose compresses it again. That oscillation is what wedged
+        // and jittered the slugcat in low crawl spaces.
+        var pose_dist: f32 = -1; // -1 = pose skipped (wedged into a wall)
+        {
+            const c1 = self.chunks[1].rect.center();
+            const want_raw = lerpVec(.init(self.flip, 0), .init(0, -1), self.stand_blend);
+            const want = want_raw.norm();
+            var d = self.rest_dist;
+            const w = self.chunks[0].rect.w;
+            const h = self.chunks[0].rect.h;
+            while (d > 3 and rectOverlapsSolid(c1.add(want.scale(d)), w, h)) d -= 1;
+            if (d > 3) {
+                pose_dist = d;
+                const new_pos = c1.add(want.scale(d));
+                self.chunks[0].setCenter(new_pos);
+                self.chunks[0].vel = self.chunks[1].vel;
+            }
+            // else: wedged where the whole pose line is inside a wall (e.g.
+            // jumping right under a low ceiling at a floor edge) — skip the
+            // pin for this frame. The chunk keeps its own velocity, the
+            // connection keeps the pair together, and collision resolution
+            // pushes it clear; the pose re-engages as soon as it fits again.
+        }
+
+        // --- chunk connection (RW BodyChunkConnection: restore the rest
         // distance, correcting both pos and vel, split by mass symmetry) ---
         {
             const c0 = self.chunks[0].rect.center();
             const c1 = self.chunks[1].rect.center();
             const d = c1.sub(c0);
             const num = d.len();
+            // Never push the pair apart beyond what the pose allowed this
+            // frame (see the pose/connection-fight comment above).
+            const target = if (pose_dist > 0) pose_dist else self.rest_dist;
             if (num > 1e-4) {
                 const dir = d.norm(); // chunk0 -> chunk1
-                const corr = dir.scale((self.rest_dist - num) * 0.5);
+                const corr = dir.scale((target - num) * 0.5);
                 self.chunks[0].setCenter(c0.sub(corr));
                 self.chunks[0].vel = self.chunks[0].vel.sub(corr);
                 self.chunks[1].setCenter(c1.add(corr));
@@ -466,24 +630,6 @@ const Slugcat = struct {
         // while the pose transitions).
         if (self.isOnGround(&self.chunks[0]) and self.chunks[0].vel.y > 0) self.chunks[0].vel.y = 0;
         if (self.isOnGround(&self.chunks[1]) and self.chunks[1].vel.y > 0) self.chunks[1].vel.y = 0;
-        // --- pose constraint: pin the head chunk to its pose position relative
-        // to the lower chunk. Standing = straight up over the hips (upright,
-        // ~2 tiles); running = ahead on the ground (all fours, ~1 tile). The
-        // head chunk inherits the lower chunk's velocity so the swept collision
-        // never fights the constraint — velocity feedback from the pose is what
-        // used to drift the pair sideways and sink it through the floor.
-        {
-            const c1 = self.chunks[1].rect.center();
-            // Desired direction from the lower chunk to the head: straight up
-            // when standing, level and forward when running.
-            // All fours = both circles on the ground (a ~1-tile-high, catlike
-            // body); standing = straight up over the hips (~2 tiles).
-            const want_raw = lerpVec(.init(self.flip, 0), .init(0, -1), self.stand_blend);
-            const want = want_raw.norm();
-            const new_pos = c1.add(want.scale(self.rest_dist));
-            self.chunks[0].setCenter(new_pos);
-            self.chunks[0].vel = self.chunks[1].vel;
-        }
         self.speed = @abs(self.chunks[0].vel.x);
 
         // --- run cycle: one frame per step, 6 frames per full cycle ---
@@ -554,13 +700,22 @@ const Slugcat = struct {
         self.head.vel = self.head.vel.sub(self.look_dir.scale(30 * dt));
 
         // --- tail: verlet rope (TailSegment.cs + PlayerGraphics.Update) ---
-        // Root trails behind the lower chunk. num5 = 1 when idle (droopy,
-        // weakly damped) and 0 when running (stiff, trails straight behind).
+        // tail[0] is anchored to the lower body's tail point; each segment
+        // follows the previous via a distance constraint. A chain pull toward
+        // the body — strongest at the root, halving per segment — makes the
+        // tail trail along behind the slugcat as it runs. num5 is 0 while
+        // running (stiff, little droop) and drifts to 1 when idle (droopy).
         const root = self.lower_draw.add(.init(-self.flip * 7, 2));
         var num5: f32 = if (run_t > 0.5) 0 else 1;
-        var num12: f32 = 14;
-        var chain_prev: Vec2 = root;
-        var walk_pos: Vec2 = root;
+        var num12: f32 = 28;
+        var anchor: Vec2 = self.chunks[0].rect.center(); // pull anchor: upper chunk first
+        var prev_seg: Vec2 = self.chunks[1].rect.center(); // then the lower chunk, then earlier segments
+
+        // Pass 1: verlet update, distance constraints, damping, chain pull.
+        // No terrain collision in this pass — the distance constraints can
+        // move earlier segments (affectPrevious) *after* their push-out ran,
+        // dragging them back into the wall. That's what stuck tail segments
+        // inside the floor during the run out of the crawl space.
         for (0..4) |l| {
             const seg = &self.tail[l];
             seg.part.update(0, dt);
@@ -584,28 +739,37 @@ const Slugcat = struct {
             }
 
             // damping + weak gravity (droop), scaled by num5 (PlayerGraphics.cs)
-            const damp = lerpf(0.7, 0.95, num5);
+            const damp = lerpf(0.75, 0.95, num5);
             seg.part.vel = seg.part.vel.scale(std.math.pow(f32, damp, 60 * dt));
-            seg.part.vel.y += lerpf(0.1, 0.45, num5) * gravity * dt;
+            seg.part.vel.y += lerpf(0.1, 0.5, num5) * gravity * dt;
             num5 = (num5 * 10 + 1) / 11;
 
-            // keep the whole tail inside a radius around the lower chunk
-            const maxr = 8.0 * @as(f32, @floatFromInt(l + 1));
-            const from_body = seg.part.pos.sub(self.lower_draw);
-            const bl = from_body.len();
-            if (bl > maxr) seg.part.pos = self.lower_draw.add(from_body.norm().scale(maxr));
-
-            // chain pull from the front of the body (num12 halves per segment)
-            const pull = seg.part.pos.sub(chain_prev);
-            const pd = pull.len();
-            if (pd > 1e-4) {
-                const n = pull.norm();
-                seg.part.pos = seg.part.pos.add(n.scale(num12));
-                seg.part.vel = seg.part.vel.add(n.scale(num12 * 0.05));
+            // chain pull: vel += DirVec(anchor, pos) * num12 / dist — a stretch
+            // force keeping the tail trailed out behind the slugcat (RW).
+            const to_anchor = seg.part.pos.sub(anchor);
+            const ad = to_anchor.len();
+            if (ad > 1e-4) {
+                seg.part.vel = seg.part.vel.add(to_anchor.norm().scale(num12 / ad));
             }
             num12 *= 0.5;
-            chain_prev = walk_pos;
-            walk_pos = seg.part.pos;
+            anchor = prev_seg;
+            prev_seg = seg.part.pos;
+        }
+
+        // Pass 2: after all the corrections settled, keep the tail near the
+        // body and push any segment that ended up inside terrain back out (RW
+        // PushOutOfTerrain) — the tail drags on the floor instead of poking
+        // through it. Run twice: a push-out of one segment can nudge another
+        // back into a wall, and the second pass catches that.
+        for (0..2) |_| {
+            for (0..4) |l| {
+                const seg = &self.tail[l];
+                const maxr = 9.0 * @as(f32, @floatFromInt(l + 1));
+                const from_body = seg.part.pos.sub(self.lower_draw);
+                const bl = from_body.len();
+                if (bl > maxr) seg.part.pos = self.lower_draw.add(from_body.norm().scale(maxr));
+                pushPartOutOfTerrain(&seg.part);
+            }
         }
     }
 
@@ -836,9 +1000,10 @@ pub fn update() !void {
 
     const move = input.getVector("left", "right", "up", "down", .square);
     const jump_pressed = input.isActionJustPressed("jump");
+    const jump_held = input.isActionPressed("jump");
     const dt = pxl.time.dt();
 
-    slugcat.update(move.x, move.y <= -0.5, jump_pressed, dt);
+    slugcat.update(move.x, move.y <= -0.5, jump_pressed, jump_held, dt);
 
     // Camera: follow the slugcat (with lookahead) or steer manually.
     if (follow_cam) {
