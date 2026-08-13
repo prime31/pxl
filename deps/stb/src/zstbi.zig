@@ -559,6 +559,90 @@ extern fn stbi_write_jpg_to_func(
     quality: c_int,
 ) c_int;
 
+/// stb_vorbis bindings. The library is compiled with
+/// `STB_VORBIS_NO_INTEGER_CONVERSION` (see zstbi.c), which forces f32
+/// output and compiles out the `short` decode helpers, so the API here
+/// decodes directly to `f32` — matching sokol-audio's native format.
+pub const vorbis = struct {
+    pub const Decoded = struct {
+        /// Interleaved frames: `samples[i * channels + c]` is channel `c`
+        /// of frame `i`. Allocated with the allocator passed to `decodeMemory`.
+        samples: []f32,
+        /// Number of frames (samples per channel).
+        num_samples: usize,
+        channels: u32,
+        sample_rate: u32,
+    };
+
+    /// Decode an entire ogg vorbis stream from memory into interleaved
+    /// f32 samples. `mem` must contain the complete stream. The returned
+    /// `Decoded.samples` is owned by the caller (free with the allocator).
+    pub fn decodeMemory(mem: []const u8, allocator: std.mem.Allocator) !Decoded {
+        var error_code: c_int = 0;
+        const v = stb_vorbis_open_memory(mem.ptr, @intCast(mem.len), &error_code, null) orelse
+            return error.VorbisDecodeFailed;
+        defer stb_vorbis_close(v);
+
+        const info = stb_vorbis_get_info(v);
+        const channels: usize = @intCast(info.channels);
+        const num_samples: usize = stb_vorbis_stream_length_in_samples(v);
+        if (channels == 0 or num_samples == 0) return error.VorbisEmptyStream;
+
+        const samples = try allocator.alloc(f32, num_samples * channels);
+
+        // Decode in chunks; the interleaved reader returns frames per
+        // channel, so a corrupt/truncated stream just yields fewer frames.
+        var offset: usize = 0;
+        while (offset < num_samples) {
+            const n = stb_vorbis_get_samples_float_interleaved(
+                v,
+                @intCast(channels),
+                samples.ptr + offset * channels,
+                @intCast((num_samples - offset) * channels),
+            );
+            if (n <= 0) break;
+            offset += @intCast(n);
+        }
+
+        return .{
+            .samples = samples[0 .. offset * channels],
+            .num_samples = offset,
+            .channels = @intCast(channels),
+            .sample_rate = @intCast(info.sample_rate),
+        };
+    }
+
+    const stb_vorbis = opaque {};
+    // Field order/sizes must match stb_vorbis.h exactly — get_info returns
+    // this struct by value.
+    const stb_vorbis_info = extern struct {
+        sample_rate: c_uint,
+        channels: c_int,
+        setup_memory_required: c_uint,
+        setup_temp_memory_required: c_uint,
+        temp_memory_required: c_uint,
+        max_frame_size: c_int,
+    };
+
+    // alloc_buffer is only used for custom allocation; we pass null and
+    // let stb_vorbis use the C allocator.
+    extern fn stb_vorbis_open_memory(
+        data: [*]const u8,
+        len: c_int,
+        error_code: *c_int,
+        alloc_buffer: ?*const anyopaque,
+    ) ?*stb_vorbis;
+    extern fn stb_vorbis_get_info(f: ?*const stb_vorbis) stb_vorbis_info;
+    extern fn stb_vorbis_stream_length_in_samples(f: ?*const stb_vorbis) c_uint;
+    extern fn stb_vorbis_get_samples_float_interleaved(
+        f: ?*stb_vorbis,
+        channels: c_int,
+        buffer: [*]f32,
+        num_floats: c_int,
+    ) c_int;
+    extern fn stb_vorbis_close(f: ?*stb_vorbis) void;
+};
+
 test "zstbi basic" {
     init(testing.allocator);
     defer deinit();
