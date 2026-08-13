@@ -612,6 +612,83 @@ pub const vorbis = struct {
         };
     }
 
+    /// A streaming ogg vorbis decoder: open a memory stream, then pull
+    /// small chunks of interleaved f32 frames on demand with `readFrames`.
+    /// Memory stays bounded regardless of track length (the compressed ogg
+    /// bytes + one decode chunk), so a multi-minute track costs roughly the
+    /// same as a one-second one.
+    pub const Stream = struct {
+        handle: *stb_vorbis,
+        /// Owned copy of the compressed stream (freed in `close`).
+        data: []u8,
+        allocator: std.mem.Allocator,
+        channels: u32,
+        sample_rate: u32,
+        /// Total frames per channel (0 if stb can't determine it).
+        num_samples: usize,
+        /// Set once the decoder reports end-of-stream.
+        eof: bool,
+
+        /// Open a decoder for `mem` (a complete ogg vorbis stream). The
+        /// bytes are copied, so the caller can free its own copy right away.
+        pub fn open(mem: []const u8, allocator: std.mem.Allocator) !Stream {
+            if (mem.len == 0) return error.VorbisEmptyStream;
+
+            const data = try allocator.dupe(u8, mem);
+            errdefer allocator.free(data);
+
+            var error_code: c_int = 0;
+            const handle = stb_vorbis_open_memory(data.ptr, @intCast(data.len), &error_code, null) orelse
+                return error.VorbisDecodeFailed;
+
+            const info = stb_vorbis_get_info(handle);
+            if (info.channels <= 0 or info.sample_rate == 0) {
+                stb_vorbis_close(handle);
+                return error.VorbisDecodeFailed;
+            }
+
+            return .{
+                .handle = handle,
+                .data = data,
+                .allocator = allocator,
+                .channels = @intCast(info.channels),
+                .sample_rate = @intCast(info.sample_rate),
+                .num_samples = stb_vorbis_stream_length_in_samples(handle),
+                .eof = false,
+            };
+        }
+
+        /// Decode up to `out.len / channels` interleaved frames into `out`.
+        /// Returns the number of frames decoded (0 at end of stream).
+        pub fn readFrames(self: *Stream, out: []f32) !usize {
+            if (self.eof or out.len < self.channels) return 0;
+            const n = stb_vorbis_get_samples_float_interleaved(
+                self.handle,
+                @intCast(self.channels),
+                out.ptr,
+                @intCast(out.len),
+            );
+            if (n <= 0) {
+                self.eof = true;
+                return 0;
+            }
+            return @intCast(n);
+        }
+
+        /// Seek to an absolute frame. The next `readFrames` call resumes
+        /// from there.
+        pub fn seek(self: *Stream, frame: usize) !void {
+            if (stb_vorbis_seek(self.handle, @intCast(frame)) == 0) return error.VorbisSeekFailed;
+            self.eof = false;
+        }
+
+        pub fn close(self: *Stream) void {
+            stb_vorbis_close(self.handle);
+            self.allocator.free(self.data);
+            self.* = undefined;
+        }
+    };
+
     const stb_vorbis = opaque {};
     // Field order/sizes must match stb_vorbis.h exactly — get_info returns
     // this struct by value.
@@ -640,6 +717,7 @@ pub const vorbis = struct {
         buffer: [*]f32,
         num_floats: c_int,
     ) c_int;
+    extern fn stb_vorbis_seek(f: ?*stb_vorbis, sample_number: c_uint) c_int;
     extern fn stb_vorbis_close(f: ?*stb_vorbis) void;
 };
 

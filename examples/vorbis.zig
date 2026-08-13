@@ -3,86 +3,166 @@ const std = @import("std");
 const pxl = @import("pxl");
 const mu = pxl.mu;
 const vorbis = pxl.stb.vorbis;
+const sfxr = pxl.sfxr;
 
-// decoded track (interleaved f32, persistent allocation, freed in shutdown)
-var track: ?vorbis.Decoded = null;
+// --- tracks ---------------------------------------------------------------
 
-// mono downmix for sokol audio, which is configured for a single channel
-var playback: []f32 = &.{};
-var play_pos: usize = 0;
+const MaxTracks = 16;
+
+const Track = struct {
+    /// Owned filename, e.g. "tester.ogg".
+    name: []u8,
+    /// Owned streaming decoder.
+    stream: *vorbis.Stream,
+};
+
+/// Auto-discovered .ogg files in examples/assets.
+var tracks: [MaxTracks]?Track = [_]?Track{null} ** MaxTracks;
+var track_count: usize = 0;
+
+var scan_error: ?[:0]const u8 = null;
+var scan_error_buf: [256]u8 = undefined;
+
+/// Find every .ogg in examples/assets and open a streaming decoder for it.
+fn scanTracks() !void {
+    var dir = try std.Io.Dir.openDir(.cwd(), pxl.io, "examples/assets", .{ .iterate = true });
+    defer dir.close(pxl.io);
+
+    var iter = dir.iterate();
+    while (try iter.next(pxl.io)) |entry| {
+        if (track_count >= MaxTracks) break;
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".ogg")) continue;
+
+        // entry.name lives in the iterator's buffer (reused each step), so
+        // copy it before doing anything else.
+        var path_buf: [512]u8 = undefined;
+        const path = std.fmt.bufPrint(&path_buf, "examples/assets/{s}", .{entry.name}) catch continue;
+
+        const file = pxl.fs.read(path, .persistent) catch |err| {
+            scan_error = std.fmt.bufPrintZ(&scan_error_buf, "Failed to read {s}: {s}", .{ entry.name, @errorName(err) }) catch null;
+            continue;
+        };
+        defer pxl.mem.free(file);
+
+        const stream = pxl.mem.create(vorbis.Stream, .persistent);
+        stream.* = vorbis.Stream.open(file, pxl.mem.allocator) catch |err| {
+            pxl.mem.destroy(stream);
+            scan_error = std.fmt.bufPrintZ(&scan_error_buf, "Failed to decode {s}: {s}", .{ entry.name, @errorName(err) }) catch null;
+            continue;
+        };
+
+        tracks[track_count] = .{
+            .name = pxl.mem.dupe(u8, entry.name, .persistent),
+            .stream = stream,
+        };
+        track_count += 1;
+    }
+
+    if (track_count == 0) {
+        scan_error = "No .ogg files found in examples/assets";
+    } else {
+        std.debug.print("vorbis: found {d} ogg track(s): ", .{track_count});
+        for (0..track_count) |i| std.debug.print("{s} ", .{tracks[i].?.name});
+        std.debug.print("\n", .{});
+    }
+}
+
+// --- playback state ---------------------------------------------------------
+
+var mixer: pxl.audio.Mixer = .{};
+
+var current: usize = 0; // index into tracks
+var voice_idx: ?usize = null; // mixer voice playing `current`
 var is_playing: bool = false;
-var loop: bool = false;
+var loop_track: bool = true;
+/// Fractional source frame position while paused (null = not paused).
+var paused_at: ?f32 = null;
+var track_volume: f32 = 1.0;
 
-// set when the ogg fails to load, so the UI can say why
-var load_error: ?[:0]const u8 = null;
-var load_error_buf: [128]u8 = undefined;
+// one-shot sfxr sounds, mixed on top of the track
+var sfx_voice: ?usize = null;
+var sfx_samples: ?[]f32 = null;
+
+fn playTrack(idx: usize) void {
+    if (track_count == 0) return;
+    stopVoice();
+    current = idx;
+    const t = tracks[idx].?;
+    voice_idx = mixer.playStream(t.stream, .{ .volume = track_volume, .loop = loop_track }) catch null;
+    is_playing = voice_idx != null;
+}
+
+fn stopVoice() void {
+    if (voice_idx) |vi| mixer.stop(vi);
+    voice_idx = null;
+    is_playing = false;
+    paused_at = null;
+}
+
+fn togglePlayPause() void {
+    if (is_playing) {
+        // pause: remember where we were, then stop the voice
+        paused_at = mixer.voicePosition(voice_idx.?);
+        mixer.stop(voice_idx.?);
+        voice_idx = null;
+        is_playing = false;
+    } else {
+        const t = tracks[current].?;
+        if (paused_at) |pos| t.stream.seek(@intFromFloat(pos)) catch {};
+        paused_at = null;
+        voice_idx = mixer.playStream(t.stream, .{ .volume = track_volume, .loop = loop_track }) catch null;
+        is_playing = voice_idx != null;
+    }
+}
+
+fn playSfx(preset: sfxr.Preset) void {
+    if (sfx_voice) |vi| mixer.stop(vi);
+    if (sfx_samples) |s| pxl.mem.free(s);
+    sfx_voice = null;
+    sfx_samples = null;
+
+    var p = sfxr.Params{};
+    p.apply(preset);
+    var sound = sfxr.Sound.init(p, mixer.output_rate);
+    var vec: pxl.util.Vec(f32) = .empty;
+    while (sound.nextSample()) |s| vec.append(s);
+    sfx_samples = vec.toOwnedSlice();
+    sfx_voice = mixer.playBuffer(sfx_samples.?, .{ .volume = 0.8 });
+}
+
+fn currentPosition() f32 {
+    if (paused_at) |pos| return pos;
+    if (voice_idx) |vi| return mixer.voicePosition(vi) orelse 0;
+    return 0;
+}
 
 pub fn setup() !void {
-    // .persistent: the ogg is ~1MB, too big for the wrapping temp/scratch
-    // arena used by pxl.fs.read(.temp) without aliasing. Free it after decode.
-    const file = try pxl.fs.read("examples/assets/tester.ogg", .persistent);
-    defer pxl.mem.free(file);
-    track = vorbis.decodeMemory(file, pxl.mem.allocator) catch |err| {
-        load_error = std.fmt.bufPrintZ(
-            &load_error_buf,
-            "Failed to load tester.ogg: {s}",
-            .{@errorName(err)},
-        ) catch "Failed to load tester.ogg";
-        return;
-    };
-
-    const t = track.?;
-    playback = pxl.mem.alloc(f32, t.num_samples, .persistent);
-    if (t.channels == 1) {
-        @memcpy(playback, t.samples);
-    } else {
-        // mix all channels down to mono
-        const channel_count: f32 = @floatFromInt(t.channels);
-        for (0..t.num_samples) |i| {
-            var sum: f32 = 0;
-            for (0..t.channels) |c| sum += t.samples[i * t.channels + c];
-            playback[i] = sum / channel_count;
-        }
-    }
-
-    is_playing = true;
-
-    if (t.sample_rate != @as(u32, @intCast(pxl.saudio.sampleRate()))) {
-        std.debug.print(
-            "vorbis: track sample rate {d} Hz differs from audio output rate {d} Hz; playback pitch will be off\n",
-            .{ t.sample_rate, pxl.saudio.sampleRate() },
-        );
-    }
+    std.debug.print("vorbis: setup begin\n", .{});
+    try scanTracks();
+    std.debug.print("vorbis: track_count={d}\n", .{track_count});
+    try mixer.init(pxl.mem.allocator);
+    if (track_count > 0) playTrack(0);
 }
 
 pub fn shutdown() !void {
-    if (track) |t| pxl.mem.free(t.samples);
-    if (playback.len > 0) pxl.mem.free(playback);
+    if (sfx_samples) |s| pxl.mem.free(s);
+    mixer.deinit(pxl.mem.allocator);
+    for (0..track_count) |i| {
+        const t = tracks[i].?;
+        pxl.mem.free(t.name);
+        t.stream.close();
+        pxl.mem.destroy(t.stream);
+        tracks[i] = null;
+    }
 }
 
-/// Stream the mono playback buffer into the sokol audio ring buffer.
-/// Loops seamlessly by restarting from the top as soon as the tail of
-/// the current pass has been queued.
-fn streamAudio() void {
-    if (!is_playing or playback.len == 0) return;
-    while (play_pos < playback.len) {
-        const available = pxl.saudio.expect();
-        if (available <= 0) break;
-        const n = @min(@as(usize, @intCast(available)), playback.len - play_pos);
-        const pushed = pxl.saudio.push(&playback[play_pos], @intCast(n));
-        if (pushed <= 0) break;
-        play_pos += @intCast(pushed);
-        if (@as(usize, @intCast(pushed)) < n) break;
-    }
-    if (play_pos >= playback.len) {
-        if (loop) play_pos = 0 else is_playing = false;
-    }
-}
+// --- microui helpers --------------------------------------------------------
 
 /// Layout a row of `count` equal-width items spanning the window body.
 /// microui's `-1` width means "fill the *remaining* row width", so using
-/// several `-1`s in one row pushes everything past the first item off
-/// screen — compute explicit widths instead.
+/// several `-1`s in one row makes the first item eat the whole row and
+/// pushes the rest off screen — compute explicit widths instead.
 fn equalWidths(count: usize, out: *[4]c_int) c_int {
     const body = mu.getCurrentContainer().*.body;
     const spacing = mu.mu_ctx.style.*.spacing;
@@ -92,63 +172,100 @@ fn equalWidths(count: usize, out: *[4]c_int) c_int {
     return n;
 }
 
-pub fn update() !void {
-    streamAudio();
+// --- callbacks --------------------------------------------------------------
 
-    if (mu.beginWindowEx("Vorbis Player", .{ .x = 20, .y = 20, .w = 340, .h = 200 }, .{ .no_close = true })) {
-        if (load_error) |err| {
+pub fn update() !void {
+    // If a voice ended on its own (stream EOF without loop, sfx finished),
+    // reap it so the UI doesn't show stale state.
+    if (voice_idx) |vi| {
+        if (!mixer.voices[vi].active) {
+            voice_idx = null;
+            is_playing = false;
+        }
+    }
+    if (sfx_voice) |vi| {
+        if (!mixer.voices[vi].active) {
+            sfx_voice = null;
+            if (sfx_samples) |s| pxl.mem.free(s);
+            sfx_samples = null;
+        }
+    }
+
+    mixer.update();
+
+    if (mu.beginWindowEx("Ogg Player", .{ .x = 20, .y = 20, .w = 380, .h = 480 }, .{ .no_close = true })) {
+        if (scan_error) |err| {
             mu.layoutRow(1, &[_]c_int{-1}, 0);
             mu.label(err);
-        } else if (track) |t| {
-            // track info
-            mu.layoutRow(2, &[_]c_int{ 100, -1 }, 0);
-            mu.label("File");
-            mu.label("tester.ogg");
-
-            var rate_buf: [32]u8 = undefined;
-            const rate_str = std.fmt.bufPrintZ(&rate_buf, "{d} Hz", .{t.sample_rate}) catch "?";
-            mu.label("Sample Rate");
-            mu.label(rate_str);
-
-            var ch_buf: [32]u8 = undefined;
-            const ch_str = std.fmt.bufPrintZ(&ch_buf, "{d} ({s})", .{
-                t.channels,
-                if (t.channels == 1) "mono" else "stereo",
-            }) catch "?";
-            mu.label("Channels");
-            mu.label(ch_str);
-
-            const duration = @as(f32, @floatFromInt(t.num_samples)) / @as(f32, @floatFromInt(t.sample_rate));
-            var dur_buf: [32]u8 = undefined;
-            const dur_str = std.fmt.bufPrintZ(&dur_buf, "{d:.2}s", .{duration}) catch "?";
-            mu.label("Duration");
-            mu.label(dur_str);
-
-            // transport
-            var row: [4]c_int = undefined;
-            mu.layoutRow(equalWidths(3, &row), &row, 0);
-            if (mu.button(if (is_playing) "Pause" else "Play", .none)) {
-                if (!is_playing and play_pos >= playback.len) play_pos = 0;
-                is_playing = !is_playing;
-            }
-            if (mu.button("Stop", .none)) {
-                is_playing = false;
-                play_pos = 0;
-            }
-            if (mu.button(if (loop) "Loop: On" else "Loop: Off", .none)) loop = !loop;
-
-            // progress
-            mu.layoutRow(2, &[_]c_int{ 100, -1 }, 0);
-            mu.label("Position");
-            var pos_buf: [32]u8 = undefined;
-            const pos_sec = @as(f32, @floatFromInt(@min(play_pos, playback.len))) /
-                @as(f32, @floatFromInt(t.sample_rate));
-            const pos_str = std.fmt.bufPrintZ(&pos_buf, "{d:.2}s / {d:.2}s", .{ pos_sec, duration }) catch "?";
-            mu.label(pos_str);
-        } else {
-            mu.layoutRow(1, &[_]c_int{-1}, 0);
-            mu.label("Loading...");
         }
+
+        // Track list
+        mu.layoutRow(2, &[_]c_int{ 24, -1 }, 0);
+        mu.label(" ");
+        mu.label("Tracks");
+        for (0..track_count) |i| {
+            const t = tracks[i].?;
+            mu.layoutRow(2, &[_]c_int{ 24, -1 }, 0);
+            mu.label(if (i == current) "▶" else " ");
+            var name_buf: [256]u8 = undefined;
+            const duration = @as(f32, @floatFromInt(t.stream.num_samples)) / @as(f32, @floatFromInt(t.stream.sample_rate));
+            const name = std.fmt.bufPrintZ(&name_buf, "{s}  ({d:.1}s)", .{ t.name, duration }) catch "?";
+            mu.pushId(&i, @sizeOf(usize));
+            if (mu.button(name, .none)) playTrack(i);
+            mu.popId();
+        }
+
+        mu.layoutRow(1, &[_]c_int{-1}, 0);
+        mu.label(" ");
+
+        // Transport
+        var row: [4]c_int = undefined;
+        mu.layoutRow(equalWidths(3, &row), &row, 0);
+        const play_label = if (paused_at != null) "Resume" else if (is_playing) "Pause" else "Play";
+        if (mu.button(play_label, .none)) togglePlayPause();
+        if (mu.button("Stop", .none)) stopVoice();
+        if (mu.button(if (loop_track) "Loop: On" else "Loop: Off", .none)) {
+            loop_track = !loop_track;
+            if (voice_idx) |vi| mixer.voices[vi].loop = loop_track;
+        }
+
+        // Position
+        mu.layoutRow(2, &[_]c_int{ 70, -1 }, 0);
+        mu.label("Position");
+        var pos_buf: [48]u8 = undefined;
+        const duration = if (track_count > 0)
+            @as(f32, @floatFromInt(tracks[current].?.stream.num_samples)) / @as(f32, @floatFromInt(tracks[current].?.stream.sample_rate))
+        else
+            0;
+        const pos_sec = if (track_count > 0)
+            currentPosition() / @as(f32, @floatFromInt(tracks[current].?.stream.sample_rate))
+        else
+            0;
+        const pos_str = std.fmt.bufPrintZ(&pos_buf, "{d:.1}s / {d:.1}s", .{ pos_sec, duration }) catch "?";
+        mu.label(pos_str);
+
+        // Volume
+        mu.layoutRow(2, &[_]c_int{ 70, -1 }, 0);
+        mu.label("Volume");
+        if (mu.slider(&track_volume, 0, 1, 0.01)) {
+            if (voice_idx) |vi| mixer.voices[vi].volume = track_volume;
+        }
+
+        // SFX demo — played through the same mixer, on top of the track
+        if (mu.headerEx("SFX (mixed on top)", .{ .expanded = true })) {
+            const SfxBtn = struct { label: [:0]const u8, preset: sfxr.Preset };
+            mu.layoutRow(equalWidths(3, &row), &row, 0);
+            for ([_]SfxBtn{
+                .{ .label = "Coin", .preset = .pickup_coin },
+                .{ .label = "Laser", .preset = .laser_shoot },
+                .{ .label = "Explosion", .preset = .explosion },
+            }) |btn| {
+                mu.pushId(&btn.preset, @sizeOf(sfxr.Preset));
+                if (mu.button(btn.label, .none)) playSfx(btn.preset);
+                mu.popId();
+            }
+        }
+
         mu.endWindow();
     }
 }

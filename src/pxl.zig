@@ -24,6 +24,7 @@ pub var batcher: gpu.Batcher = undefined;
 
 // top level imports
 pub const android = @import("android.zig");
+pub const audio = @import("audio.zig");
 pub const fs = @import("fs.zig");
 pub const math = @import("math/math.zig");
 pub const mem = @import("mem.zig");
