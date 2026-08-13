@@ -38,3 +38,12 @@ void (*zstbiwFreePtr)(void* ptr) = NULL;
 
 // #define STB_IMAGE_WRITE_IMPLEMENTATION
 // #include "stb_image_write.h"
+
+
+// Append the stb_vorbis configuration and source compilation code
+#define STB_VORBIS_NO_STDIO            // Eliminates file system overhead
+#define STB_VORBIS_NO_PUSHDATA_API    // Removes chunk-streaming code
+#define STB_VORBIS_NO_PULLDATA_API    // Removes polling loop logic
+#define STB_VORBIS_NO_INTEGER_CONVERSION // Forces f32 outputs (Sokol matches natively!)
+
+#include "stb_vorbis.c"

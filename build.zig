@@ -12,6 +12,7 @@ const android_build = @import("android");
 
 const examples = [_]Example{
     .{ .name = "check" },
+    .{ .name = "audio" },
     .{ .name = "text" },
     .{ .name = "animation" },
     .{ .name = "ldtk" },

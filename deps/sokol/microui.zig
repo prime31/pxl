@@ -576,7 +576,7 @@ pub fn endTreenode() void {
 extern fn mu_end_treenode(ctx: [*c]mu_Context) void;
 
 pub fn beginWindow(title: [*c]const u8, rect: mu_Rect) bool {
-    return beginWindowEx(&mu_ctx, title, rect, .{});
+    return beginWindowEx(title, rect, .{});
 }
 
 pub fn beginWindowEx(title: [*c]const u8, rect: mu_Rect, opt: Opt) bool {

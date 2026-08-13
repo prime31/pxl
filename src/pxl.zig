@@ -6,6 +6,7 @@ const has_imgui_docking = @import("build_options").docking;
 pub const ig = if (@import("build_options").imgui) @import("cimgui") else struct {};
 
 pub const sokol = @import("sokol");
+pub const saudio = sokol.audio;
 pub const sg = sokol.gfx;
 pub const sapp = sokol.app;
 pub const simgui = sokol.imgui;
@@ -26,6 +27,7 @@ pub const android = @import("android.zig");
 pub const fs = @import("fs.zig");
 pub const math = @import("math/math.zig");
 pub const mem = @import("mem.zig");
+pub const sfxr = @import("sfxr.zig");
 pub const util = @import("util/util.zig");
 pub const gpu = @import("gpu/gpu.zig");
 pub const text = @import("text/text.zig");
@@ -117,6 +119,11 @@ export fn sokolInit() void {
     });
     if (!sg.isvalid()) @panic("failed to create sokol context");
 
+    saudio.setup(.{
+        .logger = .{ .func = sokol.log.func },
+    });
+    if (!saudio.isvalid()) @panic("failed to setup sokol audio");
+
     mu.setup();
 
     // optionally, initialize sokol-imgui
@@ -182,10 +189,11 @@ export fn sokolCleanup() void {
 
     batcher.deinit();
     font.deinit();
-    sokol.gl.shutdown();
+
     dbg.deinit();
     if (has_imgui) simgui.shutdown();
     sg.shutdown();
+    saudio.shutdown();
 
     stb.deinit();
     mem.deinit();
