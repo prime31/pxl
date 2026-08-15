@@ -26,6 +26,7 @@
 - temporary allocations are handled by `pxl.mem.scratch` and general alloctions are handled by `pxl.mem.alloc`
 - Allocators are not stored in pxl structs, we always use `pxl.mem` for allocations
 - we do not use `std.ArrayList`, instead use `pxl.util.Vec`
+- dont comment like a Clanker, only comment when something needs explanation and use 120 chars per line
 
 
 ## Inspiration

@@ -33,11 +33,24 @@ fn play() void {
 /// Stream whatever remains of `generated` into the sokol audio ring buffer.
 fn streamAudio() void {
     if (!is_playing) return;
+    const channels: usize = @intCast(pxl.saudio.channels());
+    var scratch: [4096]f32 = undefined;
     while (play_pos < generated.items.len) {
         const available = pxl.saudio.expect();
         if (available <= 0) break;
-        const n = @min(@as(usize, @intCast(available)), generated.items.len - play_pos);
-        const pushed = pxl.saudio.push(&generated.items[play_pos], @intCast(n));
+        const n = @min(
+            @min(@as(usize, @intCast(available)), scratch.len / channels),
+            generated.items.len - play_pos,
+        );
+        if (n == 0) break;
+        // `generated` is mono; upmix to interleaved output frames.
+        var i: usize = 0;
+        while (i < n) : (i += 1) {
+            const s = generated.items[play_pos + i];
+            var c: usize = 0;
+            while (c < channels) : (c += 1) scratch[i * channels + c] = s;
+        }
+        const pushed = pxl.saudio.push(&scratch[0], @intCast(n));
         if (pushed <= 0) break;
         play_pos += @intCast(pushed);
         if (@as(usize, @intCast(pushed)) < n) break;

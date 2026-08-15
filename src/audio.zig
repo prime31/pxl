@@ -61,30 +61,26 @@ pub const PlayOptions = struct {
     sample_rate: u32 = 0,
 };
 
-/// Downmix one interleaved frame to mono. The mixer always outputs mono
-/// (sokol-audio is set up with the default `num_channels == 1`), so a
-/// stereo/multichannel source must be folded to a single sample.
-/// `samples` holds tightly packed frames: frame `f` lives at
-/// `samples[f * channels ..][0..channels]`.
-fn frameToMono(channels: usize, samples: []const f32, frame: usize) f32 {
+/// Read one channel of an interleaved source frame. Mono buffers
+/// (`channels == 1`) are plain sample arrays, so every frame is a single
+/// sample regardless of `channel`.
+fn sampleAt(channels: usize, samples: []const f32, frame: usize, channel: usize) f32 {
     if (channels <= 1) return samples[frame];
-    const base = frame * channels;
-    var sum: f32 = 0;
-    var c: usize = 0;
-    while (c < channels) : (c += 1) sum += samples[base + c];
-    return sum / @as(f32, @floatFromInt(channels));
+    return samples[frame * channels + channel];
 }
 
 pub const Mixer = struct {
     output_rate: u32 = 44100,
+    output_channels: u32 = 1,
     voices: [MaxVoices]Voice = [_]Voice{.{}} ** MaxVoices,
-    /// Scratch space for one mixed push.
+    /// Scratch space for one mixed push (interleaved, `ChunkFrames` frames).
     mix: []f32 = &.{},
 
     pub fn init(self: *Mixer) !void {
         self.* = .{};
         self.output_rate = @intCast(pxl.saudio.sampleRate());
-        self.mix = pxl.mem.alloc(f32, ChunkFrames, .persistent);
+        self.output_channels = @intCast(pxl.saudio.channels());
+        self.mix = pxl.mem.alloc(f32, ChunkFrames * self.output_channels, .persistent);
     }
 
     pub fn deinit(self: *Mixer) void {
@@ -146,22 +142,24 @@ pub const Mixer = struct {
     /// Mix all active voices into the audio device's available space and
     /// push. Call once per frame.
     pub fn update(self: *Mixer) void {
+        const out_channels: usize = @intCast(self.output_channels);
         const available = pxl.saudio.expect();
         if (available <= 0) return;
-        const frames = @min(@as(usize, @intCast(available)), self.mix.len);
+        const frames = @min(@as(usize, @intCast(available)), self.mix.len / out_channels);
         if (frames == 0) return;
+        const sample_count = frames * out_channels;
 
-        @memset(self.mix[0..frames], 0);
+        @memset(self.mix[0..sample_count], 0);
         var any_active = false;
         for (&self.voices) |*v| {
             if (!v.active) continue;
             any_active = true;
-            self.fillVoice(v, self.mix[0..frames]);
+            self.fillVoice(v, self.mix[0..sample_count]);
         }
         if (!any_active) return;
 
         // soft clamp against inter-sample clipping
-        for (self.mix[0..frames]) |*s| {
+        for (self.mix[0..sample_count]) |*s| {
             if (s.* > 1.0) {
                 s.* = 1.0;
             } else if (s.* < -1.0) {
@@ -186,14 +184,17 @@ pub const Mixer = struct {
         v.* = .{};
     }
 
-    /// Add the voice's next `out.len` frames (resampled to the output
-    /// rate) into `out`. Voices that end early leave the remainder at 0.
+    /// Add the voice's next `out.len / output_channels` frames (resampled
+    /// to the output rate) into `out`, which holds interleaved output frames.
+    /// Voices that end early leave the remainder at 0.
     fn fillVoice(self: *Mixer, v: *Voice, out: []f32) void {
         const ratio = @as(f64, @floatFromInt(v.sample_rate)) / @as(f64, @floatFromInt(self.output_rate));
+        const out_channels: usize = @intCast(self.output_channels);
+        const frames = out.len / out_channels;
         switch (v.source) {
             .buffer => |samples| {
                 var i: usize = 0;
-                while (i < out.len) : (i += 1) {
+                while (i < frames) : (i += 1) {
                     const idx = @as(usize, @intFromFloat(v.pos));
                     if (idx >= samples.len) {
                         if (v.loop) {
@@ -206,13 +207,17 @@ pub const Mixer = struct {
                     const frac: f32 = @floatCast(v.pos - @as(f64, @floatFromInt(idx)));
                     const a = samples[idx];
                     const b = if (idx + 1 < samples.len) samples[idx + 1] else a;
-                    out[i] += (a + (b - a) * frac) * v.volume;
+                    const s = (a + (b - a) * frac) * v.volume;
+                    const o = i * out_channels;
+                    var c: usize = 0;
+                    while (c < out_channels) : (c += 1) out[o + c] += s;
                     v.pos += ratio;
                 }
             },
             .stream => |stream| {
+                const channels: usize = @intCast(stream.channels);
                 var i: usize = 0;
-                while (i < out.len) : (i += 1) {
+                while (i < frames) : (i += 1) {
                     // refill whenever the read position has left the chunk
                     while (@as(usize, @intFromFloat(v.pos)) >= v.chunk_start + v.chunk_len) {
                         const n = stream.readFrames(v.chunk) catch 0;
@@ -233,13 +238,34 @@ pub const Mixer = struct {
                     const idx = @as(usize, @intFromFloat(v.pos));
                     const idx_in = idx - v.chunk_start;
                     const frac: f32 = @floatCast(v.pos - @as(f64, @floatFromInt(idx)));
-                    // `chunk` holds interleaved frames and `chunk_len`/`pos`
-                    // are in frames, so a stereo source must be downmixed
-                    // frame-by-frame rather than read as raw samples.
-                    const channels: usize = @intCast(stream.channels);
-                    const a = frameToMono(channels, v.chunk, idx_in);
-                    const b = if (idx_in + 1 < v.chunk_len) frameToMono(channels, v.chunk, idx_in + 1) else a;
-                    out[i] += (a + (b - a) * frac) * v.volume;
+                    const next = idx_in + 1 < v.chunk_len;
+                    const o = i * out_channels;
+                    if (channels == 1) {
+                        const a = v.chunk[idx_in];
+                        const b = if (next) v.chunk[idx_in + 1] else a;
+                        const s = (a + (b - a) * frac) * v.volume;
+                        var c: usize = 0;
+                        while (c < out_channels) : (c += 1) out[o + c] += s;
+                    } else if (out_channels == 1) {
+                        // downmix a multichannel source to mono
+                        var sum: f32 = 0;
+                        var c: usize = 0;
+                        while (c < channels) : (c += 1) {
+                            const a = sampleAt(channels, v.chunk, idx_in, c);
+                            const b = if (next) sampleAt(channels, v.chunk, idx_in + 1, c) else a;
+                            sum += a + (b - a) * frac;
+                        }
+                        out[o] += (sum / @as(f32, @floatFromInt(channels))) * v.volume;
+                    } else {
+                        // direct map, using the min(channels, out_channels) channels
+                        const n = @min(channels, out_channels);
+                        var c: usize = 0;
+                        while (c < n) : (c += 1) {
+                            const a = sampleAt(channels, v.chunk, idx_in, c);
+                            const b = if (next) sampleAt(channels, v.chunk, idx_in + 1, c) else a;
+                            out[o + c] += (a + (b - a) * frac) * v.volume;
+                        }
+                    }
                     v.pos += ratio;
                 }
             },
@@ -247,13 +273,14 @@ pub const Mixer = struct {
     }
 };
 
-test "frameToMono downmixes interleaved stereo to mono" {
-    const stereo = [_]f32{ 1, -1, 2, -2, 3, -3 };
-    try std.testing.expectEqual(@as(f32, 0.0), frameToMono(2, &stereo, 0));
-    try std.testing.expectEqual(@as(f32, 0.0), frameToMono(2, &stereo, 1));
-    try std.testing.expectEqual(@as(f32, 0.0), frameToMono(2, &stereo, 2));
+test "sampleAt reads interleaved channels" {
+    const stereo = [_]f32{ 1, 2, 3, 4 };
+    try std.testing.expectEqual(@as(f32, 1.0), sampleAt(2, &stereo, 0, 0));
+    try std.testing.expectEqual(@as(f32, 2.0), sampleAt(2, &stereo, 0, 1));
+    try std.testing.expectEqual(@as(f32, 3.0), sampleAt(2, &stereo, 1, 0));
+    try std.testing.expectEqual(@as(f32, 4.0), sampleAt(2, &stereo, 1, 1));
 
     const mono = [_]f32{ 5, 6 };
-    try std.testing.expectEqual(@as(f32, 5.0), frameToMono(1, &mono, 0));
-    try std.testing.expectEqual(@as(f32, 6.0), frameToMono(1, &mono, 1));
+    try std.testing.expectEqual(@as(f32, 5.0), sampleAt(1, &mono, 0, 0));
+    try std.testing.expectEqual(@as(f32, 6.0), sampleAt(1, &mono, 1, 0));
 }

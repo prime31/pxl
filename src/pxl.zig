@@ -121,6 +121,7 @@ export fn sokolInit() void {
     if (!sg.isvalid()) @panic("failed to create sokol context");
 
     saudio.setup(.{
+        .num_channels = 2,
         .logger = .{ .func = sokol.log.func },
     });
     if (!saudio.isvalid()) @panic("failed to setup sokol audio");
