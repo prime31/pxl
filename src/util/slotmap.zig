@@ -170,7 +170,10 @@ pub fn SlotMap(Val: type) type {
                 self.free_count -= 1;
                 break :b self.free[self.free_count];
             } else b: {
-                if (self.next_index >= self.capacity) unreachable;
+                if (self.next_index >= self.capacity) {
+                    std.log.info("SlotMap overflowed. next_index: {}, capacity: {}", .{ self.next_index, self.capacity });
+                    return .{ .index = 0, .generation = .invalid };
+                }
                 const index = self.next_index;
                 self.next_index += 1;
                 self.slots[index].generation = .first;
@@ -273,7 +276,8 @@ test "slot map" {
     try std.testing.expect(a.toOptional() != @TypeOf(slots).Key.Optional.none);
     try std.testing.expect(a.toOptional().unwrap().? == a);
 
-    // try std.testing.expectError(error.Overflow, slots.put('d'));
+    const d1 = slots.put('d');
+    try std.testing.expectEqual(.invalid, d1.generation);
 
     try std.testing.expect(slots.containsKey(a));
     slots.remove(a);

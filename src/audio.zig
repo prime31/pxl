@@ -1,73 +1,31 @@
-//! pxl.audio — a tiny software mixer on top of `pxl.saudio`.
+//! pxl.audio — a software mixer and asset manager on top of `pxl.saudio`.
 //!
-//! Mixes up to `MaxVoices` simultaneous voices into the sokol audio ring
-//! buffer (push model). Two kinds of sources are supported:
+//! `AudioManager` loads each sound once (streamed from disk or fully
+//! decoded in memory), plays it as independent `Playback` instances, and
+//! routes them through buses with optional effect chains (lowpass,
+//! highpass, delay).
 //!
-//!   - `.buffer` — a fully decoded mono buffer, e.g. a rendered `pxl.sfxr`
-//!     sound or a decoded wav.
-//!   - `.stream` — a `pxl.stb.vorbis.Stream`, decoded in small chunks on
-//!     demand so memory stays bounded for long tracks.
-//!
-//! Voices are resampled (linear interpolation) from their native sample
-//! rate to the audio output rate, so mixed sources can have different
-//! rates. Call `update()` once per frame; it fills whatever room the audio
-//! device currently has and pushes the mix.
+//! Streamed sounds share a single decode cursor, so they allow only one
+//! active playback at a time; in-memory buffers allow unlimited overlap.
+//! Call `update()` once per frame to mix and push audio.
 //!
 //! ```
-//! var mixer: pxl.audio.Mixer = .{};
-//! try mixer.init(pxl.mem.allocator);
-//! defer mixer.deinit(pxl.mem.allocator);
+//! var audio: pxl.audio.AudioManager = .{};
+//! audio.init(.{});
+//! defer audio.deinit();
 //!
-//! const vi = mixer.playBuffer(my_sfx, .{ .volume = 0.8 }) orelse ...;
-//! const vi2 = try mixer.playStream(&track.stream, .{ .loop = true });
+//! const music = try audio.load("music.ogg", .{ .streamed = true });
+//! const coin = try audio.load("coin.ogg", .{});
+//!
+//! const music_pb = audio.play(music, .{ .loop = true }) orelse ...;
+//! audio.playOneShot(coin, .{ .pan = -0.5, .pitch = 1.2 });
 //! ```
 
 const std = @import("std");
 const pxl = @import("pxl.zig");
 
-pub const MaxVoices = 16;
-/// Frames decoded per refill for stream voices.
+/// Frames decoded per refill for streamed sounds.
 pub const ChunkFrames = 4096;
-
-pub const Source = union(enum) {
-    /// A fully decoded mono buffer (borrowed; the caller keeps it alive
-    /// until the voice stops).
-    buffer: []const f32,
-    /// A streaming decoder; chunks are pulled on demand.
-    stream: *pxl.stb.vorbis.Stream,
-};
-
-pub const Voice = struct {
-    active: bool = false,
-    source: Source = .{ .buffer = &.{} },
-    /// Native sample rate of the source.
-    sample_rate: u32 = 44100,
-    volume: f32 = 1.0,
-    /// Stereo position: -1 = left, 0 = center, +1 = right.
-    pan: f32 = 0,
-    /// Playback rate multiplier (1 = normal, 2 = one octave up).
-    pitch: f32 = 1,
-    loop: bool = false,
-    /// Fractional position in the source (allows resampling). f64 keeps
-    /// exact integer precision for tracks far longer than an f32 could
-    /// (f32 loses integer precision past 2^24 frames ≈ 6 minutes @ 44.1kHz).
-    pos: f64 = 0,
-    // stream-only state
-    chunk: []f32 = &.{},
-    chunk_start: usize = 0,
-    chunk_len: usize = 0,
-};
-
-pub const PlayOptions = struct {
-    volume: f32 = 1.0,
-    loop: bool = false,
-    /// Stereo position: -1 = left, 0 = center, +1 = right.
-    pan: f32 = 0,
-    /// Playback rate multiplier (1 = normal, 2 = one octave up).
-    pitch: f32 = 1,
-    /// 0 (default) = the mixer's output rate (no resampling).
-    sample_rate: u32 = 0,
-};
 
 /// Read one channel of an interleaved source frame. Mono buffers
 /// (`channels == 1`) are plain sample arrays, so every frame is a single
@@ -94,235 +52,661 @@ fn stereoPanGains(pan: f32, volume: f32) struct { l: f32, r: f32 } {
     return .{ .l = l * volume, .r = r * volume };
 }
 
-pub const Mixer = struct {
-    output_rate: u32 = 44100,
-    output_channels: u32 = 1,
-    voices: [MaxVoices]Voice = [_]Voice{.{}} ** MaxVoices,
-    /// Scratch space for one mixed push (interleaved, `ChunkFrames` frames).
-    mix: []f32 = &.{},
+pub const EffectType = enum { lowpass, highpass, delay };
 
-    pub fn init(self: *Mixer) !void {
+pub const EffectParams = union(EffectType) {
+    lowpass: struct { cutoff: f32 = 1000 },
+    highpass: struct { cutoff: f32 = 100 },
+    delay: struct { time: f32 = 0.3, feedback: f32 = 0.3, wet: f32 = 0.3 },
+};
+
+const EffectState = union(EffectType) {
+    lowpass: [2]f32,
+    highpass: struct { x: [2]f32, y: [2]f32 },
+    delay: struct { buffer: []f32, pos: usize, len: usize },
+};
+
+pub const EffectInstance = struct {
+    params: EffectParams,
+    state: EffectState,
+};
+
+fn freeEffectState(e: *EffectInstance) void {
+    if (e.params == .delay) pxl.mem.free(e.state.delay.buffer);
+}
+
+/// An ordered, tiered list of effects applied frame by frame. Playbacks,
+/// buses and the master bus each own one chain.
+pub const EffectChain = struct {
+    items: pxl.util.Vec(EffectInstance) = .empty,
+
+    pub const empty: EffectChain = .{};
+
+    pub fn add(self: *EffectChain, params: EffectParams, sample_rate: u32) void {
+        var inst = EffectInstance{ .params = params, .state = undefined };
+        switch (params) {
+            .lowpass => inst.state = .{ .lowpass = .{ 0, 0 } },
+            .highpass => inst.state = .{ .highpass = .{ .x = .{ 0, 0 }, .y = .{ 0, 0 } } },
+            .delay => |d| {
+                const len = @max(@as(usize, 1), @as(usize, @intFromFloat(@ceil(d.time * @as(f32, @floatFromInt(sample_rate))))));
+                const buffer = pxl.mem.alloc(f32, len * 2, .persistent);
+                @memset(buffer, 0);
+                inst.state = .{ .delay = .{ .buffer = buffer, .pos = 0, .len = len } };
+            },
+        }
+        self.items.append(inst);
+    }
+
+    pub fn get(self: *EffectChain, comptime tag: EffectType) ?*EffectInstance {
+        for (self.items.items) |*e| {
+            if (e.params == tag) return e;
+        }
+        return null;
+    }
+
+    /// Remove the first effect of the given type, freeing any state it owns.
+    pub fn remove(self: *EffectChain, comptime tag: EffectType) void {
+        for (self.items.items, 0..) |*e, i| {
+            if (e.params == tag) {
+                freeEffectState(e);
+                _ = self.items.swapRemove(i);
+                return;
+            }
+        }
+    }
+
+    pub fn clear(self: *EffectChain) void {
+        for (self.items.items) |*e| freeEffectState(e);
+        self.items.clearRetainingCapacity();
+    }
+
+    pub fn deinit(self: *EffectChain) void {
+        self.clear();
+        if (self.items.capacity > 0) self.items.deinit();
+    }
+
+    pub fn process(self: *EffectChain, frames: []f32, channels: usize, sample_rate: f32) void {
+        const n = frames.len / channels;
+        var i: usize = 0;
+        while (i < n) : (i += 1) self.processFrame(frames[i * channels ..][0..channels], channels, sample_rate);
+    }
+
+    fn processFrame(self: *EffectChain, frame: []f32, channels: usize, sample_rate: f32) void {
+        for (self.items.items) |*e| {
+            switch (e.params) {
+                .lowpass => |p| {
+                    const a = 1.0 - @exp(-2.0 * @as(f32, std.math.pi) * p.cutoff / sample_rate);
+                    var c: usize = 0;
+                    while (c < channels) : (c += 1) {
+                        e.state.lowpass[c] += a * (frame[c] - e.state.lowpass[c]);
+                        frame[c] = e.state.lowpass[c];
+                    }
+                },
+                .highpass => |p| {
+                    const a = @exp(-2.0 * @as(f32, std.math.pi) * p.cutoff / sample_rate);
+                    var c: usize = 0;
+                    while (c < channels) : (c += 1) {
+                        const x = frame[c];
+                        const y = a * (e.state.highpass.y[c] + x - e.state.highpass.x[c]);
+                        e.state.highpass.x[c] = x;
+                        e.state.highpass.y[c] = y;
+                        frame[c] = y;
+                    }
+                },
+                .delay => |p| {
+                    const d = &e.state.delay;
+                    const w = d.pos * channels;
+                    var c: usize = 0;
+                    while (c < channels) : (c += 1) {
+                        const delayed = d.buffer[w + c];
+                        d.buffer[w + c] = frame[c] + delayed * p.feedback;
+                        frame[c] = frame[c] * (1.0 - p.wet) + delayed * p.wet;
+                    }
+                    d.pos = (d.pos + 1) % d.len;
+                },
+            }
+        }
+    }
+};
+
+pub const Bus = struct {
+    volume: f32 = 1,
+    pan: f32 = 0,
+    pitch: f32 = 1,
+    effects: EffectChain = .empty,
+    mix: []f32 = &.{},
+};
+
+pub const BusId = pxl.util.SlotMap(Bus).Key;
+
+pub const Sound = struct {
+    path: []u8,
+    data: Data,
+    sample_rate: u32,
+    channels: u32,
+    num_frames: usize,
+
+    pub const Data = union(enum) {
+        buffer: []f32,
+        stream: *pxl.stb.vorbis.Stream,
+    };
+};
+
+pub const SoundId = pxl.util.SlotMap(Sound).Key;
+
+pub const Playback = struct {
+    sound: SoundId,
+    bus: ?BusId,
+    volume: f32 = 1,
+    pan: f32 = 0,
+    pitch: f32 = 1,
+    loop: bool = false,
+    playing: bool = true,
+    ended: bool = false,
+    pos: f64 = 0,
+    effects: EffectChain = .empty,
+    chunk: []f32 = &.{},
+    chunk_start: usize = 0,
+    chunk_len: usize = 0,
+};
+
+pub const PlaybackId = pxl.util.SlotMap(Playback).Key;
+
+pub const LoadOptions = struct {
+    streamed: bool = false,
+};
+
+pub const PlaybackOptions = struct {
+    volume: f32 = 1,
+    pan: f32 = 0,
+    pitch: f32 = 1,
+    loop: bool = false,
+    bus: ?BusId = null,
+};
+
+pub const AudioInitOptions = struct {
+    max_sounds: usize = 64,
+    max_playbacks: usize = 64,
+    max_buses: usize = 16,
+};
+
+pub const AudioManager = struct {
+    output_rate: u32 = 44100,
+    output_channels: u32 = 2,
+    sounds: pxl.util.SlotMap(Sound) = undefined,
+    sound_ids: pxl.util.Vec(SoundId) = .empty,
+    playbacks: pxl.util.SlotMap(Playback) = undefined,
+    active: pxl.util.Vec(PlaybackId) = .empty,
+    buses: pxl.util.SlotMap(Bus) = undefined,
+    bus_ids: pxl.util.Vec(BusId) = .empty,
+    master: Bus = .{},
+
+    pub fn init(self: *AudioManager, opts: AudioInitOptions) void {
         self.* = .{};
         self.output_rate = @intCast(pxl.saudio.sampleRate());
         self.output_channels = @intCast(pxl.saudio.channels());
-        self.mix = pxl.mem.alloc(f32, ChunkFrames * self.output_channels, .persistent);
+        self.sounds = pxl.util.SlotMap(Sound).init(opts.max_sounds);
+        self.playbacks = pxl.util.SlotMap(Playback).init(opts.max_playbacks);
+        self.buses = pxl.util.SlotMap(Bus).init(opts.max_buses);
+        self.master = .{ .mix = pxl.mem.alloc(f32, ChunkFrames * @as(usize, self.output_channels), .persistent) };
     }
 
-    pub fn deinit(self: *Mixer) void {
+    pub fn deinit(self: *AudioManager) void {
         self.stopAll();
-        pxl.mem.free(self.mix);
+        self.playbacks.deinit();
+        if (self.active.capacity > 0) self.active.deinit();
+
+        for (self.sound_ids.items) |sid| {
+            if (self.sounds.get(sid)) |s| self.freeSound(s);
+        }
+        self.sounds.deinit();
+        if (self.sound_ids.capacity > 0) self.sound_ids.deinit();
+
+        for (self.bus_ids.items) |bid| {
+            if (self.buses.get(bid)) |b| {
+                b.effects.deinit();
+                pxl.mem.free(b.mix);
+            }
+        }
+        self.buses.deinit();
+        if (self.bus_ids.capacity > 0) self.bus_ids.deinit();
+
+        self.master.effects.deinit();
+        pxl.mem.free(self.master.mix);
         self.* = undefined;
     }
 
-    /// Play a pre-decoded mono buffer. Returns the voice index (or null
-    /// when the pool is exhausted / the buffer is empty).
-    pub fn playBuffer(self: *Mixer, samples: []const f32, opts: PlayOptions) ?usize {
-        if (samples.len == 0) return null;
-        const idx = self.findFreeVoice() orelse return null;
-        self.voices[idx] = .{
-            .active = true,
-            .source = .{ .buffer = samples },
-            .sample_rate = if (opts.sample_rate == 0) self.output_rate else opts.sample_rate,
+    /// Load (or return the already-loaded id for) an ogg file. Streamed
+    /// sounds keep only the compressed bytes plus a decode chunk; loaded
+    /// sounds decode the whole file to memory up front.
+    pub fn load(self: *AudioManager, path: []const u8, opts: LoadOptions) !SoundId {
+        if (self.findSoundByPath(path)) |id| return id;
+        const bytes = try pxl.fs.read(path, .persistent);
+        defer pxl.mem.free(bytes);
+
+        var sound: Sound = undefined;
+        if (opts.streamed) {
+            const stream = pxl.mem.create(pxl.stb.vorbis.Stream, .persistent);
+            stream.* = pxl.stb.vorbis.Stream.open(bytes, pxl.mem.allocator) catch |err| {
+                pxl.mem.destroy(stream);
+                return err;
+            };
+            sound = .{
+                .path = pxl.mem.dupe(u8, path, .persistent),
+                .data = .{ .stream = stream },
+                .sample_rate = stream.sample_rate,
+                .channels = stream.channels,
+                .num_frames = stream.num_samples,
+            };
+        } else {
+            const decoded = try pxl.stb.vorbis.decodeMemory(bytes, pxl.mem.allocator);
+            sound = .{
+                .path = pxl.mem.dupe(u8, path, .persistent),
+                .data = .{ .buffer = decoded.samples },
+                .sample_rate = decoded.sample_rate,
+                .channels = decoded.channels,
+                .num_frames = decoded.num_samples,
+            };
+        }
+
+        const id = self.sounds.put(sound);
+        if (id.generation == .invalid) {
+            self.freeSound(&sound);
+            return error.TooManySounds;
+        }
+        self.sound_ids.append(id);
+        return id;
+    }
+
+    /// Register an in-memory interleaved buffer as a sound (the samples are
+    /// copied, so the caller may free its slice afterwards). `channels` is
+    /// 1 for mono or 2 for stereo. Useful for procedural audio such as
+    /// rendered sfxr sounds.
+    pub fn addBuffer(self: *AudioManager, samples: []const f32, channels: u32, sample_rate: u32) ?SoundId {
+        if (samples.len == 0 or channels == 0) return null;
+        var sound = Sound{
+            .path = pxl.mem.dupe(u8, "", .persistent),
+            .data = .{ .buffer = pxl.mem.dupe(f32, samples, .persistent) },
+            .sample_rate = sample_rate,
+            .channels = channels,
+            .num_frames = samples.len / @as(usize, channels),
+        };
+        const id = self.sounds.put(sound);
+        if (id.generation == .invalid) {
+            self.freeSound(&sound);
+            return null;
+        }
+        self.sound_ids.append(id);
+        return id;
+    }
+
+    pub fn unload(self: *AudioManager, id: SoundId) void {
+        const sound = self.sounds.get(id) orelse return;
+        var i: usize = 0;
+        while (i < self.active.items.len) {
+            const pid = self.active.items[i];
+            if (self.playbacks.get(pid)) |pb| {
+                if (pb.sound == id) {
+                    self.stop(pid);
+                    continue;
+                }
+            }
+            i += 1;
+        }
+        self.freeSound(sound);
+        self.sounds.remove(id);
+        self.removeSoundId(id);
+    }
+
+    pub fn createBus(self: *AudioManager) ?BusId {
+        const new_bus = Bus{ .mix = pxl.mem.alloc(f32, ChunkFrames * @as(usize, self.output_channels), .persistent) };
+        const id = self.buses.put(new_bus);
+        if (id.generation == .invalid) {
+            pxl.mem.free(new_bus.mix);
+            return null;
+        }
+        self.bus_ids.append(id);
+        return id;
+    }
+
+    /// Play a sound. Streamed sounds allow only one active playback at a
+    /// time (they share a single decode cursor), so this returns null if
+    /// that stream is already playing.
+    pub fn play(self: *AudioManager, id: SoundId, opts: PlaybackOptions) ?PlaybackId {
+        const sound = self.sounds.get(id) orelse return null;
+        if (sound.data == .stream) {
+            for (self.active.items) |pid| {
+                if (self.playbacks.get(pid)) |pb| {
+                    if (pb.sound == id) return null;
+                }
+            }
+        }
+
+        var pb = Playback{
+            .sound = id,
+            .bus = opts.bus,
             .volume = opts.volume,
             .pan = opts.pan,
             .pitch = @max(opts.pitch, 0.01),
             .loop = opts.loop,
         };
-        return idx;
+        if (sound.data == .stream) {
+            sound.data.stream.seek(0) catch {};
+            pb.chunk = pxl.mem.alloc(f32, ChunkFrames * @as(usize, sound.channels), .persistent);
+        }
+
+        const pid = self.playbacks.put(pb);
+        if (pid.generation == .invalid) {
+            if (pb.chunk.len > 0) pxl.mem.free(pb.chunk);
+            return null;
+        }
+        self.active.append(pid);
+        return pid;
     }
 
-    /// Play a streaming source. Returns the voice index (or null when the
-    /// pool is exhausted).
-    pub fn playStream(self: *Mixer, stream: *pxl.stb.vorbis.Stream, opts: PlayOptions) !?usize {
-        const idx = self.findFreeVoice() orelse return null;
-        const v = &self.voices[idx];
-        v.* = .{
-            .active = true,
-            .source = .{ .stream = stream },
-            .sample_rate = if (opts.sample_rate == 0) stream.sample_rate else opts.sample_rate,
-            .volume = opts.volume,
-            .pan = opts.pan,
-            .pitch = @max(opts.pitch, 0.01),
-            .loop = opts.loop,
-        };
-        v.chunk = pxl.mem.alloc(f32, ChunkFrames * stream.channels, .persistent);
-        return idx;
+    pub fn playOneShot(self: *AudioManager, id: SoundId, opts: PlaybackOptions) void {
+        var o = opts;
+        o.loop = false;
+        _ = self.play(id, o);
     }
 
-    pub fn stop(self: *Mixer, idx: usize) void {
-        if (idx >= self.voices.len) return;
-        self.deactivateVoice(&self.voices[idx]);
+    pub fn pause(self: *AudioManager, id: PlaybackId) void {
+        if (self.playbacks.get(id)) |pb| pb.playing = false;
     }
 
-    pub fn stopAll(self: *Mixer) void {
-        for (&self.voices) |*v| self.deactivateVoice(v);
+    pub fn unpause(self: *AudioManager, id: PlaybackId) void {
+        if (self.playbacks.get(id)) |pb| pb.playing = true;
     }
 
-    /// Fractional source position of a voice, or null if it's inactive.
-    /// Useful for pausing a stream: read the position, stop, then seek the
-    /// stream and play again.
-    pub fn voicePosition(self: *Mixer, idx: usize) ?f64 {
-        if (idx >= self.voices.len) return null;
-        const v = &self.voices[idx];
-        if (!v.active) return null;
-        return v.pos;
+    pub fn isPlaying(self: *AudioManager, id: PlaybackId) bool {
+        return if (self.playbacks.get(id)) |pb| pb.playing and !pb.ended else false;
     }
 
-    /// Mix all active voices into the audio device's available space and
-    /// push. Call once per frame.
-    pub fn update(self: *Mixer) void {
+    pub fn position(self: *AudioManager, id: PlaybackId) f64 {
+        const pb = self.playbacks.get(id) orelse return 0;
+        const sound = self.sounds.get(pb.sound) orelse return 0;
+        return pb.pos / @as(f64, @floatFromInt(sound.sample_rate));
+    }
+
+    pub fn duration(self: *AudioManager, id: PlaybackId) f64 {
+        const pb = self.playbacks.get(id) orelse return 0;
+        return self.soundDuration(pb.sound);
+    }
+
+    pub fn getSound(self: *AudioManager, id: SoundId) ?*Sound {
+        return self.sounds.get(id);
+    }
+
+    /// Length of a sound in seconds, whether or not it is currently playing.
+    pub fn soundDuration(self: *AudioManager, id: SoundId) f64 {
+        const sound = self.sounds.get(id) orelse return 0;
+        return @as(f64, @floatFromInt(sound.num_frames)) / @as(f64, @floatFromInt(sound.sample_rate));
+    }
+
+    pub fn seek(self: *AudioManager, id: PlaybackId, seconds: f64) void {
+        const pb = self.playbacks.get(id) orelse return;
+        const sound = self.sounds.get(pb.sound) orelse return;
+        pb.pos = @max(0, seconds * @as(f64, @floatFromInt(sound.sample_rate)));
+        if (sound.data == .stream) {
+            sound.data.stream.seek(@intFromFloat(pb.pos)) catch {};
+            pb.chunk_start = @intFromFloat(pb.pos);
+            pb.chunk_len = 0;
+        }
+    }
+
+    pub fn stop(self: *AudioManager, id: PlaybackId) void {
+        const pb = self.playbacks.get(id) orelse return;
+        self.releasePlayback(pb);
+        self.playbacks.remove(id);
+        self.removeActive(id);
+    }
+
+    pub fn stopAll(self: *AudioManager) void {
+        for (self.active.items) |pid| {
+            if (self.playbacks.get(pid)) |pb| {
+                self.releasePlayback(pb);
+                self.playbacks.remove(pid);
+            }
+        }
+        self.active.clearRetainingCapacity();
+    }
+
+    pub fn playback(self: *AudioManager, id: PlaybackId) ?*Playback {
+        return self.playbacks.get(id);
+    }
+
+    pub fn bus(self: *AudioManager, id: BusId) ?*Bus {
+        return self.buses.get(id);
+    }
+
+    pub fn masterBus(self: *AudioManager) *Bus {
+        return &self.master;
+    }
+
+    /// Mix all active playbacks into their buses, run bus/master effects,
+    /// and push the result. Call once per frame.
+    pub fn update(self: *AudioManager) void {
         const out_channels: usize = @intCast(self.output_channels);
         const available = pxl.saudio.expect();
         if (available <= 0) return;
-        const frames = @min(@as(usize, @intCast(available)), self.mix.len / out_channels);
+        const frames = @min(@as(usize, @intCast(available)), ChunkFrames);
         if (frames == 0) return;
         const sample_count = frames * out_channels;
+        const rate: f32 = @floatFromInt(self.output_rate);
 
-        @memset(self.mix[0..sample_count], 0);
-        var any_active = false;
-        for (&self.voices) |*v| {
-            if (!v.active) continue;
-            any_active = true;
-            self.fillVoice(v, self.mix[0..sample_count]);
+        @memset(self.master.mix[0..sample_count], 0);
+        for (self.bus_ids.items) |bid| {
+            @memset(self.buses.get(bid).?.mix[0..sample_count], 0);
         }
-        if (!any_active) return;
 
-        // soft clamp against inter-sample clipping
-        for (self.mix[0..sample_count]) |*s| {
+        for (self.active.items) |pid| {
+            const pb = self.playbacks.get(pid) orelse continue;
+            if (!pb.playing) continue;
+            const sound = self.sounds.get(pb.sound) orelse continue;
+            const target_bus = if (pb.bus) |bid| self.buses.get(bid).? else &self.master;
+            self.mixPlayback(pb, sound, target_bus.mix[0..sample_count], frames, pb.pitch * target_bus.pitch);
+        }
+
+        for (self.bus_ids.items) |bid| {
+            const out_bus = self.buses.get(bid).?;
+            out_bus.effects.process(out_bus.mix[0..sample_count], out_channels, rate);
+            self.applyBusGain(out_bus.mix[0..sample_count], out_channels, out_bus.volume, out_bus.pan);
+            for (out_bus.mix[0..sample_count], self.master.mix[0..sample_count]) |src, *dst| dst.* += src;
+        }
+
+        self.master.effects.process(self.master.mix[0..sample_count], out_channels, rate);
+        self.applyBusGain(self.master.mix[0..sample_count], out_channels, self.master.volume, self.master.pan);
+
+        for (self.master.mix[0..sample_count]) |*s| {
             if (s.* > 1.0) {
                 s.* = 1.0;
             } else if (s.* < -1.0) {
                 s.* = -1.0;
             }
         }
-        _ = pxl.saudio.push(&self.mix[0], @intCast(frames));
+        _ = pxl.saudio.push(&self.master.mix[0], @intCast(frames));
+
+        self.reapEnded();
     }
 
-    fn findFreeVoice(self: *Mixer) ?usize {
-        for (&self.voices, 0..) |*v, i| {
-            if (!v.active) return i;
+    fn findSoundByPath(self: *AudioManager, path: []const u8) ?SoundId {
+        for (self.sound_ids.items) |id| {
+            if (self.sounds.get(id)) |s| {
+                if (std.mem.eql(u8, s.path, path)) return id;
+            }
         }
         return null;
     }
 
-    /// Free stream resources and reset the voice to inactive.
-    fn deactivateVoice(_: *Mixer, v: *Voice) void {
-        if (v.active and v.source == .stream and v.chunk.len > 0) {
-            pxl.mem.free(v.chunk);
+    fn removeSoundId(self: *AudioManager, id: SoundId) void {
+        for (self.sound_ids.items, 0..) |sid, i| {
+            if (sid == id) {
+                _ = self.sound_ids.swapRemove(i);
+                return;
+            }
         }
-        v.* = .{};
     }
 
-    /// Add the voice's next `out.len / output_channels` frames (resampled
-    /// to the output rate and pitched) into `out`, which holds interleaved
-    /// output frames. Voices that end early leave the remainder at 0.
-    fn fillVoice(self: *Mixer, v: *Voice, out: []f32) void {
-        const ratio = @as(f64, @floatFromInt(v.sample_rate)) / @as(f64, @floatFromInt(self.output_rate)) * @as(f64, v.pitch);
+    fn freeSound(self: *AudioManager, sound: *Sound) void {
+        _ = self;
+        switch (sound.data) {
+            .buffer => |s| pxl.mem.free(s),
+            .stream => |st| {
+                st.close();
+                pxl.mem.destroy(st);
+            },
+        }
+        pxl.mem.free(sound.path);
+    }
+
+    fn releasePlayback(self: *AudioManager, pb: *Playback) void {
+        _ = self;
+        if (pb.chunk.len > 0) pxl.mem.free(pb.chunk);
+        pb.effects.deinit();
+    }
+
+    fn removeActive(self: *AudioManager, id: PlaybackId) void {
+        for (self.active.items, 0..) |pid, i| {
+            if (pid == id) {
+                _ = self.active.swapRemove(i);
+                return;
+            }
+        }
+    }
+
+    fn reapEnded(self: *AudioManager) void {
+        var i: usize = 0;
+        while (i < self.active.items.len) {
+            const pid = self.active.items[i];
+            if (self.playbacks.get(pid)) |pb| {
+                if (pb.ended) {
+                    self.releasePlayback(pb);
+                    self.playbacks.remove(pid);
+                    _ = self.active.swapRemove(i);
+                    continue;
+                }
+            }
+            i += 1;
+        }
+    }
+
+    fn applyBusGain(self: *AudioManager, buf: []f32, channels: usize, volume: f32, pan: f32) void {
+        _ = self;
+        if (channels == 1) {
+            for (buf) |*s| s.* *= volume;
+            return;
+        }
+        const g = stereoPanGains(pan, volume);
+        const n = buf.len / channels;
+        var i: usize = 0;
+        while (i < n) : (i += 1) {
+            buf[i * channels] *= g.l;
+            buf[i * channels + 1] *= g.r;
+        }
+    }
+
+    fn mixPlayback(self: *AudioManager, pb: *Playback, sound: *const Sound, out: []f32, frames: usize, pitch: f32) void {
         const out_channels: usize = @intCast(self.output_channels);
-        const frames = out.len / out_channels;
-        switch (v.source) {
-            .buffer => |samples| {
-                const g = monoPanGains(v.pan, v.volume);
-                var i: usize = 0;
-                while (i < frames) : (i += 1) {
-                    const idx = @as(usize, @intFromFloat(v.pos));
-                    if (idx >= samples.len) {
-                        if (v.loop) {
-                            v.pos = 0;
+        const channels: usize = @intCast(sound.channels);
+        const ratio = @as(f64, @floatFromInt(sound.sample_rate)) / @as(f64, @floatFromInt(self.output_rate)) * @as(f64, pitch);
+        const rate: f32 = @floatFromInt(self.output_rate);
+        const g_mono = monoPanGains(pb.pan, pb.volume);
+        const g_stereo = stereoPanGains(pb.pan, pb.volume);
+
+        var i: usize = 0;
+        while (i < frames) : (i += 1) {
+            var frame: [2]f32 = .{ 0, 0 };
+            switch (sound.data) {
+                .buffer => |samples| {
+                    const idx = @as(usize, @intFromFloat(pb.pos));
+                    if (idx >= sound.num_frames) {
+                        if (pb.loop) {
+                            pb.pos = 0;
                             continue;
                         }
-                        self.deactivateVoice(v);
+                        pb.ended = true;
+                        pb.playing = false;
                         return;
                     }
-                    const frac: f32 = @floatCast(v.pos - @as(f64, @floatFromInt(idx)));
-                    const a = samples[idx];
-                    const b = if (idx + 1 < samples.len) samples[idx + 1] else a;
-                    const s = a + (b - a) * frac;
-                    const o = i * out_channels;
-                    if (out_channels == 1) {
-                        out[o] += s * v.volume;
-                    } else if (out_channels == 2) {
-                        out[o] += s * g.l;
-                        out[o + 1] += s * g.r;
+                    const frac: f32 = @floatCast(pb.pos - @as(f64, @floatFromInt(idx)));
+                    if (channels == 1) {
+                        const a = samples[idx];
+                        const b = if (idx + 1 < sound.num_frames) samples[idx + 1] else a;
+                        const s = a + (b - a) * frac;
+                        if (out_channels == 1) {
+                            frame[0] = s * pb.volume;
+                        } else {
+                            frame[0] = s * g_mono.l;
+                            frame[1] = s * g_mono.r;
+                        }
                     } else {
-                        var c: usize = 0;
-                        while (c < out_channels) : (c += 1) out[o + c] += s * v.volume;
+                        const a0 = samples[idx * channels];
+                        const b0 = if (idx + 1 < sound.num_frames) samples[(idx + 1) * channels] else a0;
+                        const a1 = samples[idx * channels + 1];
+                        const b1 = if (idx + 1 < sound.num_frames) samples[(idx + 1) * channels + 1] else a1;
+                        const l = a0 + (b0 - a0) * frac;
+                        const r = a1 + (b1 - a1) * frac;
+                        if (out_channels == 1) {
+                            frame[0] = (l + r) * 0.5 * pb.volume;
+                        } else {
+                            frame[0] = l * g_stereo.l;
+                            frame[1] = r * g_stereo.r;
+                        }
                     }
-                    v.pos += ratio;
-                }
-            },
-            .stream => |stream| {
-                const channels: usize = @intCast(stream.channels);
-                const g_mono = monoPanGains(v.pan, v.volume);
-                const g_stereo = stereoPanGains(v.pan, v.volume);
-                var i: usize = 0;
-                while (i < frames) : (i += 1) {
-                    // refill whenever the read position has left the chunk
-                    while (@as(usize, @intFromFloat(v.pos)) >= v.chunk_start + v.chunk_len) {
-                        const n = stream.readFrames(v.chunk) catch 0;
-                        v.chunk_start += v.chunk_len;
-                        v.chunk_len = n;
+                },
+                .stream => |stream| {
+                    while (@as(usize, @intFromFloat(pb.pos)) >= pb.chunk_start + pb.chunk_len) {
+                        const n = stream.readFrames(pb.chunk) catch 0;
+                        pb.chunk_start += pb.chunk_len;
+                        pb.chunk_len = n;
                         if (n == 0) {
-                            if (v.loop) {
+                            if (pb.loop) {
                                 stream.seek(0) catch {};
-                                v.pos = 0;
-                                v.chunk_start = 0;
-                                v.chunk_len = 0;
+                                pb.pos = 0;
+                                pb.chunk_start = 0;
+                                pb.chunk_len = 0;
                                 continue;
                             }
-                            self.deactivateVoice(v);
+                            pb.ended = true;
+                            pb.playing = false;
                             return;
                         }
                     }
-                    const idx = @as(usize, @intFromFloat(v.pos));
-                    const idx_in = idx - v.chunk_start;
-                    const frac: f32 = @floatCast(v.pos - @as(f64, @floatFromInt(idx)));
-                    const next = idx_in + 1 < v.chunk_len;
-                    const o = i * out_channels;
+                    const idx = @as(usize, @intFromFloat(pb.pos));
+                    const idx_in = idx - pb.chunk_start;
+                    const frac: f32 = @floatCast(pb.pos - @as(f64, @floatFromInt(idx)));
+                    const next = idx_in + 1 < pb.chunk_len;
                     if (channels == 1) {
-                        const a = v.chunk[idx_in];
-                        const b = if (next) v.chunk[idx_in + 1] else a;
+                        const a = pb.chunk[idx_in];
+                        const b = if (next) pb.chunk[idx_in + 1] else a;
                         const s = a + (b - a) * frac;
                         if (out_channels == 1) {
-                            out[o] += s * v.volume;
-                        } else if (out_channels == 2) {
-                            out[o] += s * g_mono.l;
-                            out[o + 1] += s * g_mono.r;
+                            frame[0] = s * pb.volume;
                         } else {
-                            var c: usize = 0;
-                            while (c < out_channels) : (c += 1) out[o + c] += s * v.volume;
+                            frame[0] = s * g_mono.l;
+                            frame[1] = s * g_mono.r;
                         }
-                    } else if (out_channels == 1) {
-                        // downmix a multichannel source to mono
-                        var sum: f32 = 0;
-                        var c: usize = 0;
-                        while (c < channels) : (c += 1) {
-                            const a = sampleAt(channels, v.chunk, idx_in, c);
-                            const b = if (next) sampleAt(channels, v.chunk, idx_in + 1, c) else a;
-                            sum += a + (b - a) * frac;
-                        }
-                        out[o] += (sum / @as(f32, @floatFromInt(channels))) * v.volume;
-                    } else if (out_channels == 2) {
-                        // pan a stereo source by balancing left/right
-                        const a0 = sampleAt(channels, v.chunk, idx_in, 0);
-                        const b0 = if (next) sampleAt(channels, v.chunk, idx_in + 1, 0) else a0;
-                        out[o] += (a0 + (b0 - a0) * frac) * g_stereo.l;
-                        const a1 = sampleAt(channels, v.chunk, idx_in, 1);
-                        const b1 = if (next) sampleAt(channels, v.chunk, idx_in + 1, 1) else a1;
-                        out[o + 1] += (a1 + (b1 - a1) * frac) * g_stereo.r;
                     } else {
-                        // direct map, using the min(channels, out_channels) channels
-                        const n = @min(channels, out_channels);
-                        var c: usize = 0;
-                        while (c < n) : (c += 1) {
-                            const a = sampleAt(channels, v.chunk, idx_in, c);
-                            const b = if (next) sampleAt(channels, v.chunk, idx_in + 1, c) else a;
-                            out[o + c] += (a + (b - a) * frac) * v.volume;
+                        const a0 = sampleAt(channels, pb.chunk, idx_in, 0);
+                        const b0 = if (next) sampleAt(channels, pb.chunk, idx_in + 1, 0) else a0;
+                        const a1 = sampleAt(channels, pb.chunk, idx_in, 1);
+                        const b1 = if (next) sampleAt(channels, pb.chunk, idx_in + 1, 1) else a1;
+                        const l = a0 + (b0 - a0) * frac;
+                        const r = a1 + (b1 - a1) * frac;
+                        if (out_channels == 1) {
+                            frame[0] = (l + r) * 0.5 * pb.volume;
+                        } else {
+                            frame[0] = l * g_stereo.l;
+                            frame[1] = r * g_stereo.r;
                         }
                     }
-                    v.pos += ratio;
-                }
-            },
+                },
+            }
+            pb.effects.processFrame(frame[0..out_channels], out_channels, rate);
+            const o = i * out_channels;
+            var c: usize = 0;
+            while (c < out_channels) : (c += 1) out[o + c] += frame[c];
+            pb.pos += ratio;
         }
     }
 };

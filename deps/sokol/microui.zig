@@ -508,7 +508,10 @@ pub fn buttonEx(label_txt: [*c]const u8, icon: Icon, opt: Opt) bool {
 extern fn mu_button_ex(ctx: [*c]mu_Context, label_txt: [*c]const u8, icon: c_int, opt: c_int) c_int;
 
 pub fn checkbox(label_txt: [*c]const u8, state: *bool) bool {
-    pushId(state, @sizeOf(bool));
+    // Hash the bool's address, not its value — otherwise every unchecked
+    // box shares one id (and every checked box another) and they collide.
+    const id: usize = @intFromPtr(state);
+    pushId(&id, @sizeOf(usize));
     defer popId();
 
     var value: c_int = if (state.*) 1 else 0;
