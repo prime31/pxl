@@ -9,6 +9,7 @@ pub var scratch: std.mem.Allocator = undefined;
 var scratch_instance: ScratchAllocator = undefined;
 
 pub fn init() void {
+    default_gpa = .{};
     allocator = default_gpa.allocator();
     scratch_instance = ScratchAllocator.init(allocator);
     scratch = scratch_instance.allocator();
