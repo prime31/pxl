@@ -20,8 +20,9 @@
 
 
 ## Development Guidelines
-- **Testing**: Test compile all code changes (`zig build` or `zig build check`) before declaring a task complete.
-- **Examples**: Every `.zig` file in `examples/` must be exposed in `build.zig` as an executable run step.
+- **Examples**: every `.zig` file in `examples/` must be exposed in `build.zig` as an executable run step.
+- **Testing**: when working on code outside of the examples folder that is used by multiple examples, 
+    test compilation of all examples with `zig build --summary all`
 - **Iterating**: when working only in an example test just that example with `zig build EXAMPLE_NAME`
 - temporary allocations are handled by `pxl.mem.scratch` and general alloctions are handled by `pxl.mem.alloc`
 - Allocators are not stored in pxl structs, we always use `pxl.mem` for allocations
