@@ -23,8 +23,6 @@ var track_count: usize = 0;
 var scan_error: ?[:0]const u8 = null;
 var scan_error_buf: [256]u8 = undefined;
 
-var audio: pxl.audio.AudioManager = .{};
-
 /// Find every .ogg in examples/assets and load it as a streamed sound.
 fn scanTracks() !void {
     var dir = try std.Io.Dir.openDir(.cwd(), pxl.io, "examples/assets", .{ .iterate = true });
@@ -39,7 +37,7 @@ fn scanTracks() !void {
         var path_buf: [512]u8 = undefined;
         const path = std.fmt.bufPrint(&path_buf, "examples/assets/{s}", .{entry.name}) catch continue;
 
-        const sound = audio.load(path, .{ .streamed = true }) catch |err| {
+        const sound = pxl.audio.load(path, .{ .streamed = true }) catch |err| {
             scan_error = std.fmt.bufPrintZ(&scan_error_buf, "Failed to load {s}: {s}", .{ entry.name, @errorName(err) }) catch null;
             continue;
         };
@@ -47,7 +45,7 @@ fn scanTracks() !void {
         tracks[track_count] = .{
             .name = pxl.mem.dupe(u8, entry.name, .persistent),
             .sound = sound,
-            .duration = audio.soundDuration(sound),
+            .duration = pxl.audio.soundDuration(sound),
         };
         track_count += 1;
     }
@@ -86,7 +84,7 @@ fn playTrack(idx: usize) void {
     if (track_count == 0) return;
     stopPlayback();
     current = idx;
-    playback_id = audio.play(tracks[idx].?.sound, .{
+    playback_id = pxl.audio.play(tracks[idx].?.sound, .{
         .volume = track_volume,
         .pan = track_pan,
         .pitch = track_pitch,
@@ -95,7 +93,7 @@ fn playTrack(idx: usize) void {
 }
 
 fn stopPlayback() void {
-    if (playback_id) |id| audio.stop(id);
+    if (playback_id) |id| pxl.audio.stop(id);
     playback_id = null;
 }
 
@@ -105,10 +103,10 @@ fn togglePlayPause() void {
         playTrack(current);
         return;
     };
-    if (audio.isPlaying(id)) {
-        audio.pause(id);
+    if (pxl.audio.isPlaying(id)) {
+        pxl.audio.pause(id);
     } else {
-        audio.unpause(id);
+        pxl.audio.unpause(id);
     }
 }
 
@@ -116,28 +114,26 @@ fn setupSfx() void {
     for (&sfx_sounds) |*s| {
         var p = sfxr.Params{};
         p.apply(s.preset);
-        var gen = sfxr.Sound.init(p, audio.output_rate);
+        var gen = sfxr.Sound.init(p, pxl.audio.outputRate());
         var vec: pxl.util.Vec(f32) = .empty;
         while (gen.nextSample()) |sample| vec.append(sample);
         defer vec.deinit();
-        s.sound = audio.addBuffer(vec.items, 1, audio.output_rate);
+        s.sound = pxl.audio.addBuffer(vec.items, 1, pxl.audio.outputRate());
     }
 }
 
 fn currentPosition() f64 {
-    if (playback_id) |id| return audio.position(id);
+    if (playback_id) |id| return pxl.audio.position(id);
     return 0;
 }
 
 pub fn setup() !void {
-    audio.init(.{});
     try scanTracks();
     setupSfx();
     if (track_count > 0) playTrack(0);
 }
 
 pub fn shutdown() !void {
-    audio.deinit();
     for (0..track_count) |i| {
         pxl.mem.free(tracks[i].?.name);
         tracks[i] = null;
@@ -170,10 +166,8 @@ pub fn update() !void {
     // The manager reaps a playback when a non-looping track reaches EOF;
     // mirror that here so the UI shows "Play" again.
     if (playback_id) |id| {
-        if (audio.playback(id) == null) playback_id = null;
+        if (pxl.audio.playback(id) == null) playback_id = null;
     }
-
-    audio.update();
 
     if (mu.beginWindowEx("Ogg Player", .{ .x = 20, .y = 20, .w = 380, .h = 560 }, .{ .no_close = true })) {
         if (scan_error) |err| {
@@ -204,7 +198,7 @@ pub fn update() !void {
         var row: [4]c_int = undefined;
         mu.layoutRow(equalWidths(3, &row), &row, 0);
         const play_label = if (playback_id) |id|
-            (if (audio.isPlaying(id)) "Pause" else "Resume")
+            (if (pxl.audio.isPlaying(id)) "Pause" else "Resume")
         else
             "Play";
         if (mu.button(play_label, .none)) togglePlayPause();
@@ -212,7 +206,7 @@ pub fn update() !void {
         if (mu.button(if (loop_track) "Loop: On" else "Loop: Off", .none)) {
             loop_track = !loop_track;
             if (playback_id) |id| {
-                if (audio.playback(id)) |pb| pb.loop = loop_track;
+                if (pxl.audio.playback(id)) |pb| pb.loop = loop_track;
             }
         }
 
@@ -229,7 +223,7 @@ pub fn update() !void {
         mu.label("Volume");
         if (mu.slider(&track_volume, 0, 1, 0.01)) {
             if (playback_id) |id| {
-                if (audio.playback(id)) |pb| pb.volume = track_volume;
+                if (pxl.audio.playback(id)) |pb| pb.volume = track_volume;
             }
         }
 
@@ -238,7 +232,7 @@ pub fn update() !void {
         mu.label("Pan");
         if (mu.slider(&track_pan, -1, 1, 0.01)) {
             if (playback_id) |id| {
-                if (audio.playback(id)) |pb| pb.pan = track_pan;
+                if (pxl.audio.playback(id)) |pb| pb.pan = track_pan;
             }
         }
 
@@ -247,7 +241,7 @@ pub fn update() !void {
         mu.label("Pitch");
         if (mu.slider(&track_pitch, 0.5, 2, 0.01)) {
             if (playback_id) |id| {
-                if (audio.playback(id)) |pb| pb.pitch = track_pitch;
+                if (pxl.audio.playback(id)) |pb| pb.pitch = track_pitch;
             }
         }
 
@@ -257,7 +251,7 @@ pub fn update() !void {
             for (&sfx_sounds) |*s| {
                 mu.pushId(&s.preset, @sizeOf(sfxr.Preset));
                 if (mu.button(s.label, .none)) {
-                    if (s.sound) |id| audio.playOneShot(id, .{ .volume = 0.8 });
+                    if (s.sound) |id| pxl.audio.playOneShot(id, .{ .volume = 0.8 });
                 }
                 mu.popId();
             }

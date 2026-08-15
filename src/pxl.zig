@@ -46,6 +46,7 @@ const Callbacks = struct {
 pub const Config = struct {
     win: WindowConfig = .{},
     gfx: gpu.Config = .{},
+    audio: audio.AudioInitOptions = .{},
     debug_render_enabled: bool = true,
 };
 
@@ -134,6 +135,8 @@ export fn sokolInit() void {
     });
     if (!saudio.isvalid()) @panic("failed to setup sokol audio");
 
+    audio.init(cfg.audio);
+
     mu.setup();
 
     // optionally, initialize sokol-imgui
@@ -167,6 +170,7 @@ export fn sokolFrame() void {
 
     mu.begin();
     if (cbs.update) |cb| cb() catch unreachable;
+    audio.update();
     if (cbs.render) |cb| cb() catch unreachable;
     mu.end();
 
@@ -193,6 +197,8 @@ export fn sokolEvent(evt: [*c]const sapp.Event) void {
 
 export fn sokolCleanup() void {
     if (cbs.shutdown) |cb| cb() catch {};
+
+    audio.deinit();
 
     input.deinit();
     gpu.deinit();

@@ -7,18 +7,16 @@
 //!
 //! Streamed sounds share a single decode cursor, so they allow only one
 //! active playback at a time; in-memory buffers allow unlimited overlap.
-//! Call `update()` once per frame to mix and push audio.
+//! The engine owns a singleton manager and initializes, updates and shuts
+//! it down automatically, so all interaction goes through the `pxl.audio.*`
+//! free functions below.
 //!
 //! ```
-//! var audio: pxl.audio.AudioManager = .{};
-//! audio.init(.{});
-//! defer audio.deinit();
+//! const music = try pxl.audio.load("music.ogg", .{ .streamed = true });
+//! const coin = try pxl.audio.load("coin.ogg", .{});
 //!
-//! const music = try audio.load("music.ogg", .{ .streamed = true });
-//! const coin = try audio.load("coin.ogg", .{});
-//!
-//! const music_pb = audio.play(music, .{ .loop = true }) orelse ...;
-//! audio.playOneShot(coin, .{ .pan = -0.5, .pitch = 1.2 });
+//! const music_pb = pxl.audio.play(music, .{ .loop = true }) orelse ...;
+//! pxl.audio.playOneShot(coin, .{ .pan = -0.5, .pitch = 1.2 });
 //! ```
 
 const std = @import("std");
@@ -710,6 +708,109 @@ pub const AudioManager = struct {
         }
     }
 };
+
+/// Engine-owned singleton that the `pxl.audio.*` free functions below
+/// delegate to. Power users can drive additional managers directly through
+/// the `AudioManager` struct.
+pub var manager: AudioManager = undefined;
+
+pub fn init(opts: AudioInitOptions) void {
+    manager.init(opts);
+}
+
+pub fn deinit() void {
+    manager.deinit();
+}
+
+pub fn update() void {
+    manager.update();
+}
+
+/// Output sample rate in Hz (as configured by the sokol-audio backend).
+pub fn outputRate() u32 {
+    return manager.output_rate;
+}
+
+/// Number of output channels (1 mono or 2 stereo).
+pub fn outputChannels() u32 {
+    return manager.output_channels;
+}
+
+pub fn load(path: []const u8, opts: LoadOptions) !SoundId {
+    return manager.load(path, opts);
+}
+
+pub fn addBuffer(samples: []const f32, channels: u32, sample_rate: u32) ?SoundId {
+    return manager.addBuffer(samples, channels, sample_rate);
+}
+
+pub fn unload(id: SoundId) void {
+    manager.unload(id);
+}
+
+pub fn getSound(id: SoundId) ?*Sound {
+    return manager.getSound(id);
+}
+
+pub fn soundDuration(id: SoundId) f64 {
+    return manager.soundDuration(id);
+}
+
+pub fn play(id: SoundId, opts: PlaybackOptions) ?PlaybackId {
+    return manager.play(id, opts);
+}
+
+pub fn playOneShot(id: SoundId, opts: PlaybackOptions) void {
+    manager.playOneShot(id, opts);
+}
+
+pub fn pause(id: PlaybackId) void {
+    manager.pause(id);
+}
+
+pub fn unpause(id: PlaybackId) void {
+    manager.unpause(id);
+}
+
+pub fn stop(id: PlaybackId) void {
+    manager.stop(id);
+}
+
+pub fn stopAll() void {
+    manager.stopAll();
+}
+
+pub fn isPlaying(id: PlaybackId) bool {
+    return manager.isPlaying(id);
+}
+
+pub fn position(id: PlaybackId) f64 {
+    return manager.position(id);
+}
+
+pub fn duration(id: PlaybackId) f64 {
+    return manager.duration(id);
+}
+
+pub fn seek(id: PlaybackId, seconds: f64) void {
+    manager.seek(id, seconds);
+}
+
+pub fn playback(id: PlaybackId) ?*Playback {
+    return manager.playback(id);
+}
+
+pub fn createBus() ?BusId {
+    return manager.createBus();
+}
+
+pub fn bus(id: BusId) ?*Bus {
+    return manager.bus(id);
+}
+
+pub fn masterBus() *Bus {
+    return manager.masterBus();
+}
 
 test "sampleAt reads interleaved channels" {
     const stereo = [_]f32{ 1, 2, 3, 4 };
