@@ -1,5 +1,5 @@
 # Project Overview
-`pxl` is a high-performance 2D game framework built in Zig, targeting desktop and WebAssembly via Sokol.
+`pxl` is a high-performance 2D game framework built in Zig, targeting desktop, Android and WASM via Sokol.
 `pxl` strives to have a clean, no nonsense, easy to remember api.
 
 
@@ -24,8 +24,9 @@
 - **Examples**: Every `.zig` file in `examples/` must be exposed in `build.zig` as an executable run step.
 - **Iterating**: when working only in an example test just that example with `zig build EXAMPLE_NAME`
 - temporary allocations are handled by `pxl.mem.scratch` and general alloctions are handled by `pxl.mem.alloc`
+- Allocators are not stored in pxl structs, we always use `pxl.mem` for allocations
 - we do not use `std.ArrayList`, instead use `pxl.util.Vec`
-- 
+
 
 ## Inspiration
 - Comfy: https://github.com/darthdeus/comfy

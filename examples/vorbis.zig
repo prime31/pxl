@@ -77,7 +77,7 @@ var voice_idx: ?usize = null; // mixer voice playing `current`
 var is_playing: bool = false;
 var loop_track: bool = true;
 /// Fractional source frame position while paused (null = not paused).
-var paused_at: ?f32 = null;
+var paused_at: ?f64 = null;
 var track_volume: f32 = 1.0;
 
 // one-shot sfxr sounds, mixed on top of the track
@@ -131,7 +131,7 @@ fn playSfx(preset: sfxr.Preset) void {
     sfx_voice = mixer.playBuffer(sfx_samples.?, .{ .volume = 0.8 });
 }
 
-fn currentPosition() f32 {
+fn currentPosition() f64 {
     if (paused_at) |pos| return pos;
     if (voice_idx) |vi| return mixer.voicePosition(vi) orelse 0;
     return 0;
@@ -242,7 +242,7 @@ pub fn update() !void {
         else
             0;
         const pos_sec = if (track_count > 0)
-            currentPosition() / @as(f32, @floatFromInt(tracks[current].?.stream.sample_rate))
+            currentPosition() / @as(f64, @floatFromInt(tracks[current].?.stream.sample_rate))
         else
             0;
         const pos_str = std.fmt.bufPrintZ(&pos_buf, "{d:.1}s / {d:.1}s", .{ pos_sec, duration }) catch "?";

@@ -44,8 +44,10 @@ pub const Voice = struct {
     sample_rate: u32 = 44100,
     volume: f32 = 1.0,
     loop: bool = false,
-    /// Fractional position in the source (allows resampling).
-    pos: f32 = 0,
+    /// Fractional position in the source (allows resampling). f64 keeps
+    /// exact integer precision for tracks far longer than an f32 could
+    /// (f32 loses integer precision past 2^24 frames ≈ 6 minutes @ 44.1kHz).
+    pos: f64 = 0,
     // stream-only state
     chunk: []f32 = &.{},
     chunk_start: usize = 0,
@@ -58,6 +60,20 @@ pub const PlayOptions = struct {
     /// 0 (default) = the mixer's output rate (no resampling).
     sample_rate: u32 = 0,
 };
+
+/// Downmix one interleaved frame to mono. The mixer always outputs mono
+/// (sokol-audio is set up with the default `num_channels == 1`), so a
+/// stereo/multichannel source must be folded to a single sample.
+/// `samples` holds tightly packed frames: frame `f` lives at
+/// `samples[f * channels ..][0..channels]`.
+fn frameToMono(channels: usize, samples: []const f32, frame: usize) f32 {
+    if (channels <= 1) return samples[frame];
+    const base = frame * channels;
+    var sum: f32 = 0;
+    var c: usize = 0;
+    while (c < channels) : (c += 1) sum += samples[base + c];
+    return sum / @as(f32, @floatFromInt(channels));
+}
 
 pub const Mixer = struct {
     output_rate: u32 = 44100,
@@ -120,7 +136,7 @@ pub const Mixer = struct {
     /// Fractional source position of a voice, or null if it's inactive.
     /// Useful for pausing a stream: read the position, stop, then seek the
     /// stream and play again.
-    pub fn voicePosition(self: *Mixer, idx: usize) ?f32 {
+    pub fn voicePosition(self: *Mixer, idx: usize) ?f64 {
         if (idx >= self.voices.len) return null;
         const v = &self.voices[idx];
         if (!v.active) return null;
@@ -173,7 +189,7 @@ pub const Mixer = struct {
     /// Add the voice's next `out.len` frames (resampled to the output
     /// rate) into `out`. Voices that end early leave the remainder at 0.
     fn fillVoice(self: *Mixer, v: *Voice, out: []f32) void {
-        const ratio = @as(f32, @floatFromInt(v.sample_rate)) / @as(f32, @floatFromInt(self.output_rate));
+        const ratio = @as(f64, @floatFromInt(v.sample_rate)) / @as(f64, @floatFromInt(self.output_rate));
         switch (v.source) {
             .buffer => |samples| {
                 var i: usize = 0;
@@ -187,7 +203,7 @@ pub const Mixer = struct {
                         self.deactivateVoice(v);
                         return;
                     }
-                    const frac = v.pos - @as(f32, @floatFromInt(idx));
+                    const frac: f32 = @floatCast(v.pos - @as(f64, @floatFromInt(idx)));
                     const a = samples[idx];
                     const b = if (idx + 1 < samples.len) samples[idx + 1] else a;
                     out[i] += (a + (b - a) * frac) * v.volume;
@@ -216,9 +232,13 @@ pub const Mixer = struct {
                     }
                     const idx = @as(usize, @intFromFloat(v.pos));
                     const idx_in = idx - v.chunk_start;
-                    const frac = v.pos - @as(f32, @floatFromInt(idx));
-                    const a = v.chunk[idx_in];
-                    const b = if (idx_in + 1 < v.chunk_len) v.chunk[idx_in + 1] else a;
+                    const frac: f32 = @floatCast(v.pos - @as(f64, @floatFromInt(idx)));
+                    // `chunk` holds interleaved frames and `chunk_len`/`pos`
+                    // are in frames, so a stereo source must be downmixed
+                    // frame-by-frame rather than read as raw samples.
+                    const channels: usize = @intCast(stream.channels);
+                    const a = frameToMono(channels, v.chunk, idx_in);
+                    const b = if (idx_in + 1 < v.chunk_len) frameToMono(channels, v.chunk, idx_in + 1) else a;
                     out[i] += (a + (b - a) * frac) * v.volume;
                     v.pos += ratio;
                 }
@@ -226,3 +246,14 @@ pub const Mixer = struct {
         }
     }
 };
+
+test "frameToMono downmixes interleaved stereo to mono" {
+    const stereo = [_]f32{ 1, -1, 2, -2, 3, -3 };
+    try std.testing.expectEqual(@as(f32, 0.0), frameToMono(2, &stereo, 0));
+    try std.testing.expectEqual(@as(f32, 0.0), frameToMono(2, &stereo, 1));
+    try std.testing.expectEqual(@as(f32, 0.0), frameToMono(2, &stereo, 2));
+
+    const mono = [_]f32{ 5, 6 };
+    try std.testing.expectEqual(@as(f32, 5.0), frameToMono(1, &mono, 0));
+    try std.testing.expectEqual(@as(f32, 6.0), frameToMono(1, &mono, 1));
+}

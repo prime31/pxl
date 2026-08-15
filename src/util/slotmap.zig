@@ -238,6 +238,9 @@ pub fn SlotMap(Val: type) type {
 }
 
 test "slot map" {
+    pxl.mem.init();
+    defer pxl.mem.deinit();
+
     var slots: SlotMap(u8) = .init(3);
     defer slots.deinit();
     try std.testing.expectEqual(0, slots.count());
@@ -369,6 +372,9 @@ test "slot map" {
 }
 
 test "recycle key" {
+    pxl.mem.init();
+    defer pxl.mem.deinit();
+
     var slots: SlotMap(u8) = .init(3);
     defer slots.deinit();
     try std.testing.expectEqual(0, slots.count());
@@ -395,6 +401,9 @@ test "recycle key" {
 
 // Basically just making sure it compiles
 test "format key" {
+    pxl.mem.init();
+    defer pxl.mem.deinit();
+
     const Key = SlotMap(void).Key;
     try std.testing.expectFmt("0xA:B", "{f}", .{Key{
         .index = 10,
@@ -410,6 +419,9 @@ test "format key" {
 }
 
 test "eql" {
+    pxl.mem.init();
+    defer pxl.mem.deinit();
+
     const Key = SlotMap(u8).Key;
     const a: Key = .{ .index = 1, .generation = @enumFromInt(2) };
     const b: Key = .{ .index = 2, .generation = @enumFromInt(2) };
