@@ -8,16 +8,21 @@ const mu = pxl.mu;
 var music: pxl.audio.SoundId = undefined;
 var sfx_gun: pxl.audio.SoundId = undefined;
 var sfx_drips: pxl.audio.SoundId = undefined;
+var ambience: pxl.audio.SoundId = undefined;
 var music_pb: ?pxl.audio.PlaybackId = null;
+var ambience_pb: ?pxl.audio.PlaybackId = null;
 
 var sfx_bus: pxl.audio.BusId = undefined;
+var ambience_bus: pxl.audio.BusId = undefined;
 
 var music_vol: f32 = 1.0;
 var music_pitch: f32 = 1.0;
 var music_pan: f32 = 0.0;
 var bus_vol: f32 = 1.0;
+var ambience_vol: f32 = 1.0;
+var master_vol: f32 = 1.0;
 
-// SFX bus effect settings (all live-editable while sounds play)
+// SFX bus effects
 var lpf_on: bool = true;
 var lpf_cutoff: f32 = 900;
 var hpf_on: bool = false;
@@ -26,6 +31,18 @@ var delay_on: bool = false;
 var delay_time: f32 = 0.25;
 var delay_feedback: f32 = 0.35;
 var delay_wet: f32 = 0.3;
+
+// Ambience bus effects (a distinct stack from the SFX bus)
+var amb_lpf_on: bool = true;
+var amb_lpf_cutoff: f32 = 600;
+var amb_delay_on: bool = false;
+var amb_delay_time: f32 = 0.4;
+var amb_delay_feedback: f32 = 0.5;
+var amb_delay_wet: f32 = 0.4;
+
+// Master effects
+var master_lpf_on: bool = false;
+var master_lpf_cutoff: f32 = 4000;
 
 var rng_state: u32 = 12345;
 fn nextRand() f32 {
@@ -59,10 +76,22 @@ fn playDrips() void {
     });
 }
 
-/// Toggle one effect on the SFX bus. `build` produces the params to add;
+fn toggleAmbience() void {
+    if (ambience_pb) |id| {
+        pxl.audio.stop(id);
+        ambience_pb = null;
+    } else {
+        ambience_pb = pxl.audio.play(ambience, .{
+            .bus = ambience_bus,
+            .loop = true,
+            .volume = ambience_vol,
+        });
+    }
+}
+
+/// Add or remove one effect on a bus. `build` produces the params to add;
 /// `on` is the checkbox state that changed.
-fn setEffect(comptime tag: pxl.audio.EffectType, on: bool, build: pxl.audio.EffectParams) void {
-    const b = pxl.audio.bus(sfx_bus).?;
+fn setBusEffect(b: *pxl.audio.Bus, comptime tag: pxl.audio.EffectType, on: bool, build: pxl.audio.EffectParams) void {
     if (on) {
         if (b.effects.get(tag) == null) b.effects.add(build, pxl.audio.outputRate());
     } else {
@@ -74,9 +103,13 @@ pub fn setup() !void {
     music = try pxl.audio.load("examples/assets/tester.ogg", .{ .streamed = true });
     sfx_gun = try pxl.audio.load("examples/assets/gunshot.ogg", .{});
     sfx_drips = try pxl.audio.load("examples/assets/drips.ogg", .{});
+    ambience = try pxl.audio.load("examples/assets/drum_loop.ogg", .{ .streamed = true });
 
     sfx_bus = pxl.audio.createBus() orelse @panic("out of buses");
     pxl.audio.bus(sfx_bus).?.effects.add(.{ .lowpass = .{ .cutoff = lpf_cutoff } }, pxl.audio.outputRate());
+
+    ambience_bus = pxl.audio.createBus() orelse @panic("out of buses");
+    pxl.audio.bus(ambience_bus).?.effects.add(.{ .lowpass = .{ .cutoff = amb_lpf_cutoff } }, pxl.audio.outputRate());
 
     startMusic();
 }
@@ -103,94 +136,134 @@ fn equalWidths(count: usize, out: *[4]c_int) c_int {
     return n;
 }
 
+/// Render a delay effect's three sliders for a bus. `b` supplies the chain;
+/// rebuilding on time changes reallocates the delay ring buffer.
+fn delaySliders(b: *pxl.audio.Bus, time: *f32, feedback: *f32, wet: *f32) void {
+    if (labelSlider("Delay time", time, 0.02, 1.0)) {
+        b.effects.remove(.delay);
+        b.effects.add(.{ .delay = .{ .time = time.*, .feedback = feedback.*, .wet = wet.* } }, pxl.audio.outputRate());
+    }
+    if (labelSlider("Delay feedback", feedback, 0, 0.9)) {
+        if (b.effects.get(.delay)) |e| e.params.delay.feedback = feedback.*;
+    }
+    if (labelSlider("Delay wet", wet, 0, 1)) {
+        if (b.effects.get(.delay)) |e| e.params.delay.wet = wet.*;
+    }
+}
+
 // --- callbacks ---------------------------------------------------------------
 
 pub fn update() !void {
     if (music_pb) |id| {
         if (!pxl.audio.isPlaying(id)) music_pb = null;
     }
+    if (ambience_pb) |id| {
+        if (pxl.audio.playback(id) == null) ambience_pb = null;
+    }
 
-    if (mu.beginWindowEx("Audio Manager", .{ .x = 20, .y = 20, .w = 400, .h = 600 }, .{ .no_close = true })) {
-        // Music transport
+    if (mu.beginWindowEx("Audio Manager", .{ .x = 20, .y = 20, .w = 400, .h = 700 }, .{ .no_close = true })) {
         var row: [4]c_int = undefined;
+
+        // Global transport
         mu.layoutRow(equalWidths(2, &row), &row, 0);
         if (mu.button("Restart music", .none)) startMusic();
         if (mu.button("Stop all", .none)) {
             pxl.audio.stopAll();
             music_pb = null;
+            ambience_pb = null;
         }
 
-        // Position readout (seek is also available via pxl.audio.seek)
-        var buf: [64]u8 = undefined;
-        const pos = if (music_pb) |id| pxl.audio.position(id) else 0;
-        const dur = if (music_pb) |id| pxl.audio.duration(id) else 0;
-        const pos_str = std.fmt.bufPrintZ(&buf, "music {d:.1}s / {d:.1}s", .{ pos, dur }) catch "?";
-        mu.layoutRow(1, &[_]c_int{-1}, 0);
-        mu.label(pos_str);
+        // Music
+        if (mu.headerEx("Music", .{ .expanded = true })) {
+            var buf: [64]u8 = undefined;
+            const pos = if (music_pb) |id| pxl.audio.position(id) else 0;
+            const dur = if (music_pb) |id| pxl.audio.duration(id) else 0;
+            const pos_str = std.fmt.bufPrintZ(&buf, "{d:.1}s / {d:.1}s", .{ pos, dur }) catch "?";
+            mu.layoutRow(1, &[_]c_int{-1}, 0);
+            mu.label(pos_str);
 
-        // Music controls
-        if (labelSlider("Music Vol", &music_vol, 0, 1)) {
-            if (music_pb) |id| {
-                if (pxl.audio.playback(id)) |pb| pb.volume = music_vol;
+            if (labelSlider("Music Vol", &music_vol, 0, 1)) {
+                if (music_pb) |id| {
+                    if (pxl.audio.playback(id)) |pb| pb.volume = music_vol;
+                }
             }
-        }
-        if (labelSlider("Music Pitch", &music_pitch, 0.5, 2)) {
-            if (music_pb) |id| {
-                if (pxl.audio.playback(id)) |pb| pb.pitch = music_pitch;
+            if (labelSlider("Music Pitch", &music_pitch, 0.5, 2)) {
+                if (music_pb) |id| {
+                    if (pxl.audio.playback(id)) |pb| pb.pitch = music_pitch;
+                }
             }
-        }
-        if (labelSlider("Music Pan", &music_pan, -1, 1)) {
-            if (music_pb) |id| {
-                if (pxl.audio.playback(id)) |pb| pb.pan = music_pan;
+            if (labelSlider("Music Pan", &music_pan, -1, 1)) {
+                if (music_pb) |id| {
+                    if (pxl.audio.playback(id)) |pb| pb.pan = music_pan;
+                }
             }
         }
 
         // SFX bus
-        mu.layoutRow(1, &[_]c_int{-1}, 0);
-        mu.label("SFX bus");
-        if (labelSlider("SFX Vol", &bus_vol, 0, 1)) {
-            pxl.audio.bus(sfx_bus).?.volume = bus_vol;
+        if (mu.headerEx("SFX bus", .{ .expanded = true })) {
+            if (labelSlider("SFX Vol", &bus_vol, 0, 1)) {
+                pxl.audio.bus(sfx_bus).?.volume = bus_vol;
+            }
+
+            mu.layoutRow(equalWidths(2, &row), &row, 0);
+            if (mu.button("Gunshot", .none)) playGunshot();
+            if (mu.button("Drips", .none)) playDrips();
+
+            mu.layoutRow(1, &[_]c_int{-1}, 0);
+            if (mu.checkbox("Lowpass", &lpf_on)) setBusEffect(pxl.audio.bus(sfx_bus).?, .lowpass, lpf_on, .{ .lowpass = .{ .cutoff = lpf_cutoff } });
+            if (lpf_on) {
+                if (labelSlider("LPF cutoff", &lpf_cutoff, 50, 12000)) {
+                    if (pxl.audio.bus(sfx_bus).?.effects.get(.lowpass)) |e| e.params.lowpass.cutoff = lpf_cutoff;
+                }
+            }
+
+            mu.layoutRow(1, &[_]c_int{-1}, 0);
+            if (mu.checkbox("Highpass", &hpf_on)) setBusEffect(pxl.audio.bus(sfx_bus).?, .highpass, hpf_on, .{ .highpass = .{ .cutoff = hpf_cutoff } });
+            if (hpf_on) {
+                if (labelSlider("HPF cutoff", &hpf_cutoff, 20, 4000)) {
+                    if (pxl.audio.bus(sfx_bus).?.effects.get(.highpass)) |e| e.params.highpass.cutoff = hpf_cutoff;
+                }
+            }
+
+            mu.layoutRow(1, &[_]c_int{-1}, 0);
+            if (mu.checkbox("Delay", &delay_on)) setBusEffect(pxl.audio.bus(sfx_bus).?, .delay, delay_on, .{ .delay = .{ .time = delay_time, .feedback = delay_feedback, .wet = delay_wet } });
+            if (delay_on) delaySliders(pxl.audio.bus(sfx_bus).?, &delay_time, &delay_feedback, &delay_wet);
         }
 
-        mu.layoutRow(equalWidths(2, &row), &row, 0);
-        if (mu.button("Gunshot", .none)) playGunshot();
-        if (mu.button("Drips", .none)) playDrips();
+        // Ambience bus
+        if (mu.headerEx("Ambience bus", .{ .expanded = true })) {
+            mu.layoutRow(1, &[_]c_int{-1}, 0);
+            if (mu.button(if (ambience_pb != null) "Stop ambience" else "Play ambience", .none)) toggleAmbience();
 
-        // Effect chain on the SFX bus
-        mu.layoutRow(1, &[_]c_int{-1}, 0);
-        mu.label("SFX bus effects");
-
-        mu.layoutRow(1, &[_]c_int{-1}, 0);
-        if (mu.checkbox("Lowpass", &lpf_on)) setEffect(.lowpass, lpf_on, .{ .lowpass = .{ .cutoff = lpf_cutoff } });
-        if (lpf_on) {
-            if (labelSlider("LPF cutoff", &lpf_cutoff, 50, 12000)) {
-                if (pxl.audio.bus(sfx_bus).?.effects.get(.lowpass)) |e| e.params.lowpass.cutoff = lpf_cutoff;
+            if (labelSlider("Ambience Vol", &ambience_vol, 0, 1)) {
+                pxl.audio.bus(ambience_bus).?.volume = ambience_vol;
             }
+
+            mu.layoutRow(1, &[_]c_int{-1}, 0);
+            if (mu.checkbox("Lowpass", &amb_lpf_on)) setBusEffect(pxl.audio.bus(ambience_bus).?, .lowpass, amb_lpf_on, .{ .lowpass = .{ .cutoff = amb_lpf_cutoff } });
+            if (amb_lpf_on) {
+                if (labelSlider("LPF cutoff", &amb_lpf_cutoff, 50, 12000)) {
+                    if (pxl.audio.bus(ambience_bus).?.effects.get(.lowpass)) |e| e.params.lowpass.cutoff = amb_lpf_cutoff;
+                }
+            }
+
+            mu.layoutRow(1, &[_]c_int{-1}, 0);
+            if (mu.checkbox("Delay", &amb_delay_on)) setBusEffect(pxl.audio.bus(ambience_bus).?, .delay, amb_delay_on, .{ .delay = .{ .time = amb_delay_time, .feedback = amb_delay_feedback, .wet = amb_delay_wet } });
+            if (amb_delay_on) delaySliders(pxl.audio.bus(ambience_bus).?, &amb_delay_time, &amb_delay_feedback, &amb_delay_wet);
         }
 
-        mu.layoutRow(1, &[_]c_int{-1}, 0);
-        if (mu.checkbox("Highpass", &hpf_on)) setEffect(.highpass, hpf_on, .{ .highpass = .{ .cutoff = hpf_cutoff } });
-        if (hpf_on) {
-            if (labelSlider("HPF cutoff", &hpf_cutoff, 20, 4000)) {
-                if (pxl.audio.bus(sfx_bus).?.effects.get(.highpass)) |e| e.params.highpass.cutoff = hpf_cutoff;
+        // Master
+        if (mu.headerEx("Master", .{ .expanded = true })) {
+            if (labelSlider("Master Vol", &master_vol, 0, 1)) {
+                pxl.audio.masterBus().volume = master_vol;
             }
-        }
 
-        mu.layoutRow(1, &[_]c_int{-1}, 0);
-        if (mu.checkbox("Delay", &delay_on)) setEffect(.delay, delay_on, .{ .delay = .{ .time = delay_time, .feedback = delay_feedback, .wet = delay_wet } });
-        if (delay_on) {
-            // Changing the delay time reallocates the ring buffer, so rebuild
-            // the delay effect instead of editing its params in place.
-            if (labelSlider("Delay time", &delay_time, 0.02, 1.0)) {
-                const b = pxl.audio.bus(sfx_bus).?;
-                b.effects.remove(.delay);
-                b.effects.add(.{ .delay = .{ .time = delay_time, .feedback = delay_feedback, .wet = delay_wet } }, pxl.audio.outputRate());
-            }
-            if (labelSlider("Delay feedback", &delay_feedback, 0, 0.9)) {
-                if (pxl.audio.bus(sfx_bus).?.effects.get(.delay)) |e| e.params.delay.feedback = delay_feedback;
-            }
-            if (labelSlider("Delay wet", &delay_wet, 0, 1)) {
-                if (pxl.audio.bus(sfx_bus).?.effects.get(.delay)) |e| e.params.delay.wet = delay_wet;
+            mu.layoutRow(1, &[_]c_int{-1}, 0);
+            if (mu.checkbox("Master lowpass", &master_lpf_on)) setBusEffect(pxl.audio.masterBus(), .lowpass, master_lpf_on, .{ .lowpass = .{ .cutoff = master_lpf_cutoff } });
+            if (master_lpf_on) {
+                if (labelSlider("LPF cutoff", &master_lpf_cutoff, 50, 12000)) {
+                    if (pxl.audio.masterBus().effects.get(.lowpass)) |e| e.params.lowpass.cutoff = master_lpf_cutoff;
+                }
             }
         }
 
