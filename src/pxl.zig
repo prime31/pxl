@@ -120,15 +120,16 @@ export fn sokolInit() void {
     });
     if (!sg.isvalid()) @panic("failed to create sokol context");
 
-    // Tune sokol-audio for low-latency game audio: a smaller backend buffer
-    // (1024 frames ≈ 23ms) than the 2048-frame default, with the same
-    // packet size and 4x ring depth so the push model keeps glitch headroom.
+    // Low-latency push model: 1024-frame backend buffer (≈23ms) and an 8-packet
+    // ring (1024 frames ≈ 23ms). A new sound starts ~46ms after play() instead of
+    // ~116ms with the 32-packet default, at the cost of stalling if a frame hitch
+    // exceeds ~23ms.
     saudio.setup(.{
         .sample_rate = 44100,
         .num_channels = 2,
         .buffer_frames = 1024,
         .packet_frames = 128,
-        .num_packets = 32,
+        .num_packets = 8,
         .logger = .{ .func = sokol.log.func },
     });
     if (!saudio.isvalid()) @panic("failed to setup sokol audio");
