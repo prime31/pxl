@@ -79,6 +79,8 @@ var loop_track: bool = true;
 /// Fractional source frame position while paused (null = not paused).
 var paused_at: ?f64 = null;
 var track_volume: f32 = 1.0;
+var track_pan: f32 = 0;
+var track_pitch: f32 = 1;
 
 // one-shot sfxr sounds, mixed on top of the track
 var sfx_voice: ?usize = null;
@@ -89,7 +91,10 @@ fn playTrack(idx: usize) void {
     stopVoice();
     current = idx;
     const t = tracks[idx].?;
-    voice_idx = mixer.playStream(t.stream, .{ .volume = track_volume, .loop = loop_track }) catch null;
+    // always start a track from the top, even if a previous play left the
+    // stream positioned at EOF
+    t.stream.seek(0) catch {};
+    voice_idx = mixer.playStream(t.stream, .{ .volume = track_volume, .pan = track_pan, .pitch = track_pitch, .loop = loop_track }) catch null;
     is_playing = voice_idx != null;
 }
 
@@ -107,12 +112,17 @@ fn togglePlayPause() void {
         mixer.stop(voice_idx.?);
         voice_idx = null;
         is_playing = false;
-    } else {
+    } else if (paused_at != null) {
+        // resume from where we paused
         const t = tracks[current].?;
-        if (paused_at) |pos| t.stream.seek(@intFromFloat(pos)) catch {};
+        t.stream.seek(@intFromFloat(paused_at.?)) catch {};
         paused_at = null;
-        voice_idx = mixer.playStream(t.stream, .{ .volume = track_volume, .loop = loop_track }) catch null;
+        voice_idx = mixer.playStream(t.stream, .{ .volume = track_volume, .pan = track_pan, .pitch = track_pitch, .loop = loop_track }) catch null;
         is_playing = voice_idx != null;
+    } else {
+        // fresh start; restart from the top (this also rewinds after a
+        // non-looping track reached EOF)
+        playTrack(current);
     }
 }
 
@@ -196,7 +206,7 @@ pub fn update() !void {
 
     mixer.update();
 
-    if (mu.beginWindowEx("Ogg Player", .{ .x = 20, .y = 20, .w = 380, .h = 480 }, .{ .no_close = true })) {
+    if (mu.beginWindowEx("Ogg Player", .{ .x = 20, .y = 20, .w = 380, .h = 560 }, .{ .no_close = true })) {
         if (scan_error) |err| {
             mu.layoutRow(1, &[_]c_int{-1}, 0);
             mu.label(err);
@@ -253,6 +263,20 @@ pub fn update() !void {
         mu.label("Volume");
         if (mu.slider(&track_volume, 0, 1, 0.01)) {
             if (voice_idx) |vi| mixer.voices[vi].volume = track_volume;
+        }
+
+        // Pan (-1 left .. +1 right)
+        mu.layoutRow(2, &[_]c_int{ 70, -1 }, 0);
+        mu.label("Pan");
+        if (mu.slider(&track_pan, -1, 1, 0.01)) {
+            if (voice_idx) |vi| mixer.voices[vi].pan = track_pan;
+        }
+
+        // Pitch (0.5 = octave down, 2 = octave up)
+        mu.layoutRow(2, &[_]c_int{ 70, -1 }, 0);
+        mu.label("Pitch");
+        if (mu.slider(&track_pitch, 0.5, 2, 0.01)) {
+            if (voice_idx) |vi| mixer.voices[vi].pitch = track_pitch;
         }
 
         // SFX demo — played through the same mixer, on top of the track

@@ -43,6 +43,10 @@ pub const Voice = struct {
     /// Native sample rate of the source.
     sample_rate: u32 = 44100,
     volume: f32 = 1.0,
+    /// Stereo position: -1 = left, 0 = center, +1 = right.
+    pan: f32 = 0,
+    /// Playback rate multiplier (1 = normal, 2 = one octave up).
+    pitch: f32 = 1,
     loop: bool = false,
     /// Fractional position in the source (allows resampling). f64 keeps
     /// exact integer precision for tracks far longer than an f32 could
@@ -57,6 +61,10 @@ pub const Voice = struct {
 pub const PlayOptions = struct {
     volume: f32 = 1.0,
     loop: bool = false,
+    /// Stereo position: -1 = left, 0 = center, +1 = right.
+    pan: f32 = 0,
+    /// Playback rate multiplier (1 = normal, 2 = one octave up).
+    pitch: f32 = 1,
     /// 0 (default) = the mixer's output rate (no resampling).
     sample_rate: u32 = 0,
 };
@@ -67,6 +75,23 @@ pub const PlayOptions = struct {
 fn sampleAt(channels: usize, samples: []const f32, frame: usize, channel: usize) f32 {
     if (channels <= 1) return samples[frame];
     return samples[frame * channels + channel];
+}
+
+/// Equal-power pan gains for placing a mono source in the stereo field.
+/// `pan` in [-1, 1]: -1 = left, 0 = center, +1 = right.
+fn monoPanGains(pan: f32, volume: f32) struct { l: f32, r: f32 } {
+    const p = @max(@as(f32, -1), @min(@as(f32, 1), pan));
+    const angle = (p + 1) * @as(f32, std.math.pi) / 4;
+    return .{ .l = std.math.cos(angle) * volume, .r = std.math.sin(angle) * volume };
+}
+
+/// Balance gains for an already-stereo source: pan attenuates the opposite
+/// channel, keeping center loudness unchanged on both sides.
+fn stereoPanGains(pan: f32, volume: f32) struct { l: f32, r: f32 } {
+    const p = @max(@as(f32, -1), @min(@as(f32, 1), pan));
+    const l = if (p >= 0) 1 - p else 1;
+    const r = if (p <= 0) 1 + p else 1;
+    return .{ .l = l * volume, .r = r * volume };
 }
 
 pub const Mixer = struct {
@@ -99,6 +124,8 @@ pub const Mixer = struct {
             .source = .{ .buffer = samples },
             .sample_rate = if (opts.sample_rate == 0) self.output_rate else opts.sample_rate,
             .volume = opts.volume,
+            .pan = opts.pan,
+            .pitch = @max(opts.pitch, 0.01),
             .loop = opts.loop,
         };
         return idx;
@@ -114,6 +141,8 @@ pub const Mixer = struct {
             .source = .{ .stream = stream },
             .sample_rate = if (opts.sample_rate == 0) stream.sample_rate else opts.sample_rate,
             .volume = opts.volume,
+            .pan = opts.pan,
+            .pitch = @max(opts.pitch, 0.01),
             .loop = opts.loop,
         };
         v.chunk = pxl.mem.alloc(f32, ChunkFrames * stream.channels, .persistent);
@@ -185,14 +214,15 @@ pub const Mixer = struct {
     }
 
     /// Add the voice's next `out.len / output_channels` frames (resampled
-    /// to the output rate) into `out`, which holds interleaved output frames.
-    /// Voices that end early leave the remainder at 0.
+    /// to the output rate and pitched) into `out`, which holds interleaved
+    /// output frames. Voices that end early leave the remainder at 0.
     fn fillVoice(self: *Mixer, v: *Voice, out: []f32) void {
-        const ratio = @as(f64, @floatFromInt(v.sample_rate)) / @as(f64, @floatFromInt(self.output_rate));
+        const ratio = @as(f64, @floatFromInt(v.sample_rate)) / @as(f64, @floatFromInt(self.output_rate)) * @as(f64, v.pitch);
         const out_channels: usize = @intCast(self.output_channels);
         const frames = out.len / out_channels;
         switch (v.source) {
             .buffer => |samples| {
+                const g = monoPanGains(v.pan, v.volume);
                 var i: usize = 0;
                 while (i < frames) : (i += 1) {
                     const idx = @as(usize, @intFromFloat(v.pos));
@@ -207,15 +237,24 @@ pub const Mixer = struct {
                     const frac: f32 = @floatCast(v.pos - @as(f64, @floatFromInt(idx)));
                     const a = samples[idx];
                     const b = if (idx + 1 < samples.len) samples[idx + 1] else a;
-                    const s = (a + (b - a) * frac) * v.volume;
+                    const s = a + (b - a) * frac;
                     const o = i * out_channels;
-                    var c: usize = 0;
-                    while (c < out_channels) : (c += 1) out[o + c] += s;
+                    if (out_channels == 1) {
+                        out[o] += s * v.volume;
+                    } else if (out_channels == 2) {
+                        out[o] += s * g.l;
+                        out[o + 1] += s * g.r;
+                    } else {
+                        var c: usize = 0;
+                        while (c < out_channels) : (c += 1) out[o + c] += s * v.volume;
+                    }
                     v.pos += ratio;
                 }
             },
             .stream => |stream| {
                 const channels: usize = @intCast(stream.channels);
+                const g_mono = monoPanGains(v.pan, v.volume);
+                const g_stereo = stereoPanGains(v.pan, v.volume);
                 var i: usize = 0;
                 while (i < frames) : (i += 1) {
                     // refill whenever the read position has left the chunk
@@ -243,9 +282,16 @@ pub const Mixer = struct {
                     if (channels == 1) {
                         const a = v.chunk[idx_in];
                         const b = if (next) v.chunk[idx_in + 1] else a;
-                        const s = (a + (b - a) * frac) * v.volume;
-                        var c: usize = 0;
-                        while (c < out_channels) : (c += 1) out[o + c] += s;
+                        const s = a + (b - a) * frac;
+                        if (out_channels == 1) {
+                            out[o] += s * v.volume;
+                        } else if (out_channels == 2) {
+                            out[o] += s * g_mono.l;
+                            out[o + 1] += s * g_mono.r;
+                        } else {
+                            var c: usize = 0;
+                            while (c < out_channels) : (c += 1) out[o + c] += s * v.volume;
+                        }
                     } else if (out_channels == 1) {
                         // downmix a multichannel source to mono
                         var sum: f32 = 0;
@@ -256,6 +302,14 @@ pub const Mixer = struct {
                             sum += a + (b - a) * frac;
                         }
                         out[o] += (sum / @as(f32, @floatFromInt(channels))) * v.volume;
+                    } else if (out_channels == 2) {
+                        // pan a stereo source by balancing left/right
+                        const a0 = sampleAt(channels, v.chunk, idx_in, 0);
+                        const b0 = if (next) sampleAt(channels, v.chunk, idx_in + 1, 0) else a0;
+                        out[o] += (a0 + (b0 - a0) * frac) * g_stereo.l;
+                        const a1 = sampleAt(channels, v.chunk, idx_in, 1);
+                        const b1 = if (next) sampleAt(channels, v.chunk, idx_in + 1, 1) else a1;
+                        out[o + 1] += (a1 + (b1 - a1) * frac) * g_stereo.r;
                     } else {
                         // direct map, using the min(channels, out_channels) channels
                         const n = @min(channels, out_channels);
@@ -283,4 +337,32 @@ test "sampleAt reads interleaved channels" {
     const mono = [_]f32{ 5, 6 };
     try std.testing.expectEqual(@as(f32, 5.0), sampleAt(1, &mono, 0, 0));
     try std.testing.expectEqual(@as(f32, 6.0), sampleAt(1, &mono, 1, 0));
+}
+
+test "monoPanGains places a source left/center/right" {
+    const center = monoPanGains(0, 1);
+    try std.testing.expect(@abs(center.l - 0.70710678) < 0.000001);
+    try std.testing.expect(@abs(center.r - 0.70710678) < 0.000001);
+
+    const left = monoPanGains(-1, 1);
+    try std.testing.expect(@abs(left.l - 1.0) < 0.000001);
+    try std.testing.expect(@abs(left.r) < 0.000001);
+
+    const right = monoPanGains(1, 1);
+    try std.testing.expect(@abs(right.l) < 0.000001);
+    try std.testing.expect(@abs(right.r - 1.0) < 0.000001);
+}
+
+test "stereoPanGains balances channels" {
+    const center = stereoPanGains(0, 1);
+    try std.testing.expectEqual(@as(f32, 1.0), center.l);
+    try std.testing.expectEqual(@as(f32, 1.0), center.r);
+
+    const left = stereoPanGains(-1, 1);
+    try std.testing.expectEqual(@as(f32, 1.0), left.l);
+    try std.testing.expectEqual(@as(f32, 0.0), left.r);
+
+    const right = stereoPanGains(1, 1);
+    try std.testing.expectEqual(@as(f32, 0.0), right.l);
+    try std.testing.expectEqual(@as(f32, 1.0), right.r);
 }
