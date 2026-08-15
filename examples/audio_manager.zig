@@ -44,6 +44,10 @@ var amb_delay_wet: f32 = 0.4;
 var master_lpf_on: bool = false;
 var master_lpf_cutoff: f32 = 4000;
 
+// Presets: named stacks of effects
+var underwater_on: bool = false;
+var drugged_on: bool = false;
+
 var rng_state: u32 = 12345;
 fn nextRand() f32 {
     rng_state = rng_state *% 1664525 +% 1013904223;
@@ -96,6 +100,33 @@ fn setBusEffect(b: *pxl.audio.Bus, comptime tag: pxl.audio.EffectType, on: bool,
         if (b.effects.get(tag) == null) b.effects.add(build, pxl.audio.outputRate());
     } else {
         b.effects.remove(tag);
+    }
+}
+
+/// "Underwater" preset on the ambience bus: the bus's own lowpass provides
+/// the muffling, reverb adds enclosed space, and a slow tremolo adds the
+/// bubbling wobble.
+fn setUnderwater(on: bool) void {
+    const b = pxl.audio.bus(ambience_bus).?;
+    if (on) {
+        if (b.effects.get(.reverb) == null) b.effects.add(.{ .reverb = .{ .time = 0.5, .damping = 0.6, .wet = 0.5 } }, pxl.audio.outputRate());
+        if (b.effects.get(.tremolo) == null) b.effects.add(.{ .tremolo = .{ .rate = 1.5, .depth = 0.2 } }, pxl.audio.outputRate());
+    } else {
+        b.effects.remove(.reverb);
+        b.effects.remove(.tremolo);
+    }
+}
+
+/// "Drugged" preset on the SFX bus: a phaser sweep plus a slow tremolo,
+/// layered over the bus's own lowpass.
+fn setDrugged(on: bool) void {
+    const b = pxl.audio.bus(sfx_bus).?;
+    if (on) {
+        if (b.effects.get(.phaser) == null) b.effects.add(.{ .phaser = .{ .rate = 0.4, .depth = 0.8, .feedback = 0.4 } }, pxl.audio.outputRate());
+        if (b.effects.get(.tremolo) == null) b.effects.add(.{ .tremolo = .{ .rate = 0.8, .depth = 0.3 } }, pxl.audio.outputRate());
+    } else {
+        b.effects.remove(.phaser);
+        b.effects.remove(.tremolo);
     }
 }
 
@@ -228,6 +259,9 @@ pub fn update() !void {
             mu.layoutRow(1, &[_]c_int{-1}, 0);
             if (mu.checkbox("Delay", &delay_on)) setBusEffect(pxl.audio.bus(sfx_bus).?, .delay, delay_on, .{ .delay = .{ .time = delay_time, .feedback = delay_feedback, .wet = delay_wet } });
             if (delay_on) delaySliders(pxl.audio.bus(sfx_bus).?, &delay_time, &delay_feedback, &delay_wet);
+
+            mu.layoutRow(1, &[_]c_int{-1}, 0);
+            if (mu.checkbox("Drugged (phaser + wobble)", &drugged_on)) setDrugged(drugged_on);
         }
 
         // Ambience bus
@@ -250,6 +284,9 @@ pub fn update() !void {
             mu.layoutRow(1, &[_]c_int{-1}, 0);
             if (mu.checkbox("Delay", &amb_delay_on)) setBusEffect(pxl.audio.bus(ambience_bus).?, .delay, amb_delay_on, .{ .delay = .{ .time = amb_delay_time, .feedback = amb_delay_feedback, .wet = amb_delay_wet } });
             if (amb_delay_on) delaySliders(pxl.audio.bus(ambience_bus).?, &amb_delay_time, &amb_delay_feedback, &amb_delay_wet);
+
+            mu.layoutRow(1, &[_]c_int{-1}, 0);
+            if (mu.checkbox("Underwater (reverb + wobble)", &underwater_on)) setUnderwater(underwater_on);
         }
 
         // Master

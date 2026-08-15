@@ -3,7 +3,7 @@
 //! `AudioManager` loads each sound once (streamed from disk or fully
 //! decoded in memory), plays it as independent `Playback` instances, and
 //! routes them through buses with optional effect chains (lowpass,
-//! highpass, delay).
+//! highpass, delay, reverb, phaser, tremolo).
 //!
 //! Streamed sounds share a single decode cursor, so they allow only one
 //! active playback at a time; in-memory buffers allow unlimited overlap.
@@ -64,12 +64,49 @@ fn softClip(s: f32) f32 {
     return std.math.tanh(s);
 }
 
-pub const EffectType = enum { lowpass, highpass, delay };
+pub const EffectType = enum { lowpass, highpass, delay, reverb, phaser, tremolo };
 
 pub const EffectParams = union(EffectType) {
     lowpass: struct { cutoff: f32 = 1000 },
     highpass: struct { cutoff: f32 = 100 },
     delay: struct { time: f32 = 0.3, feedback: f32 = 0.3, wet: f32 = 0.3 },
+    reverb: struct { time: f32 = 1.0, damping: f32 = 0.4, wet: f32 = 0.3 },
+    phaser: struct { rate: f32 = 0.5, depth: f32 = 0.8, feedback: f32 = 0.3 },
+    tremolo: struct { rate: f32 = 4.0, depth: f32 = 0.5 },
+};
+
+/// Feedback comb used by the Schroeder reverb.
+const CombFilter = struct {
+    buffer: []f32,
+    len: usize,
+    feedback: f32,
+    damp: f32,
+    pos: usize = 0,
+    filter: f32 = 0,
+
+    fn process(c: *CombFilter, input: f32) f32 {
+        const delayed = c.buffer[c.pos];
+        c.filter = c.filter * c.damp + delayed * (1.0 - c.damp);
+        c.buffer[c.pos] = input + c.filter * c.feedback;
+        c.pos = (c.pos + 1) % c.len;
+        return delayed;
+    }
+};
+
+/// Diffusion allpass used by the Schroeder reverb.
+const AllpassFilter = struct {
+    buffer: []f32,
+    len: usize,
+    gain: f32,
+    pos: usize = 0,
+
+    fn process(a: *AllpassFilter, input: f32) f32 {
+        const delayed = a.buffer[a.pos];
+        const output = delayed - input;
+        a.buffer[a.pos] = input + delayed * a.gain;
+        a.pos = (a.pos + 1) % a.len;
+        return output;
+    }
 };
 
 const EffectState = union(EffectType) {
@@ -87,6 +124,21 @@ const EffectState = union(EffectType) {
         y: [2]f32 = .{ 0, 0 },
     },
     delay: struct { buffer: []f32, pos: usize, len: usize },
+    reverb: struct {
+        combs: [4]CombFilter,
+        allpasses: [2]AllpassFilter,
+        time: f32 = -1,
+        damping: f32 = -1,
+    },
+    phaser: struct {
+        xn1: [4][2]f32 = .{ .{ 0, 0 }, .{ 0, 0 }, .{ 0, 0 }, .{ 0, 0 } },
+        yn1: [4][2]f32 = .{ .{ 0, 0 }, .{ 0, 0 }, .{ 0, 0 }, .{ 0, 0 } },
+        prev: [2]f32 = .{ 0, 0 },
+        lfo: f32 = 0,
+    },
+    tremolo: struct {
+        lfo: f32 = 0,
+    },
 };
 
 pub const EffectInstance = struct {
@@ -95,7 +147,14 @@ pub const EffectInstance = struct {
 };
 
 fn freeEffectState(e: *EffectInstance) void {
-    if (e.params == .delay) pxl.mem.free(e.state.delay.buffer);
+    switch (e.params) {
+        .delay => pxl.mem.free(e.state.delay.buffer),
+        .reverb => {
+            for (&e.state.reverb.combs) |*c| pxl.mem.free(c.buffer);
+            for (&e.state.reverb.allpasses) |*a| pxl.mem.free(a.buffer);
+        },
+        else => {},
+    }
 }
 
 /// An ordered, tiered list of effects applied frame by frame. Playbacks,
@@ -116,6 +175,28 @@ pub const EffectChain = struct {
                 @memset(buffer, 0);
                 inst.state = .{ .delay = .{ .buffer = buffer, .pos = 0, .len = len } };
             },
+            .reverb => {
+                const sr: f32 = @floatFromInt(sample_rate);
+                const comb_ms = [4]f32{ 29.7, 37.1, 41.1, 43.7 };
+                const ap_ms = [2]f32{ 5.0, 1.7 };
+                var combs: [4]CombFilter = undefined;
+                for (comb_ms, 0..) |ms, i| {
+                    const len = @max(@as(usize, 1), @as(usize, @intFromFloat(@ceil(ms * 0.001 * sr))));
+                    const buf = pxl.mem.alloc(f32, len, .persistent);
+                    @memset(buf, 0);
+                    combs[i] = .{ .buffer = buf, .len = len, .feedback = 0, .damp = 0 };
+                }
+                var aps: [2]AllpassFilter = undefined;
+                for (ap_ms, 0..) |ms, i| {
+                    const len = @max(@as(usize, 1), @as(usize, @intFromFloat(@ceil(ms * 0.001 * sr))));
+                    const buf = pxl.mem.alloc(f32, len, .persistent);
+                    @memset(buf, 0);
+                    aps[i] = .{ .buffer = buf, .len = len, .gain = 0.5 };
+                }
+                inst.state = .{ .reverb = .{ .combs = combs, .allpasses = aps } };
+            },
+            .phaser => inst.state = .{ .phaser = .{} },
+            .tremolo => inst.state = .{ .tremolo = .{} },
         }
         self.items.append(inst);
     }
@@ -196,6 +277,52 @@ pub const EffectChain = struct {
                         frame[c] = frame[c] * (1.0 - p.wet) + delayed * p.wet;
                     }
                     d.pos = (d.pos + 1) % d.len;
+                },
+                .reverb => |p| {
+                    const st = &e.state.reverb;
+                    if (p.time != st.time or p.damping != st.damping) {
+                        st.time = p.time;
+                        st.damping = p.damping;
+                        for (&st.combs) |*c| {
+                            c.feedback = std.math.pow(f32, 10.0, -3.0 * (@as(f32, @floatFromInt(c.len)) / sample_rate) / @max(p.time, 0.01));
+                            c.damp = @max(@as(f32, 0), @min(@as(f32, 1), p.damping));
+                        }
+                    }
+                    var input = frame[0];
+                    if (channels > 1) input = (frame[0] + frame[1]) * 0.5;
+                    var sum: f32 = 0;
+                    for (&st.combs) |*c| sum += c.process(input);
+                    var out = sum;
+                    for (&st.allpasses) |*a| out = a.process(out);
+                    const dry = 1.0 - p.wet;
+                    var c: usize = 0;
+                    while (c < channels) : (c += 1) frame[c] = frame[c] * dry + out * p.wet;
+                },
+                .phaser => |p| {
+                    const st = &e.state.phaser;
+                    st.lfo += 2.0 * @as(f32, std.math.pi) * p.rate / sample_rate;
+                    if (st.lfo >= 2.0 * @as(f32, std.math.pi)) st.lfo -= 2.0 * @as(f32, std.math.pi);
+                    const a = @max(@as(f32, 0), @min(@as(f32, 0.95), p.depth)) * @sin(st.lfo);
+                    var c: usize = 0;
+                    while (c < channels) : (c += 1) {
+                        var s = frame[c] + p.feedback * st.prev[c];
+                        for (0..4) |i| {
+                            const y = a * s + st.xn1[i][c] - a * st.yn1[i][c];
+                            st.xn1[i][c] = s;
+                            st.yn1[i][c] = y;
+                            s = y;
+                        }
+                        st.prev[c] = s;
+                        frame[c] = s;
+                    }
+                },
+                .tremolo => |p| {
+                    const st = &e.state.tremolo;
+                    st.lfo += 2.0 * @as(f32, std.math.pi) * p.rate / sample_rate;
+                    if (st.lfo >= 2.0 * @as(f32, std.math.pi)) st.lfo -= 2.0 * @as(f32, std.math.pi);
+                    const g = 1.0 - @max(@as(f32, 0), @min(@as(f32, 1), p.depth)) * (0.5 + 0.5 * @sin(st.lfo));
+                    var c: usize = 0;
+                    while (c < channels) : (c += 1) frame[c] *= g;
                 },
             }
         }
@@ -960,4 +1087,54 @@ test "lowpass smooths alternating samples and caches its coefficient" {
     const inst = chain.get(.lowpass).?;
     try std.testing.expect(inst.state.lowpass.a > 0);
     try std.testing.expectEqual(@as(f32, 100.0), inst.state.lowpass.cutoff);
+}
+
+test "reverb passes dry signal before its tail develops" {
+    pxl.mem.init();
+    defer pxl.mem.deinit();
+
+    var chain = EffectChain.empty;
+    defer chain.deinit();
+    chain.add(.{ .reverb = .{ .time = 0.5, .wet = 0.5 } }, 44100);
+
+    var frame = [_]f32{ 1.0, 0.5 };
+    chain.processFrame(&frame, 2, 44100);
+    try std.testing.expect(@abs(frame[0] - 0.5) < 0.001);
+    try std.testing.expect(@abs(frame[1] - 0.25) < 0.001);
+    try std.testing.expect(std.math.isFinite(frame[0]));
+    try std.testing.expect(std.math.isFinite(frame[1]));
+}
+
+test "phaser stays bounded under sustained input" {
+    pxl.mem.init();
+    defer pxl.mem.deinit();
+
+    var chain = EffectChain.empty;
+    defer chain.deinit();
+    chain.add(.{ .phaser = .{ .rate = 1.0, .depth = 0.8, .feedback = 0.5 } }, 44100);
+
+    var frame: [2]f32 = undefined;
+    var i: usize = 0;
+    while (i < 44100) : (i += 1) {
+        frame = .{ 1.0, -1.0 };
+        chain.processFrame(&frame, 2, 44100);
+        try std.testing.expect(std.math.isFinite(frame[0]));
+        try std.testing.expect(std.math.isFinite(frame[1]));
+    }
+    try std.testing.expect(@abs(frame[0]) < 10.0);
+    try std.testing.expect(@abs(frame[1]) < 10.0);
+}
+
+test "tremolo modulates amplitude at zero phase" {
+    pxl.mem.init();
+    defer pxl.mem.deinit();
+
+    var chain = EffectChain.empty;
+    defer chain.deinit();
+    chain.add(.{ .tremolo = .{ .rate = 0, .depth = 0.5 } }, 44100);
+
+    var frame = [_]f32{ 1.0, 1.0 };
+    chain.processFrame(&frame, 2, 44100);
+    try std.testing.expect(@abs(frame[0] - 0.75) < 0.0001);
+    try std.testing.expect(@abs(frame[1] - 0.75) < 0.0001);
 }

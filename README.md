@@ -77,4 +77,4 @@ Logging is redirected to logcat if `std.log.*` methods are used and can be viewe
 
 
 ### Web
-`zig build --release=small -Dtarget=wasm32-emscripten base`
+`zig build -Dtarget=wasm32-emscripten base`
