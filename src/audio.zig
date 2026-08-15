@@ -11,6 +11,10 @@
 //! it down automatically, so all interaction goes through the `pxl.audio.*`
 //! free functions below.
 //!
+//! Playbacks fade in on start and fade out on stop (5 ms) so they don't
+//! click, and the master bus runs a soft limiter so a hot mix saturates
+//! smoothly instead of hard clipping.
+//!
 //! ```
 //! const music = try pxl.audio.load("music.ogg", .{ .streamed = true });
 //! const coin = try pxl.audio.load("coin.ogg", .{});
@@ -24,6 +28,10 @@ const pxl = @import("pxl.zig");
 
 /// Frames decoded per refill for streamed sounds.
 pub const ChunkFrames = 4096;
+
+/// Fade duration in seconds for playback start/stop (kills onset/offset clicks).
+pub const FadeInSeconds: f32 = 0.005;
+pub const FadeOutSeconds: f32 = 0.005;
 
 /// Read one channel of an interleaved source frame. Mono buffers
 /// (`channels == 1`) are plain sample arrays, so every frame is a single
@@ -50,6 +58,12 @@ fn stereoPanGains(pan: f32, volume: f32) struct { l: f32, r: f32 } {
     return .{ .l = l * volume, .r = r * volume };
 }
 
+/// Soft-knee saturation so a hot mix rounds off instead of hard-clipping
+/// into square-wave distortion.
+fn softClip(s: f32) f32 {
+    return std.math.tanh(s);
+}
+
 pub const EffectType = enum { lowpass, highpass, delay };
 
 pub const EffectParams = union(EffectType) {
@@ -59,8 +73,19 @@ pub const EffectParams = union(EffectType) {
 };
 
 const EffectState = union(EffectType) {
-    lowpass: [2]f32,
-    highpass: struct { x: [2]f32, y: [2]f32 },
+    lowpass: struct {
+        a: f32 = 0,
+        cutoff: f32 = -1,
+        rate: f32 = 0,
+        y: [2]f32 = .{ 0, 0 },
+    },
+    highpass: struct {
+        a: f32 = 0,
+        cutoff: f32 = -1,
+        rate: f32 = 0,
+        x: [2]f32 = .{ 0, 0 },
+        y: [2]f32 = .{ 0, 0 },
+    },
     delay: struct { buffer: []f32, pos: usize, len: usize },
 };
 
@@ -83,8 +108,8 @@ pub const EffectChain = struct {
     pub fn add(self: *EffectChain, params: EffectParams, sample_rate: u32) void {
         var inst = EffectInstance{ .params = params, .state = undefined };
         switch (params) {
-            .lowpass => inst.state = .{ .lowpass = .{ 0, 0 } },
-            .highpass => inst.state = .{ .highpass = .{ .x = .{ 0, 0 }, .y = .{ 0, 0 } } },
+            .lowpass => inst.state = .{ .lowpass = .{} },
+            .highpass => inst.state = .{ .highpass = .{} },
             .delay => |d| {
                 const len = @max(@as(usize, 1), @as(usize, @intFromFloat(@ceil(d.time * @as(f32, @floatFromInt(sample_rate))))));
                 const buffer = pxl.mem.alloc(f32, len * 2, .persistent);
@@ -133,15 +158,25 @@ pub const EffectChain = struct {
         for (self.items.items) |*e| {
             switch (e.params) {
                 .lowpass => |p| {
-                    const a = 1.0 - @exp(-2.0 * @as(f32, std.math.pi) * p.cutoff / sample_rate);
+                    if (p.cutoff != e.state.lowpass.cutoff or sample_rate != e.state.lowpass.rate) {
+                        e.state.lowpass.cutoff = p.cutoff;
+                        e.state.lowpass.rate = sample_rate;
+                        e.state.lowpass.a = 1.0 - @exp(-2.0 * @as(f32, std.math.pi) * p.cutoff / sample_rate);
+                    }
+                    const a = e.state.lowpass.a;
                     var c: usize = 0;
                     while (c < channels) : (c += 1) {
-                        e.state.lowpass[c] += a * (frame[c] - e.state.lowpass[c]);
-                        frame[c] = e.state.lowpass[c];
+                        e.state.lowpass.y[c] += a * (frame[c] - e.state.lowpass.y[c]);
+                        frame[c] = e.state.lowpass.y[c];
                     }
                 },
                 .highpass => |p| {
-                    const a = @exp(-2.0 * @as(f32, std.math.pi) * p.cutoff / sample_rate);
+                    if (p.cutoff != e.state.highpass.cutoff or sample_rate != e.state.highpass.rate) {
+                        e.state.highpass.cutoff = p.cutoff;
+                        e.state.highpass.rate = sample_rate;
+                        e.state.highpass.a = @exp(-2.0 * @as(f32, std.math.pi) * p.cutoff / sample_rate);
+                    }
+                    const a = e.state.highpass.a;
                     var c: usize = 0;
                     while (c < channels) : (c += 1) {
                         const x = frame[c];
@@ -206,6 +241,13 @@ pub const Playback = struct {
     chunk: []f32 = &.{},
     chunk_start: usize = 0,
     chunk_len: usize = 0,
+    // Linear fade envelope (0..1) multiplied onto `volume`. Ramps toward
+    // `fade_target` by `fade_step` per output frame; `stopping` defers
+    // release until the fade-out completes so stops don't click.
+    fade: f32 = 0,
+    fade_target: f32 = 1,
+    fade_step: f32 = 0,
+    stopping: bool = false,
 };
 
 pub const PlaybackId = pxl.util.SlotMap(Playback).Key;
@@ -250,7 +292,9 @@ pub const AudioManager = struct {
     }
 
     pub fn deinit(self: *AudioManager) void {
-        self.stopAll();
+        for (self.active.items) |pid| {
+            if (self.playbacks.get(pid)) |pb| self.releasePlayback(pb);
+        }
         self.playbacks.deinit();
         if (self.active.capacity > 0) self.active.deinit();
 
@@ -375,7 +419,7 @@ pub const AudioManager = struct {
         if (sound.data == .stream) {
             for (self.active.items) |pid| {
                 if (self.playbacks.get(pid)) |pb| {
-                    if (pb.sound == id) return null;
+                    if (pb.sound == id and !pb.stopping) return null;
                 }
             }
         }
@@ -388,6 +432,7 @@ pub const AudioManager = struct {
             .pitch = @max(opts.pitch, 0.01),
             .loop = opts.loop,
         };
+        self.beginFade(&pb, 1, FadeInSeconds);
         if (sound.data == .stream) {
             sound.data.stream.seek(0) catch {};
             pb.chunk = pxl.mem.alloc(f32, ChunkFrames * @as(usize, sound.channels), .persistent);
@@ -417,7 +462,7 @@ pub const AudioManager = struct {
     }
 
     pub fn isPlaying(self: *AudioManager, id: PlaybackId) bool {
-        return if (self.playbacks.get(id)) |pb| pb.playing and !pb.ended else false;
+        return if (self.playbacks.get(id)) |pb| pb.playing and !pb.ended and !pb.stopping else false;
     }
 
     pub fn position(self: *AudioManager, id: PlaybackId) f64 {
@@ -454,19 +499,36 @@ pub const AudioManager = struct {
 
     pub fn stop(self: *AudioManager, id: PlaybackId) void {
         const pb = self.playbacks.get(id) orelse return;
-        self.releasePlayback(pb);
-        self.playbacks.remove(id);
-        self.removeActive(id);
+        if (pb.stopping) return;
+        if (!pb.playing) {
+            self.disposePlayback(id);
+            return;
+        }
+        pb.stopping = true;
+        pb.loop = false;
+        self.beginFade(pb, 0, FadeOutSeconds);
     }
 
     pub fn stopAll(self: *AudioManager) void {
-        for (self.active.items) |pid| {
+        var i: usize = 0;
+        while (i < self.active.items.len) {
+            const pid = self.active.items[i];
             if (self.playbacks.get(pid)) |pb| {
-                self.releasePlayback(pb);
-                self.playbacks.remove(pid);
+                if (pb.stopping or !pb.playing) {
+                    self.releasePlayback(pb);
+                    self.playbacks.remove(pid);
+                    _ = self.active.swapRemove(i);
+                    continue;
+                }
+                pb.stopping = true;
+                pb.loop = false;
+                self.beginFade(pb, 0, FadeOutSeconds);
+            } else {
+                _ = self.active.swapRemove(i);
+                continue;
             }
+            i += 1;
         }
-        self.active.clearRetainingCapacity();
     }
 
     pub fn playback(self: *AudioManager, id: PlaybackId) ?*Playback {
@@ -503,6 +565,11 @@ pub const AudioManager = struct {
             const sound = self.sounds.get(pb.sound) orelse continue;
             const target_bus = if (pb.bus) |bid| self.buses.get(bid).? else &self.master;
             self.mixPlayback(pb, sound, target_bus.mix[0..sample_count], frames, pb.pitch * target_bus.pitch);
+            self.advanceFade(pb, frames);
+            if (pb.stopping and pb.fade <= 0) {
+                pb.ended = true;
+                pb.playing = false;
+            }
         }
 
         for (self.bus_ids.items) |bid| {
@@ -515,13 +582,7 @@ pub const AudioManager = struct {
         self.master.effects.process(self.master.mix[0..sample_count], out_channels, rate);
         self.applyBusGain(self.master.mix[0..sample_count], out_channels, self.master.volume, self.master.pan);
 
-        for (self.master.mix[0..sample_count]) |*s| {
-            if (s.* > 1.0) {
-                s.* = 1.0;
-            } else if (s.* < -1.0) {
-                s.* = -1.0;
-            }
-        }
+        for (self.master.mix[0..sample_count]) |*s| s.* = softClip(s.*);
         _ = pxl.saudio.push(&self.master.mix[0], @intCast(frames));
 
         self.reapEnded();
@@ -561,6 +622,29 @@ pub const AudioManager = struct {
         _ = self;
         if (pb.chunk.len > 0) pxl.mem.free(pb.chunk);
         pb.effects.deinit();
+    }
+
+    fn disposePlayback(self: *AudioManager, id: PlaybackId) void {
+        if (self.playbacks.get(id)) |pb| self.releasePlayback(pb);
+        self.playbacks.remove(id);
+        self.removeActive(id);
+    }
+
+    fn beginFade(self: *AudioManager, pb: *Playback, target: f32, seconds: f32) void {
+        pb.fade_target = target;
+        if (seconds <= 0) {
+            pb.fade = target;
+            pb.fade_step = 0;
+            return;
+        }
+        const step = 1.0 / (seconds * @as(f32, @floatFromInt(self.output_rate)));
+        pb.fade_step = if (target > pb.fade) step else -step;
+    }
+
+    fn advanceFade(self: *AudioManager, pb: *Playback, frames: usize) void {
+        _ = self;
+        if (pb.fade_step == 0) return;
+        pb.fade = std.math.clamp(pb.fade + pb.fade_step * @as(f32, @floatFromInt(frames)), 0, 1);
     }
 
     fn removeActive(self: *AudioManager, id: PlaybackId) void {
@@ -608,8 +692,9 @@ pub const AudioManager = struct {
         const channels: usize = @intCast(sound.channels);
         const ratio = @as(f64, @floatFromInt(sound.sample_rate)) / @as(f64, @floatFromInt(self.output_rate)) * @as(f64, pitch);
         const rate: f32 = @floatFromInt(self.output_rate);
-        const g_mono = monoPanGains(pb.pan, pb.volume);
-        const g_stereo = stereoPanGains(pb.pan, pb.volume);
+        const vol = pb.volume * pb.fade;
+        const g_mono = monoPanGains(pb.pan, vol);
+        const g_stereo = stereoPanGains(pb.pan, vol);
 
         var i: usize = 0;
         while (i < frames) : (i += 1) {
@@ -632,7 +717,7 @@ pub const AudioManager = struct {
                         const b = if (idx + 1 < sound.num_frames) samples[idx + 1] else a;
                         const s = a + (b - a) * frac;
                         if (out_channels == 1) {
-                            frame[0] = s * pb.volume;
+                            frame[0] = s * vol;
                         } else {
                             frame[0] = s * g_mono.l;
                             frame[1] = s * g_mono.r;
@@ -645,7 +730,7 @@ pub const AudioManager = struct {
                         const l = a0 + (b0 - a0) * frac;
                         const r = a1 + (b1 - a1) * frac;
                         if (out_channels == 1) {
-                            frame[0] = (l + r) * 0.5 * pb.volume;
+                            frame[0] = (l + r) * 0.5 * vol;
                         } else {
                             frame[0] = l * g_stereo.l;
                             frame[1] = r * g_stereo.r;
@@ -679,7 +764,7 @@ pub const AudioManager = struct {
                         const b = if (next) pb.chunk[idx_in + 1] else a;
                         const s = a + (b - a) * frac;
                         if (out_channels == 1) {
-                            frame[0] = s * pb.volume;
+                            frame[0] = s * vol;
                         } else {
                             frame[0] = s * g_mono.l;
                             frame[1] = s * g_mono.r;
@@ -692,7 +777,7 @@ pub const AudioManager = struct {
                         const l = a0 + (b0 - a0) * frac;
                         const r = a1 + (b1 - a1) * frac;
                         if (out_channels == 1) {
-                            frame[0] = (l + r) * 0.5 * pb.volume;
+                            frame[0] = (l + r) * 0.5 * vol;
                         } else {
                             frame[0] = l * g_stereo.l;
                             frame[1] = r * g_stereo.r;
@@ -850,4 +935,29 @@ test "stereoPanGains balances channels" {
     const right = stereoPanGains(1, 1);
     try std.testing.expectEqual(@as(f32, 0.0), right.l);
     try std.testing.expectEqual(@as(f32, 1.0), right.r);
+}
+
+test "softClip saturates smoothly instead of hard clipping" {
+    try std.testing.expectEqual(@as(f32, 0.0), softClip(0.0));
+    try std.testing.expect(softClip(1.0) < 1.0);
+    try std.testing.expect(softClip(-1.0) > -1.0);
+    try std.testing.expect(softClip(1000.0) < 1.001);
+}
+
+test "lowpass smooths alternating samples and caches its coefficient" {
+    pxl.mem.init();
+    defer pxl.mem.deinit();
+
+    var chain = EffectChain.empty;
+    defer chain.deinit();
+    chain.add(.{ .lowpass = .{ .cutoff = 100 } }, 44100);
+
+    var frame = [_]f32{ 1.0, -1.0 };
+    chain.processFrame(&frame, 2, 44100);
+    try std.testing.expect(@abs(frame[0]) < 1.0);
+    try std.testing.expect(@abs(frame[1]) < 1.0);
+
+    const inst = chain.get(.lowpass).?;
+    try std.testing.expect(inst.state.lowpass.a > 0);
+    try std.testing.expectEqual(@as(f32, 100.0), inst.state.lowpass.cutoff);
 }
