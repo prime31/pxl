@@ -46,6 +46,8 @@ build_tools: BuildTools,
 /// API Level is the target Android API Level
 /// ie. .android15 = 35 (android 15 uses API version 35)
 api_level: ApiLevel,
+/// Optional minimum Android API Level. When null, aapt2 defaults to 1.
+min_sdk_version: ?ApiLevel = null,
 key_store: ?KeyStore,
 android_manifest: ?LazyPath,
 artifacts: ArrayList(*Step.Compile),
@@ -70,6 +72,10 @@ pub const Options = struct {
     /// - System libraries:  $ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/$HOST_OS/sysroot/usr/lib/$TARGET_ARCH/$ANDROID_API_LEVEL
     /// - Platform tool jar: $ANDROID_HOME/platforms/android-ANDROID_API_LEVEL
     api_level: ApiLevel,
+    /// Optional minimum Android API Level for the APK (aapt2 defaults to 1
+    /// when unset). Set this when a dependency requires a newer platform,
+    /// e.g. sokol-audio's AAudio backend needs API 26+.
+    min_sdk_version: ?ApiLevel = null,
 };
 
 pub fn create(sdk: *Sdk, options: Options) *Apk {
@@ -103,6 +109,7 @@ pub fn create(sdk: *Sdk, options: Options) *Apk {
         .ndk = ndk,
         .build_tools = build_tools,
         .api_level = options.api_level,
+        .min_sdk_version = options.min_sdk_version,
         .key_store = null,
         .android_manifest = null,
         .precompiled_library_files = .empty,
@@ -347,6 +354,18 @@ fn doInstallApk(apk: *Apk) Allocator.Error!*Step.InstallFile {
             "--target-sdk-version",
             b.fmt("{d}", .{@intFromEnum(apk.api_level)}),
         });
+
+        // aapt2 defaults minSdkVersion to 1 when neither the manifest nor a
+        // flag declares it, which lets the APK install on ancient devices
+        // where platform libs (e.g. libaaudio.so on API < 26) don't exist —
+        // the app then dies at load with an unresolved symbol. Declare the
+        // floor explicitly so such devices refuse the install instead.
+        if (apk.min_sdk_version) |min_sdk| {
+            aapt2link.addArgs(&[_][]const u8{
+                "--min-sdk-version",
+                b.fmt("{d}", .{@intFromEnum(min_sdk)}),
+            });
+        }
 
         // NOTE(jae): 2024-10-02
         // Explored just outputting to dir but it gets errors like:

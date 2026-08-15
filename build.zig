@@ -279,6 +279,11 @@ fn buildAndroid(b: *Build, optimize: OptimizeMode, android_targets: []ResolvedTa
         const apk = android_sdk.createApk(.{
             .name = example.name,
             .api_level = .android15,
+            // sokol-audio's Android backend is AAudio, which only exists on
+            // API 26+. Without a min-sdk floor aapt2 defaults to 1 and the
+            // APK installs on older devices, then crashes at load with
+            // "cannot locate symbol AAudio_createStreamBuilder".
+            .min_sdk_version = .android8,
             .build_tools_version = "35.0.1",
             .ndk_version = "30.0.15729638",
         });
@@ -360,6 +365,12 @@ fn buildAndroid(b: *Build, optimize: OptimizeMode, android_targets: []ResolvedTa
             lib.root_module.linkSystemLibrary("EGL", .{});
             lib.root_module.linkSystemLibrary("android", .{});
             lib.root_module.linkSystemLibrary("log", .{});
+            // sokol-audio's Android backend calls the AAudio API. Without this
+            // link the symbols stay undefined in libmain.so and bionic can't
+            // resolve them at dlopen ("cannot locate symbol
+            // AAudio_createStreamBuilder") even on API 26+ devices — DT_NEEDED
+            // libaaudio.so is what makes the linker load the platform library.
+            lib.root_module.linkSystemLibrary("aaudio", .{});
             apk.addArtifact(lib);
         }
 

@@ -138,16 +138,14 @@ fn currentPosition() f32 {
 }
 
 pub fn setup() !void {
-    std.debug.print("vorbis: setup begin\n", .{});
     try scanTracks();
-    std.debug.print("vorbis: track_count={d}\n", .{track_count});
-    try mixer.init(pxl.mem.allocator);
+    try mixer.init();
     if (track_count > 0) playTrack(0);
 }
 
 pub fn shutdown() !void {
     if (sfx_samples) |s| pxl.mem.free(s);
-    mixer.deinit(pxl.mem.allocator);
+    mixer.deinit();
     for (0..track_count) |i| {
         const t = tracks[i].?;
         pxl.mem.free(t.name);
@@ -159,15 +157,20 @@ pub fn shutdown() !void {
 
 // --- microui helpers --------------------------------------------------------
 
-/// Layout a row of `count` equal-width items spanning the window body.
-/// microui's `-1` width means "fill the *remaining* row width", so using
-/// several `-1`s in one row makes the first item eat the whole row and
-/// pushes the rest off screen — compute explicit widths instead.
+/// Layout a row of `count` equal-width items spanning the available row
+/// width. microui's `-1` width means "fill the *remaining* row width", so
+/// using several `-1`s in one row makes the first item eat the whole row
+/// and pushes the rest off screen — compute explicit widths instead.
 fn equalWidths(count: usize, out: *[4]c_int) c_int {
     const body = mu.getCurrentContainer().*.body;
     const spacing = mu.mu_ctx.style.*.spacing;
+    // Rows inside a header/treenode are indented by the current layout's
+    // indent; subtract it so the row doesn't overflow the right edge.
+    const layout = mu.mu_ctx.layout_stack.items[@intCast(mu.mu_ctx.layout_stack.idx - 1)];
+    const indent = layout.indent;
     const n: c_int = @intCast(count);
-    const w = @divTrunc(body.w - spacing * (n - 1), n);
+    const avail = body.w - indent - spacing * (n - 1);
+    const w = @max(1, @divTrunc(avail, n));
     for (0..count) |i| out[i] = w;
     return n;
 }
@@ -206,7 +209,8 @@ pub fn update() !void {
         for (0..track_count) |i| {
             const t = tracks[i].?;
             mu.layoutRow(2, &[_]c_int{ 24, -1 }, 0);
-            mu.label(if (i == current) "▶" else " ");
+            mu.label(if (i == current) "=>" else " ");
+
             var name_buf: [256]u8 = undefined;
             const duration = @as(f32, @floatFromInt(t.stream.num_samples)) / @as(f32, @floatFromInt(t.stream.sample_rate));
             const name = std.fmt.bufPrintZ(&name_buf, "{s}  ({d:.1}s)", .{ t.name, duration }) catch "?";

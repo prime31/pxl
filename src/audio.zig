@@ -60,22 +60,20 @@ pub const PlayOptions = struct {
 };
 
 pub const Mixer = struct {
-    /// Set by `init`; only valid after that.
-    allocator: std.mem.Allocator = undefined,
     output_rate: u32 = 44100,
     voices: [MaxVoices]Voice = [_]Voice{.{}} ** MaxVoices,
     /// Scratch space for one mixed push.
     mix: []f32 = &.{},
 
-    pub fn init(self: *Mixer, allocator: std.mem.Allocator) !void {
-        self.* = .{ .allocator = allocator };
+    pub fn init(self: *Mixer) !void {
+        self.* = .{};
         self.output_rate = @intCast(pxl.saudio.sampleRate());
-        self.mix = try allocator.alloc(f32, ChunkFrames);
+        self.mix = pxl.mem.alloc(f32, ChunkFrames, .persistent);
     }
 
-    pub fn deinit(self: *Mixer, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *Mixer) void {
         self.stopAll();
-        allocator.free(self.mix);
+        pxl.mem.free(self.mix);
         self.* = undefined;
     }
 
@@ -106,7 +104,7 @@ pub const Mixer = struct {
             .volume = opts.volume,
             .loop = opts.loop,
         };
-        v.chunk = try self.allocator.alloc(f32, ChunkFrames * stream.channels);
+        v.chunk = pxl.mem.alloc(f32, ChunkFrames * stream.channels, .persistent);
         return idx;
     }
 
@@ -165,9 +163,9 @@ pub const Mixer = struct {
     }
 
     /// Free stream resources and reset the voice to inactive.
-    fn deactivateVoice(self: *Mixer, v: *Voice) void {
+    fn deactivateVoice(_: *Mixer, v: *Voice) void {
         if (v.active and v.source == .stream and v.chunk.len > 0) {
-            self.allocator.free(v.chunk);
+            pxl.mem.free(v.chunk);
         }
         v.* = .{};
     }

@@ -84,15 +84,20 @@ fn waveButton(label: [:0]const u8, wave: sfxr.WaveType) void {
     }
 }
 
-/// Layout a row of `count` equal-width items spanning the window body.
-/// microui's `-1` width means "fill the *remaining* row width", so using
-/// several `-1`s in one row makes the first item eat the whole row and
-/// pushes the rest off screen — compute explicit widths instead.
+/// Layout a row of `count` equal-width items spanning the available row
+/// width. microui's `-1` width means "fill the *remaining* row width", so
+/// using several `-1`s in one row makes the first item eat the whole row
+/// and pushes the rest off screen — compute explicit widths instead.
 fn equalWidths(count: usize, out: *[4]c_int) c_int {
     const body = mu.getCurrentContainer().*.body;
     const spacing = mu.mu_ctx.style.*.spacing;
+    // Rows inside a header/treenode are indented by the current layout's
+    // indent; subtract it so the row doesn't overflow the right edge.
+    const layout = mu.mu_ctx.layout_stack.items[@intCast(mu.mu_ctx.layout_stack.idx - 1)];
+    const indent = layout.indent;
     const n: c_int = @intCast(count);
-    const w = @divTrunc(body.w - spacing * (n - 1), n);
+    const avail = body.w - indent - spacing * (n - 1);
+    const w = @max(1, @divTrunc(avail, n));
     for (0..count) |i| out[i] = w;
     return n;
 }
