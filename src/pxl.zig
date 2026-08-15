@@ -137,7 +137,7 @@ export fn sokolInit() void {
 
     audio.init(cfg.audio);
 
-    mu.setup();
+    mu.init();
 
     // optionally, initialize sokol-imgui
     if (has_imgui) {

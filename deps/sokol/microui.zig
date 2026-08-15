@@ -1,11 +1,23 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const sg = @import("sokol").app;
 
 // render methods
 pub extern var mu_ctx: mu_Context;
 
-pub fn setup() void {
+pub fn init() void {
     r_init();
+
+    if (builtin.target.abi.isAndroid()) {
+        mu_ctx._style.size.x *= 2;
+        mu_ctx._style.size.y *= 2;
+        mu_ctx._style.thumb_size *= 2;
+        mu_ctx._style.scrollbar_size *= 2;
+        mu_ctx._style.title_height *= 2;
+        mu_ctx._style.padding *= 2;
+        mu_ctx._style.spacing *= 2;
+        mu_ctx._style.indent *= 2;
+    }
 }
 
 pub fn handleEvent(ev: [*c]const sg.Event) bool {
@@ -278,7 +290,7 @@ pub extern fn mu_vec2(x: c_int, y: c_int) mu_Vec2;
 pub extern fn mu_rect(x: c_int, y: c_int, w: c_int, h: c_int) mu_Rect;
 pub extern fn mu_color(r: c_int, g: c_int, b: c_int, a: c_int) mu_Color;
 
-pub fn init() void {
+pub fn muInit() void {
     mu_init(&mu_ctx);
 }
 extern fn mu_init(ctx: [*c]mu_Context) void;
