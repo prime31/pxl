@@ -12,8 +12,8 @@ const Color = pxl.math.Color;
 const Texture = pxl.gpu.Texture;
 
 const cell_size = 34;
-var sprites_tex: Texture = undefined;
-var tiles_tex: Texture = undefined;
+var sprites_tex: *Texture = undefined;
+var tiles_tex: *Texture = undefined;
 var parsed_sprites: []Sprite = undefined;
 
 var sprite_animations: SpriteAnimations = .{};
@@ -30,11 +30,11 @@ pub fn config() pxl.Config {
 }
 
 pub fn setup() !void {
-    sprites_tex = try Texture.initFromFile("examples/assets/sprites.png");
-    tiles_tex = try Texture.initFromFile("examples/assets/blacknwhite.png");
+    sprites_tex = try pxl.assets.loadTexture(.sprites);
+    tiles_tex = try pxl.assets.loadTexture(.blacknwhite);
 
-    parsed_sprites = generateSprites(sprites_tex, cell_size, cell_size, 0, 0, 0, 1000);
-    const parsed_tiles = generateSprites(tiles_tex, 12, 12, 1, 1, 21, 4);
+    parsed_sprites = generateSprites(sprites_tex.*, cell_size, cell_size, 0, 0, 0, 1000);
+    const parsed_tiles = generateSprites(tiles_tex.*, 12, 12, 1, 1, 21, 4);
     sprite_animations.sprites.appendSlice(parsed_tiles);
     pxl.mem.free(parsed_tiles);
 
@@ -44,8 +44,8 @@ pub fn setup() !void {
 }
 
 pub fn shutdown() !void {
-    sprites_tex.deinit();
-    tiles_tex.deinit();
+    pxl.assets.destroy(sprites_tex);
+    pxl.assets.destroy(tiles_tex);
     pxl.mem.free(parsed_sprites);
     sprite_animations.animations.deinit();
     sprite_animations.sprites.deinit();

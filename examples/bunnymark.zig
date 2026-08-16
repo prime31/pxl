@@ -15,8 +15,8 @@ const Crab = struct {
 // stress tests the batcher by forcing batches with texture swaps
 const flip_tex_every_count = 20;
 
-var tex1: pxl.gpu.Texture = undefined;
-var tex2: pxl.gpu.Texture = undefined;
+var tex1: *pxl.gpu.Texture = undefined;
+var tex2: *pxl.gpu.Texture = undefined;
 var crabs: pxl.util.Vec(Crab) = .empty;
 
 pub fn config() pxl.Config {
@@ -32,8 +32,8 @@ pub fn config() pxl.Config {
 }
 
 pub fn setup() !void {
-    tex1 = try pxl.gpu.Texture.initFromFile("examples/assets/ferris_smol.png");
-    tex2 = try pxl.gpu.Texture.initFromFile("examples/assets/zig.png");
+    tex1 = try pxl.assets.loadTexture(.ferris_smol);
+    tex2 = try pxl.assets.loadTexture(.zig);
 
     const w: f32 = @floatFromInt(pxl.sapp.width());
     const h: f32 = @floatFromInt(pxl.sapp.height());
@@ -42,8 +42,8 @@ pub fn setup() !void {
 }
 
 pub fn shutdown() !void {
-    tex1.deinit();
-    tex2.deinit();
+    pxl.assets.destroy(tex1);
+    pxl.assets.destroy(tex2);
     crabs.deinit();
 }
 
@@ -81,7 +81,7 @@ pub fn update() !void {
 pub fn render() !void {
     pxl.beginPass(.{ .clear_color = pxl.math.Color.dark_gray });
     for (crabs.items, 0..) |*crab, i| {
-        const t = if (@mod(i, flip_tex_every_count) == 0) tex1 else tex2;
+        const t = if (@mod(i, flip_tex_every_count) == 0) tex1.* else tex2.*;
         api.drawTexture(t, crab.pos);
     }
     pxl.endPass();

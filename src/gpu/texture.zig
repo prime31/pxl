@@ -63,13 +63,19 @@ pub const Texture = extern struct {
         return .{ .width = width, .height = height, .img = sg.makeImage(img_desc) };
     }
 
+    pub fn initFromMemory(pixels: []const u8) !Texture {
+        var img = try pxl.stb.Image.loadFromMemory(pixels, 4);
+        defer img.deinit();
+        return Texture.initWithData(img.data, @intCast(img.width), @intCast(img.height));
+    }
+
     pub fn initFromFile(file: [:0]const u8) !Texture {
         // On Android assets live inside the APK and can't be opened by path, so
         // fetch the bytes through pxl.fs (AAssetManager) and decode from memory.
-        var img = if (builtin.target.abi.isAndroid())
-            try pxl.stb.Image.loadFromMemory(try pxl.fs.read(file, .temp), 4)
-        else
-            try pxl.stb.Image.loadFromFile(file, 4);
+        if (builtin.target.abi.isAndroid())
+            return initFromMemory(try pxl.fs.read(file, .temp));
+
+        var img = try pxl.stb.Image.loadFromFile(file, 4);
         defer img.deinit();
         return Texture.initWithData(img.data, @intCast(img.width), @intCast(img.height));
     }

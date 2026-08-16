@@ -50,8 +50,7 @@ const air_accel_rate: f32 = 9.5; // vel.x lerp ~0.15/frame in the air
 const ground_friction_rate: f32 = 12; // idle deceleration while grounded
 const tile_size: f32 = 12; // collision IntGrid tile size in px
 
-var map: LDtk = undefined;
-var textures: std.AutoHashMap(i64, Texture) = undefined;
+var map: *LDtk = undefined;
 var collision: LDtk.LayerInstance = undefined; // IntGrid layer used for collision
 var map_w: f32 = 264;
 var map_h: f32 = 264;
@@ -60,6 +59,8 @@ var camera: pxl.Camera = .{ .position = .init(140, 190), .zoom = 2.0, .rotation 
 var follow_cam: bool = true;
 var show_debug: bool = true;
 var slugcat: Slugcat = .{};
+
+var textures: std.AutoHashMap(i64, Texture) = undefined;
 
 // ---------------------------------------------------------------------------
 // Small vector helpers (Rain World's Custom.* equivalents)
@@ -566,8 +567,8 @@ const Slugcat = struct {
         }
 
         // --- physics ---
-        self.chunks[0].update(&map, dt);
-        self.chunks[1].update(&map, dt);
+        self.chunks[0].update(map, dt);
+        self.chunks[1].update(map, dt);
 
         // --- pose constraint: pin the head chunk to its pose position
         // relative to the lower chunk. Standing = straight up over the hips
@@ -931,18 +932,23 @@ pub fn config() pxl.Config {
 
 pub fn setup() !void {
     textures = std.AutoHashMap(i64, Texture).init(pxl.mem.allocator);
-
-    map = try LDtk.parse(try pxl.fs.read("examples/assets/maps/tiny_tiles.ldtk", .temp));
+    map = try pxl.assets.loadTilemap(.tiny_tiles);
     if (map.root.defs) |defs| {
         for (defs.tilesets) |tileset| {
             if (tileset.relPath) |rel_path| {
-                const path = try std.mem.concatWithSentinel(pxl.mem.scratch, u8, &.{ "examples/assets/maps/", rel_path }, 0);
-                const tex = try Texture.initFromFile(path);
-                try textures.put(tileset.uid, tex);
+                var path_buf: [512]u8 = undefined;
+                const path = std.fmt.bufPrintZ(&path_buf, "assets/maps/{s}", .{rel_path}) catch return error.NameTooLong;
+                const id = pxl.assets.findTextureId(path) orelse {
+                    std.debug.print("tileset texture not in asset manifest: {s}\n", .{path});
+                    return error.AssetNotFound;
+                };
+                const tex = try pxl.assets.loadTexture(id);
+                try textures.put(tileset.uid, tex.*);
             } else if (tileset.embedAtlas) |atlas| {
                 if (atlas == .LdtkIcons) {
-                    const tex = try Texture.initFromFile("examples/assets/maps/ldtk_icons.png");
-                    try textures.put(tileset.uid, tex);
+                    const id = pxl.assets.findTextureId("assets/maps/ldtk_icons.png") orelse return error.AssetNotFound;
+                    const tex = try pxl.assets.loadTexture(id);
+                    try textures.put(tileset.uid, tex.*);
                 }
             }
         }
@@ -1066,8 +1072,8 @@ pub fn render() !void {
 }
 
 pub fn shutdown() !void {
-    map.deinit();
     textures.deinit();
+    pxl.assets.destroy(map);
 }
 
 /// Main level rendering routine (from the ldtk example).

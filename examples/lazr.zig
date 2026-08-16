@@ -89,11 +89,13 @@ const anim_dash_diag_down = Anim{ .cells = &.{ .{ .x = 4, .y = 6 }, .{ .x = 5, .
 const anim_dash_diag_up = Anim{ .cells = &.{ .{ .x = 8, .y = 6 }, .{ .x = 9, .y = 6 } }, .fps = 12 };
 const anim_dash_none = Anim{ .cells = &.{.{ .x = 15, .y = 5 }}, .fps = 1 };
 
-var map: LDtk = undefined;
-var textures: std.AutoHashMap(i64, Texture) = undefined;
+var map: *LDtk = undefined;
 var collision: LayerInstance = undefined;
-var hero_tex: Texture = undefined;
+var hero_tex: *Texture = undefined;
 var hero: Hero = .{};
+
+var textures: std.AutoHashMap(i64, Texture) = undefined;
+
 var camera: pxl.Camera = .{ .position = .init(320, 168), .zoom = 1.0, .rotation = 0 };
 var show_debug: bool = true;
 
@@ -424,7 +426,7 @@ const Hero = struct {
         self.vel.x = clampf(self.vel.x, -max_x, max_x);
         self.vel.y = clampf(self.vel.y, -feel.max_fall, feel.max_fall);
 
-        moveBody(&map, &self.rect, &self.state, self.vel, collision);
+        moveBody(map, &self.rect, &self.state, self.vel, collision);
 
         if (self.state.below and self.vel.y > 0) self.vel.y = 0;
         if (self.state.above and self.vel.y < 0) self.vel.y = 0;
@@ -511,24 +513,29 @@ pub fn config() pxl.Config {
 
 pub fn setup() !void {
     textures = std.AutoHashMap(i64, Texture).init(pxl.mem.allocator);
-
-    map = try LDtk.parse(try pxl.fs.read("examples/assets/maps/ldtk.ldtk", .temp));
+    map = try pxl.assets.loadTilemap(.ldtk);
     if (map.root.defs) |defs| {
         for (defs.tilesets) |tileset| {
             if (tileset.relPath) |rel_path| {
-                const path = try std.mem.concatWithSentinel(pxl.mem.scratch, u8, &.{ "examples/assets/maps/", rel_path }, 0);
-                const tex = try Texture.initFromFile(path);
-                try textures.put(tileset.uid, tex);
+                var path_buf: [512]u8 = undefined;
+                const path = std.fmt.bufPrintZ(&path_buf, "assets/maps/{s}", .{rel_path}) catch return error.NameTooLong;
+                const id = pxl.assets.findTextureId(path) orelse {
+                    std.debug.print("tileset texture not in asset manifest: {s}\n", .{path});
+                    return error.AssetNotFound;
+                };
+                const tex = try pxl.assets.loadTexture(id);
+                try textures.put(tileset.uid, tex.*);
             } else if (tileset.embedAtlas) |atlas| {
                 if (atlas == .LdtkIcons) {
-                    const tex = try Texture.initFromFile("examples/assets/maps/ldtk_icons.png");
-                    try textures.put(tileset.uid, tex);
+                    const id = pxl.assets.findTextureId("assets/maps/ldtk_icons.png") orelse return error.AssetNotFound;
+                    const tex = try pxl.assets.loadTexture(id);
+                    try textures.put(tileset.uid, tex.*);
                 }
             }
         }
     }
 
-    hero_tex = try Texture.initFromFile("examples/assets/atlases/sheet_hero_body1.png");
+    hero_tex = try pxl.assets.loadTexture(.sheet_hero_body1);
 
     // The IntGrid layer is the collision source (index 2 in ldtk.ldtk).
     for (map.root.levels[0].layerInstances.?) |layer| {
@@ -653,13 +660,13 @@ fn drawHero() void {
     const cell = hero.currentCell();
     const src = Rect.init(@as(f32, @floatFromInt(cell.x)) * 16, @as(f32, @floatFromInt(cell.y)) * 32, 16, 32);
     const feet = Vec2.init(hero.rect.center().x, hero.rect.bottom());
-    api.drawSprite(.{ .texture = hero_tex, .source = src, .flip_x = hero.facing > 0 }, .{ .pos = feet, .origin = .bottom_center, .scale = .one });
+    api.drawSprite(.{ .texture = hero_tex.*, .source = src, .flip_x = hero.facing > 0 }, .{ .pos = feet, .origin = .bottom_center, .scale = .one });
 }
 
 pub fn shutdown() !void {
-    map.deinit();
     textures.deinit();
-    hero_tex.deinit();
+    pxl.assets.destroy(map);
+    pxl.assets.destroy(hero_tex);
 }
 
 fn renderLevel(level: LDtk.Level) void {

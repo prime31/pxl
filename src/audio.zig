@@ -452,6 +452,14 @@ pub const AudioManager = struct {
         if (self.findSoundByPath(path)) |id| return id;
         const bytes = try pxl.fs.read(path, .persistent);
         defer pxl.mem.free(bytes);
+        return self.loadFromMemory(path, bytes, opts);
+    }
+
+    /// Load a sound from in-memory bytes instead of the filesystem. The bytes
+    /// are copied on both the streamed and decoded paths, so static/embedded
+    /// buffers are safe. `path` is only used as the dedup key.
+    pub fn loadFromMemory(self: *AudioManager, path: []const u8, bytes: []const u8, opts: LoadOptions) !SoundId {
+        if (self.findSoundByPath(path)) |id| return id;
 
         var sound: Sound = undefined;
         if (opts.streamed) {

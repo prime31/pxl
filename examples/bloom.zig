@@ -5,7 +5,7 @@ const mu = pxl.mu;
 const Vec2 = pxl.math.Vec2;
 const Color = pxl.math.Color;
 
-var ferris: pxl.gpu.Texture = undefined;
+var ferris: *pxl.gpu.Texture = undefined;
 
 pub fn config() pxl.Config {
     return .{
@@ -40,11 +40,11 @@ pub fn update() !void {
 }
 
 pub fn setup() !void {
-    ferris = try pxl.gpu.Texture.initFromFile("examples/assets/ferris_smol.png");
+    ferris = try pxl.assets.loadTexture(.ferris_smol);
 }
 
 pub fn shutdown() !void {
-    ferris.deinit();
+    pxl.assets.destroy(ferris);
 }
 
 pub fn render() !void {
@@ -77,7 +77,7 @@ pub fn render() !void {
 
     api.setBlendMode(.blend);
     api.drawSprite(
-        .{ .texture = ferris, .color = Color.fromBytes(255, 245, 180, 255) },
+        .{ .texture = ferris.*, .color = Color.fromBytes(255, 245, 180, 255) },
         .{ .pos = .init(cx, cy), .origin = .center, .scale = .init(scene_scale, scene_scale) },
     );
 

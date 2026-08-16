@@ -16,16 +16,16 @@ const Track = struct {
     duration: f64,
 };
 
-/// Auto-discovered .ogg files in examples/assets.
+/// Auto-discovered .ogg files in assets/.
 var tracks: [MaxTracks]?Track = [_]?Track{null} ** MaxTracks;
 var track_count: usize = 0;
 
 var scan_error: ?[:0]const u8 = null;
 var scan_error_buf: [256]u8 = undefined;
 
-/// Find every .ogg in examples/assets and load it as a streamed sound.
+/// Find every .ogg in assets/ and load it as a streamed sound.
 fn scanTracks() !void {
-    var dir = try std.Io.Dir.openDir(.cwd(), pxl.io, "examples/assets", .{ .iterate = true });
+    var dir = try std.Io.Dir.openDir(.cwd(), pxl.io, "assets", .{ .iterate = true });
     defer dir.close(pxl.io);
 
     var iter = dir.iterate();
@@ -35,7 +35,7 @@ fn scanTracks() !void {
         if (!std.mem.endsWith(u8, entry.name, ".ogg")) continue;
 
         var path_buf: [512]u8 = undefined;
-        const path = std.fmt.bufPrint(&path_buf, "examples/assets/{s}", .{entry.name}) catch continue;
+        const path = std.fmt.bufPrint(&path_buf, "assets/{s}", .{entry.name}) catch continue;
 
         const sound = pxl.audio.load(path, .{ .streamed = true }) catch |err| {
             scan_error = std.fmt.bufPrintZ(&scan_error_buf, "Failed to load {s}: {s}", .{ entry.name, @errorName(err) }) catch null;
@@ -51,7 +51,7 @@ fn scanTracks() !void {
     }
 
     if (track_count == 0) {
-        scan_error = "No .ogg files found in examples/assets";
+        scan_error = "No .ogg files found in assets/";
     } else {
         std.debug.print("vorbis: found {d} ogg track(s): ", .{track_count});
         for (0..track_count) |i| std.debug.print("{s} ", .{tracks[i].?.name});

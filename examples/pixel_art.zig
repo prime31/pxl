@@ -7,7 +7,7 @@ const Color = pxl.math.Color;
 const Rect = pxl.math.Rect;
 
 var worm: Worm = .{};
-var ferris: pxl.gpu.Texture = undefined;
+var ferris: *pxl.gpu.Texture = undefined;
 var camera: pxl.Camera = .{
     .position = .init(160, 90),
     .zoom = 1.0,
@@ -128,11 +128,11 @@ pub fn config() pxl.Config {
 }
 
 pub fn setup() !void {
-    ferris = try pxl.gpu.Texture.initFromFile("examples/assets/ferris_smol.png");
+    ferris = try pxl.assets.loadTexture(.ferris_smol);
 }
 
 pub fn shutdown() !void {
-    ferris.deinit();
+    pxl.assets.destroy(ferris);
 }
 
 pub fn update() !void {
@@ -186,7 +186,7 @@ pub fn render() !void {
     // Draw center rect & pixel art ferris
     api.drawRectEx(.init(160, 90), .init(40, 40), .center, Color.sky_blue);
     api.drawSprite(
-        .{ .texture = ferris },
+        .{ .texture = ferris.* },
         .{
             .pos = .init(160, 90),
             .origin = .center,

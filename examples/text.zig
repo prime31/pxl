@@ -8,14 +8,14 @@ const Color = pxl.math.Color;
 const BMFont = pxl.text.BMFont;
 const TextLayoutIterator = pxl.text.TextLayoutIterator;
 
-var kiwi_font: pxl.text.BMFont = undefined;
+var kiwi_font: *pxl.text.BMFont = undefined;
 
 pub fn setup() !void {
-    kiwi_font = try BMFont.initFromFile("examples/assets/kiwisoda.fnt");
+    kiwi_font = try pxl.assets.loadFont(.kiwisoda);
 }
 
 pub fn shutdown() !void {
-    kiwi_font.deinit();
+    pxl.assets.destroy(kiwi_font);
 }
 
 pub fn render() !void {

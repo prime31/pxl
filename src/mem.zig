@@ -73,9 +73,12 @@ const WasmAllocator = struct {
     extern "c" fn malloc(size: usize) ?*anyopaque;
     extern "c" fn free(ptr: ?*anyopaque) void;
 
-    fn allocator(_: *const Self) std.mem.Allocator {
+    fn allocator(self: *const Self) std.mem.Allocator {
         return .{
-            .ptr = undefined,
+            // The ctx pointer is passed back to every vtable method; it must be a
+            // real address. `undefined` (0xaa fill in debug) poisons the wasm
+            // backend's indirect dispatch and can make the call_indirect trap.
+            .ptr = @ptrCast(@constCast(self)),
             .vtable = &.{
                 .alloc = Self.alloc,
                 .resize = std.mem.Allocator.noResize,
@@ -113,7 +116,7 @@ const ScratchAllocator = struct {
     buffer: []u8,
 
     pub fn init(backing_allocator: std.mem.Allocator) ScratchAllocator {
-        const scratch_buffer = backing_allocator.alloc(u8, 2 * 1024 * 1024) catch unreachable;
+        const scratch_buffer = backing_allocator.alignedAlloc(u8, .@"16", 2 * 1024 * 1024) catch unreachable;
 
         return ScratchAllocator{
             .backup_allocator = backing_allocator,
@@ -142,7 +145,10 @@ const ScratchAllocator = struct {
         const self = @as(*ScratchAllocator, @ptrCast(@alignCast(ctx)));
         _ = ret_addr;
 
-        const ptr_align = @as(usize, 1) << @as(std.mem.Allocator.Log2Align, @intFromEnum(alignment));
+        // Round every allocation up to 16 bytes. wasm's SAFE_HEAP traps on
+        // misaligned loads/stores, so handing back a byte-aligned arena
+        // pointer that callers later reinterpret as wider types faults.
+        const ptr_align = @max(@as(usize, 1) << @as(std.mem.Allocator.Log2Align, @intFromEnum(alignment)), 16);
         const addr = @intFromPtr(self.buffer.ptr) + self.end_index;
         const adjusted_addr = std.mem.alignForward(usize, addr, ptr_align);
         const adjusted_index = self.end_index + (adjusted_addr - addr);

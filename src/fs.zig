@@ -7,10 +7,10 @@ const Dir = std.Io.Dir;
 
 /// On Android the bundled assets live inside the APK and must be read through
 /// the AAssetManager, not the real filesystem. Engine code refers to them with
-/// a source-tree-relative prefix (e.g. "examples/assets/..."), and the APK build
-/// packs the contents of that folder at the assets root, so we strip the prefix
+/// a source-tree-relative prefix (e.g. "assets/..."), and the APK build packs
+/// the contents of that folder at the assets root, so we strip the prefix
 /// before handing the name to the asset manager.
-pub const android_asset_root = "examples/assets/";
+pub const android_asset_root = "assets/";
 
 const AndroidAssetKit = struct {
     const AAsset = opaque {};

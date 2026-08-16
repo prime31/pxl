@@ -10,14 +10,15 @@ const Rect = pxl.math.Rect;
 const Color = pxl.math.Color;
 const Vec2 = pxl.math.Vec2;
 
-var map: LDtk = undefined;
-var textures: std.AutoHashMap(i64, Texture) = undefined;
+var map: *LDtk = undefined;
 var player: pxl.tilemap.Player = .{};
 var camera: pxl.Camera = .{
     .position = .init(160, 90),
     .zoom = 1.0,
     .rotation = 0,
 };
+
+var textures: std.AutoHashMap(i64, Texture) = undefined;
 
 /// Renders "yes" when a collision-state bool is set, otherwise "-".
 fn stateMark(b: bool) []const u8 {
@@ -40,19 +41,24 @@ pub fn config() pxl.Config {
 
 pub fn setup() !void {
     textures = std.AutoHashMap(i64, Texture).init(pxl.mem.allocator);
-
-    // map = try LDtk.parse(try pxl.fs.read("examples/assets/maps/ldtk.ldtk", .persistent));
-    map = try LDtk.parse(try pxl.fs.read("examples/assets/maps/tiny_tiles.ldtk", .temp));
+    // map = try pxl.assets.loadTilemap(.ldtk);
+    map = try pxl.assets.loadTilemap(.tiny_tiles);
     if (map.root.defs) |defs| {
         for (defs.tilesets) |tileset| {
             if (tileset.relPath) |rel_path| {
-                const path = try std.mem.concatWithSentinel(pxl.mem.scratch, u8, &.{ "examples/assets/maps/", rel_path }, 0);
-                const tex = try Texture.initFromFile(path);
-                try textures.put(tileset.uid, tex);
+                var path_buf: [512]u8 = undefined;
+                const path = std.fmt.bufPrintZ(&path_buf, "assets/maps/{s}", .{rel_path}) catch return error.NameTooLong;
+                const id = pxl.assets.findTextureId(path) orelse {
+                    std.debug.print("tileset texture not in asset manifest: {s}\n", .{path});
+                    return error.AssetNotFound;
+                };
+                const tex = try pxl.assets.loadTexture(id);
+                try textures.put(tileset.uid, tex.*);
             } else if (tileset.embedAtlas) |atlas| {
                 if (atlas == .LdtkIcons) {
-                    const tex = try Texture.initFromFile("examples/assets/maps/ldtk_icons.png");
-                    try textures.put(tileset.uid, tex);
+                    const id = pxl.assets.findTextureId("assets/maps/ldtk_icons.png") orelse return error.AssetNotFound;
+                    const tex = try pxl.assets.loadTexture(id);
+                    try textures.put(tileset.uid, tex.*);
                 }
             }
         }
@@ -88,7 +94,7 @@ pub fn update() !void {
     // `.square` keeps the fractional analog magnitude (unlike `.digital`, which
     // would snap everything to 1.0 and throw away sub-pixel joystick input).
     const move = input.getVector("left", "right", "up", "down", .square);
-    player.move(&map, move);
+    player.move(map, move);
 
     if (mu.beginWindowEx("Camera Controls", .{ .x = 10, .y = 10, .w = 220, .h = 300 }, .{ .align_center = false })) {
         mu.layoutRow(2, &[_]c_int{ 95, -1 }, 0);
@@ -131,8 +137,8 @@ pub fn render() !void {
 }
 
 pub fn shutdown() !void {
-    map.deinit();
     textures.deinit();
+    pxl.assets.destroy(map);
 }
 
 /// Main level rendering routine

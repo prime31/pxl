@@ -3,7 +3,7 @@ const pxl = @import("pxl");
 const api = pxl.api;
 const sg = pxl.sg;
 
-var ferris: pxl.gpu.Texture = undefined;
+var ferris: *pxl.gpu.Texture = undefined;
 
 // gp_example (ferris SDF) shader, driven through the batcher to test the uniform path
 var shader_pip: ?sg.Pipeline = null;
@@ -11,7 +11,7 @@ var vs_uniform: pxl.shaders.GpExampleVsUniforms = undefined;
 var fs_uniform: pxl.shaders.GpExampleFsUniforms = undefined;
 
 pub fn setup() !void {
-    ferris = try pxl.gpu.Texture.initFromFile("examples/assets/ferris_smol.png");
+    ferris = try pxl.assets.loadTexture(.ferris_smol);
 }
 
 pub fn render() !void {
@@ -30,7 +30,7 @@ pub fn render() !void {
     // atlas path: draw only the left half of the texture as a sub-region
     api.drawSprite(
         .{
-            .texture = ferris,
+            .texture = ferris.*,
             .source = .{
                 .x = 0,
                 .y = 0,
@@ -60,7 +60,7 @@ pub fn render() !void {
         const pos = pxl.math.Vec2.init(grid_origin.x + col * gstep, grid_origin.y + row * gstep);
         api.drawRectOutlineEx(pos, .init(sw, sh), anchor, 2, pxl.math.Color.red);
         api.drawSprite(
-            .{ .texture = ferris },
+            .{ .texture = ferris.* },
             .{ .pos = pos, .origin = anchor, .rotation = t, .scale = .init(pulse, pulse) },
         );
         api.drawPoint(pos, 6, pxl.math.Color.red);
@@ -100,5 +100,5 @@ pub fn render() !void {
 }
 
 pub fn shutdown() !void {
-    ferris.deinit();
+    pxl.assets.destroy(ferris);
 }

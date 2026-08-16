@@ -65,6 +65,242 @@ const BuildWasmOptions = struct {
     cimgui_clib_name: []const u8,
 };
 
+const AssetKind = enum { texture, font, tilemap, audio };
+
+const AssetEntry = struct {
+    id_name: []const u8,
+    kind: AssetKind,
+    path: []const u8,
+    atlas_path: ?[]const u8 = null,
+};
+
+/// Generates the asset manifest source and returns the WriteFile-produced
+/// LazyPath, with the whole assets/ tree copied next to it so `@embedFile`
+/// inside the generated file can resolve "assets/..." paths.
+fn addAssetManifest(b: *Build) !Build.LazyPath {
+    const source = try generateAssetManifest(b);
+    const wf = b.addWriteFiles();
+    _ = wf.addCopyDirectory(b.path("assets"), "assets", .{});
+    return wf.add("asset_manifest.zig", source);
+}
+
+fn assetKind(rel_path: []const u8) ?AssetKind {
+    const ext = std.fs.path.extension(rel_path);
+    if (std.mem.eql(u8, ext, ".png")) return .texture;
+    if (std.mem.eql(u8, ext, ".fnt")) return .font;
+    if (std.mem.eql(u8, ext, ".ldtk")) return .tilemap;
+    if (std.mem.eql(u8, ext, ".ogg")) return .audio;
+    return null;
+}
+
+/// `category/path/name.ext` -> `path_name` (the top-level folder is dropped,
+/// deeper folders are joined with `_`; lowercased, non-alphanumerics become `_`).
+fn assetIdName(b: *Build, rel_path: []const u8) ![]u8 {
+    const ext = std.fs.path.extension(rel_path);
+    const stem = rel_path[0 .. rel_path.len - ext.len];
+    const name_part = if (std.mem.indexOfScalar(u8, stem, std.fs.path.sep)) |slash|
+        stem[slash + 1 ..]
+    else
+        stem;
+
+    var out = std.ArrayList(u8).empty;
+    errdefer out.deinit(b.allocator);
+    for (name_part) |c| {
+        const mapped: u8 = switch (c) {
+            'a'...'z' => c,
+            'A'...'Z' => c + ('a' - 'A'),
+            '0'...'9' => c,
+            else => '_',
+        };
+        try out.append(b.allocator, mapped);
+    }
+    if (out.items.len > 0 and out.items[0] >= '0' and out.items[0] <= '9')
+        try out.insert(b.allocator, 0, '_');
+    return out.toOwnedSlice(b.allocator);
+}
+
+fn containsPath(paths: []const []const u8, needle: []const u8) bool {
+    for (paths) |p| if (std.mem.eql(u8, p, needle)) return true;
+    return false;
+}
+
+fn generateAssetManifest(b: *Build) ![]const u8 {
+    var rel_paths = std.ArrayList([]u8).empty;
+    defer {
+        for (rel_paths.items) |p| b.allocator.free(p);
+        rel_paths.deinit(b.allocator);
+    }
+
+    // Recursively collect every supported file under assets/.
+    const assets_abs = b.pathFromRoot("assets");
+    var assets_dir = try std.Io.Dir.openDirAbsolute(b.graph.io, assets_abs, .{ .iterate = true });
+    defer assets_dir.close(b.graph.io);
+    var walker = try std.Io.Dir.walk(assets_dir, b.allocator);
+    defer walker.deinit();
+    while (try walker.next(b.graph.io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (std.mem.indexOfScalar(u8, entry.path, std.fs.path.sep) == null) {
+            std.debug.print("pxl assets: '{s}' must live in a subfolder under assets/ (e.g. assets/textures/)\n", .{entry.path});
+            return error.AssetNotInSubfolder;
+        }
+        if (assetKind(entry.path) == null) {
+            std.debug.print("pxl assets: ignoring unsupported file 'assets/{s}'\n", .{entry.path});
+            continue;
+        }
+        try rel_paths.append(b.allocator, b.dupe(entry.path));
+    }
+
+    // A .png whose stem matches a .fnt sibling is that font's atlas, not a texture.
+    var font_stems = std.ArrayList([]const u8).empty;
+    defer {
+        for (font_stems.items) |p| b.allocator.free(p);
+        font_stems.deinit(b.allocator);
+    }
+    for (rel_paths.items) |rel| {
+        const ext = std.fs.path.extension(rel);
+        if (std.mem.eql(u8, ext, ".fnt"))
+            try font_stems.append(b.allocator, b.dupe(rel[0 .. rel.len - ext.len]));
+    }
+
+    var entries = std.ArrayList(AssetEntry).empty;
+    defer entries.deinit(b.allocator);
+    for (rel_paths.items) |rel| {
+        const ext = std.fs.path.extension(rel);
+        const stem = rel[0 .. rel.len - ext.len];
+        if (std.mem.eql(u8, ext, ".png") and containsPath(font_stems.items, stem)) continue;
+
+        const kind = assetKind(rel).?;
+        var entry = AssetEntry{
+            .id_name = try assetIdName(b, rel),
+            .kind = kind,
+            .path = b.fmt("assets/{s}", .{rel}),
+        };
+        if (kind == .font) entry.atlas_path = b.fmt("assets/{s}.png", .{stem});
+        try entries.append(b.allocator, entry);
+    }
+
+    // Deterministic order, grouped by kind; each enum and its metadata array
+    // must stay in lockstep, so emit both from the same sorted list.
+    std.mem.sort(AssetEntry, entries.items, {}, struct {
+        fn lt(_: void, a: AssetEntry, other: AssetEntry) bool {
+            const ka = @intFromEnum(a.kind);
+            const kb = @intFromEnum(other.kind);
+            if (ka != kb) return ka < kb;
+            return std.mem.lessThan(u8, a.id_name, other.id_name);
+        }
+    }.lt);
+
+    for (entries.items, 0..) |a, i| {
+        if (i == 0) continue;
+        const prev = entries.items[i - 1];
+        if (a.kind == prev.kind and std.mem.eql(u8, a.id_name, prev.id_name)) {
+            std.debug.print("pxl assets: '{s}' and '{s}' both map to enum '{s}'\n", .{ prev.path, a.path, a.id_name });
+            return error.AssetNameCollision;
+        }
+    }
+
+    var src = std.ArrayList(u8).empty;
+    errdefer src.deinit(b.allocator);
+    try src.appendSlice(b.allocator,
+        \\// GENERATED by build.zig — do not edit.
+        \\const std = @import("std");
+        \\const builtin = @import("builtin");
+        \\
+        \\pub const Meta = struct {
+        \\    name: []const u8,
+        \\    path: []const u8,
+        \\    atlas_path: ?[]const u8 = null,
+        \\};
+        \\
+    );
+
+    const kinds = [_]struct { kind: AssetKind, id_type: []const u8, array_name: []const u8 }{
+        .{ .kind = .texture, .id_type = "TextureId", .array_name = "textures" },
+        .{ .kind = .font, .id_type = "FontId", .array_name = "fonts" },
+        .{ .kind = .tilemap, .id_type = "TilemapId", .array_name = "tilemaps" },
+        .{ .kind = .audio, .id_type = "AudioId", .array_name = "audio" },
+    };
+
+    for (kinds) |k| {
+        try src.appendSlice(b.allocator, b.fmt("pub const {s} = enum {{\n", .{k.id_type}));
+        for (entries.items) |e| {
+            if (e.kind != k.kind) continue;
+            try src.appendSlice(b.allocator, b.fmt("    {s},\n", .{e.id_name}));
+        }
+        try src.appendSlice(b.allocator, "};\n\n");
+
+        try src.appendSlice(b.allocator, b.fmt("pub const {s} = [_]Meta{{\n", .{k.array_name}));
+        for (entries.items) |e| {
+            if (e.kind != k.kind) continue;
+            if (e.atlas_path) |atlas| {
+                try src.appendSlice(b.allocator, b.fmt("    .{{ .name = \"{s}\", .path = \"{s}\", .atlas_path = \"{s}\" }},\n", .{ e.id_name, e.path, atlas }));
+            } else {
+                try src.appendSlice(b.allocator, b.fmt("    .{{ .name = \"{s}\", .path = \"{s}\" }},\n", .{ e.id_name, e.path }));
+            }
+        }
+        try src.appendSlice(b.allocator, "};\n\n");
+
+        try src.appendSlice(b.allocator, b.fmt("pub fn find{s}(path: []const u8) ?{s} {{\n", .{ k.id_type, k.id_type }));
+        try src.appendSlice(b.allocator, b.fmt("    for ({s}, 0..) |m, i| {{\n", .{k.array_name}));
+        try src.appendSlice(b.allocator,
+            \\        if (std.mem.eql(u8, m.path, path)) return @enumFromInt(i);
+            \\    }
+            \\    return null;
+            \\}
+            \\
+        );
+    }
+
+    try src.appendSlice(b.allocator,
+        \\pub fn embedTexture(id: TextureId) []const u8 {
+        \\    if (builtin.target.cpu.arch.isWasm()) {
+        \\        return switch (id) {
+        \\            inline else => |tag| @embedFile(textures[@intFromEnum(tag)].path),
+        \\        };
+        \\    }
+        \\    unreachable;
+        \\}
+        \\
+        \\pub fn embedFont(id: FontId) []const u8 {
+        \\    if (builtin.target.cpu.arch.isWasm()) {
+        \\        return switch (id) {
+        \\            inline else => |tag| @embedFile(fonts[@intFromEnum(tag)].path),
+        \\        };
+        \\    }
+        \\    unreachable;
+        \\}
+        \\
+        \\pub fn embedFontAtlas(id: FontId) []const u8 {
+        \\    if (builtin.target.cpu.arch.isWasm()) {
+        \\        return switch (id) {
+        \\            inline else => |tag| @embedFile(fonts[@intFromEnum(tag)].atlas_path.?),
+        \\        };
+        \\    }
+        \\    unreachable;
+        \\}
+        \\
+        \\pub fn embedTilemap(id: TilemapId) []const u8 {
+        \\    if (builtin.target.cpu.arch.isWasm()) {
+        \\        return switch (id) {
+        \\            inline else => |tag| @embedFile(tilemaps[@intFromEnum(tag)].path),
+        \\        };
+        \\    }
+        \\    unreachable;
+        \\}
+        \\
+        \\pub fn embedAudio(id: AudioId) []const u8 {
+        \\    if (builtin.target.cpu.arch.isWasm()) {
+        \\        return switch (id) {
+        \\            inline else => |tag| @embedFile(audio[@intFromEnum(tag)].path),
+        \\        };
+        \\    }
+        \\    unreachable;
+        \\}
+        \\
+    );
+    return src.toOwnedSlice(b.allocator);
+}
+
 pub fn build(b: *Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -72,9 +308,11 @@ pub fn build(b: *Build) !void {
     // Android check first — early return to keep the native/wasm path clean
     const android_targets = android_build.standardTargets(b, target);
     if (android_targets.len > 0) {
-        try buildAndroid(b, optimize, android_targets);
+        try buildAndroid(b, optimize, android_targets, try addAssetManifest(b));
         return;
     }
+
+    const assets_gen = try addAssetManifest(b);
 
     const opt_docking = b.option(bool, "docking", "Build with docking support") orelse true;
     const opt_imgui = b.option(bool, "imgui", "Build with Dear ImGui support") orelse false;
@@ -125,6 +363,7 @@ pub fn build(b: *Build) !void {
     });
 
     mod_shader.addImport("pxl", mod_pxl);
+    mod_pxl.addImport("asset_manifest", b.createModule(.{ .root_source_file = assets_gen }));
 
     if (opt_imgui)
         mod_pxl.addImport("cimgui", dep_sokol_builder.module("cimgui"));
@@ -278,7 +517,7 @@ fn buildWeb(b: *Build, opts: BuildWasmOptions) !void {
     b.step("run", "Run web sample").dependOn(&run.step);
 }
 
-fn buildAndroid(b: *Build, optimize: OptimizeMode, android_targets: []ResolvedTarget) !void {
+fn buildAndroid(b: *Build, optimize: OptimizeMode, android_targets: []ResolvedTarget, assets_gen: Build.LazyPath) !void {
     // Use the first android target's sokol to reach the shdc host binary.
     // shdc always runs on the host regardless of target arch.
     const first_target = android_targets[0];
@@ -322,7 +561,7 @@ fn buildAndroid(b: *Build, optimize: OptimizeMode, android_targets: []ResolvedTa
         apk.addResourceDirectory(b.path("deps/android/res"));
         // Bundle the source-tree asset folder into the APK so AAssetManager can read
         // textures/fonts. pxl.fs serves these reads on Android via the asset manager.
-        apk.addAssetDirectory(b.path("examples/assets"));
+        apk.addAssetDirectory(b.path("assets"));
 
         for (android_targets) |android_target| {
             // Pass dont_link_system_libs through sokol_builder so all sokol module
@@ -360,6 +599,7 @@ fn buildAndroid(b: *Build, optimize: OptimizeMode, android_targets: []ResolvedTa
                 },
             });
             mod_shader.addImport("pxl", mod_pxl);
+            mod_pxl.addImport("asset_manifest", b.createModule(.{ .root_source_file = assets_gen }));
 
             const mod_options = b.addOptions();
             mod_options.addOption(bool, "imgui", false);

@@ -24,6 +24,7 @@ pub var batcher: gpu.Batcher = undefined;
 
 // top level imports
 pub const android = @import("android.zig");
+pub const assets = @import("assets/assets.zig");
 pub const audio = @import("audio.zig");
 pub const fs = @import("fs.zig");
 pub const math = @import("math/math.zig");
@@ -199,6 +200,7 @@ export fn sokolEvent(evt: [*c]const sapp.Event) void {
 export fn sokolCleanup() void {
     if (cbs.shutdown) |cb| cb() catch {};
 
+    assets.deinit();
     audio.deinit();
 
     input.deinit();

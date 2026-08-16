@@ -92,7 +92,7 @@ pub const BMFont = struct {
     }
 
     /// Loads a BMFont from disk. `file` is a source-tree relative path such as
-    /// "examples/assets/kiwisoda.fnt"; the matching ".png" atlas is loaded too.
+    /// "assets/kiwisoda.fnt"; the matching ".png" atlas is loaded too.
     pub fn initFromFile(file: []const u8) !BMFont {
         const texture_file = pxl.mem.dupeZ(u8, file, .temp);
         @memcpy(texture_file[texture_file.len - 3 ..].ptr, "png");
@@ -100,6 +100,13 @@ pub const BMFont = struct {
 
         const buffer = try pxl.fs.read(file, .persistent);
         return parse(buffer, texture, true);
+    }
+
+    /// Loads a BMFont from in-memory bytes (`fnt` and the matching `png` atlas).
+    /// Neither buffer is owned, so the caller must keep them alive for the font's lifetime.
+    pub fn initFromMemory(fnt: []const u8, png: []const u8) !BMFont {
+        const texture = try pxl.gpu.Texture.initFromMemory(png);
+        return parse(fnt, texture, false);
     }
 
     fn parse(buffer: []const u8, texture: pxl.gpu.Texture, frees_buffer: bool) !BMFont {
