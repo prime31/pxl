@@ -74,13 +74,11 @@ const vert_inset = 2;
 /// accumulators so the body only ever moves in whole pixels while retaining its
 /// fractional speed. When false the body moves fractionally for smooth
 /// non-pixel-art movement.
-pub fn moveBody(map: *LDtk, rect: *math.Rect, state: *CollisionState, velocity: math.Vec2) void {
+pub fn moveBody(map: *LDtk, rect: *math.Rect, state: *CollisionState, velocity: math.Vec2, layer: LayerInstance) void {
     // save off our current grounded state for was_grounded_last_frame / became_grounded_this_frame
     state.was_grounded_last_frame = state.below;
     state.reset(&velocity);
 
-    const layer_index = 1; // TODO: layer needs to be passed in at some point
-    const layer = map.root.levels[0].layerInstances.?[layer_index];
     const dt = pxl.time.dt();
 
     // --- X axis ---
@@ -118,18 +116,23 @@ pub const Player = struct {
     rect: math.Rect = .{},
     state: CollisionState = .{},
     speed: f32 = 60,
+    layer: LayerInstance = undefined,
 
     pub fn move(self: *Player, map: *LDtk, input: math.Vec2) void {
         const velocity = math.Vec2{
             .x = input.x * self.speed,
             .y = input.y * self.speed,
         };
-        moveBody(map, &self.rect, &self.state, velocity);
+        moveBody(map, &self.rect, &self.state, velocity, self.layer);
     }
 };
 
 pub fn moveX(map: *LDtk, layer: LayerInstance, rect: math.RectI, move_x: i32, state: *CollisionState) i32 {
     const edge: math.Edge = if (move_x > 0) .right else .left;
+    // Same freshness rule as moveY: horizontal contact flags reflect only this
+    // frame's move, so a wall you've climbed past can't keep zeroing velocity.
+    state.left = false;
+    state.right = false;
     var bounds = rect.halfRect(edge);
 
     // we contract horizontally for vertical movement and vertically for horizontal movement
@@ -275,6 +278,10 @@ pub fn moveY(map: *LDtk, layer: LayerInstance, rect: math.RectI, move_y: i32, st
 /// snapped to whole pixels).
 fn moveXFloat(map: *LDtk, layer: LayerInstance, rect: math.Rect, move_x: f32, state: *CollisionState) f32 {
     const edge: math.Edge = if (move_x > 0) .right else .left;
+    // Same freshness rule as moveY: horizontal contact flags reflect only this
+    // frame's move, so a wall you've climbed past can't keep zeroing velocity.
+    state.left = false;
+    state.right = false;
     // leading half of the body
     var bounds: math.Rect = if (edge == .right)
         .{ .x = rect.x + rect.w / 2, .y = rect.y, .w = rect.w / 2, .h = rect.h }
@@ -386,6 +393,29 @@ fn debugOverlaps(map: *LDtk, bounds: math.RectI, edge: math.Edge) void {
         pxl.dbg.drawHollowRect(.{ .x = xw, .y = yw }, tile_size, tile_size, 1, color);
         tile_cnt += 1;
     }
+}
+
+/// True when `world` (world-space pixels) falls inside a solid cell of an
+/// IntGrid collision layer. Points outside the layer bounds are never solid.
+pub fn isSolidAt(layer: LayerInstance, world: math.Vec2) bool {
+    const gs = cast(i32, layer.__gridSize);
+    const tx = @divFloor(cast(i32, @floor(world.x)), gs);
+    const ty = @divFloor(cast(i32, @floor(world.y)), gs);
+    if (tx < 0 or ty < 0 or tx >= layer.width() or ty >= layer.height()) return false;
+    return layer.isCellSolid(@intCast(tx), @intCast(ty));
+}
+
+/// True when a `w` x `h` rect centered at `center` overlaps any solid cell.
+/// Cheap sensor query (grab boxes, headroom checks) against an IntGrid layer.
+pub fn rectOverlapsSolid(layer: LayerInstance, center: math.Vec2, w: f32, h: f32) bool {
+    var y = center.y - h / 2 + 0.5;
+    while (y < center.y + h / 2) : (y += 2) {
+        var x = center.x - w / 2 + 0.5;
+        while (x < center.x + w / 2) : (x += 1) {
+            if (isSolidAt(layer, .init(x, y))) return true;
+        }
+    }
+    return false;
 }
 
 test "SubpixelFloat accumulates fractional velocity into whole-pixel steps" {

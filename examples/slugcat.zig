@@ -32,6 +32,7 @@ const Color = pxl.math.Color;
 const Vec2 = pxl.math.Vec2;
 const CollisionState = pxl.tilemap.CollisionState;
 const moveBody = pxl.tilemap.moveBody;
+const isSolidAt = pxl.tilemap.isSolidAt;
 
 // ---------------------------------------------------------------------------
 // Tuning. Rain World steps its simulation at 60 Hz with px/frame units; pxl
@@ -93,10 +94,7 @@ fn cellSolid(tx: i32, ty: i32) bool {
 
 /// Is the world-space point inside a solid IntGrid cell?
 fn solidAt(w: Vec2) bool {
-    const gi: i32 = @intFromFloat(tile_size);
-    const tx = @divFloor(@as(i32, @intFromFloat(@floor(w.x))), gi);
-    const ty = @divFloor(@as(i32, @intFromFloat(@floor(w.y))), gi);
-    return cellSolid(tx, ty);
+    return isSolidAt(collision, w);
 }
 
 /// Tail segments collide with the tilemap (RW's BodyPart.PushOutOfTerrain,
@@ -195,7 +193,7 @@ const Chunk = struct {
 
     fn update(self: *Chunk, m: *LDtk, dt: f32) void {
         self.vel.y += gravity * dt;
-        moveBody(m, &self.rect, &self.state, self.vel);
+        moveBody(m, &self.rect, &self.state, self.vel, collision);
         // Kill the velocity into a contact so bodies don't press into terrain
         // (a resting chunk otherwise accumulates gravity forever).
         if (self.state.above and self.vel.y < 0) self.vel.y = 0;

@@ -12,13 +12,13 @@ const pxl = @import("../pxl.zig");
 pub fn StateMachine(TEnum: type, TObj: type) type {
     return struct {
         current: TEnum,
-        elapsed: f32,
+        elapsed: f32 = 0,
 
         pub fn init(initial_state: TEnum) @This() {
             return .{ .current = initial_state };
         }
 
-        pub fn tick(self: @This(), obj: *TObj) void {
+        pub fn tick(self: *@This(), obj: *TObj) void {
             self.elapsed += pxl.time.dt();
 
             switch (self.current) {
@@ -29,7 +29,7 @@ pub fn StateMachine(TEnum: type, TObj: type) type {
             }
         }
 
-        pub fn tickSurrogate(self: @This(), obj: *TObj, surrogate: anytype) void {
+        pub fn tickSurrogate(self: *@This(), obj: *TObj, surrogate: anytype) void {
             self.elapsed += pxl.time.dt();
 
             switch (self.current) {

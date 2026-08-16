@@ -61,6 +61,7 @@ pub fn setup() !void {
     const grid_size: f32 = @floatFromInt(map.root.defs.?.tilesets[0].tileGridSize);
     player.rect.w = grid_size;
     player.rect.h = grid_size;
+    player.layer = map.root.levels[0].layerInstances.?[1];
 
     input.addBinding("left", .key(.left));
     input.addBinding("left", .key(.a));
