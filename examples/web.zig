@@ -1,8 +1,11 @@
 const std = @import("std");
 
 const pxl = @import("pxl");
+const api = pxl.api;
 const mu = pxl.mu;
 const sfxr = pxl.sfxr;
+
+const Color = pxl.math.Color;
 
 // --- sfxr generator state ------------------------------------------------
 
@@ -225,6 +228,10 @@ pub fn update() !void {
 }
 
 pub fn render() !void {
-    pxl.beginPass(.{ .clear_color = pxl.math.Color.fromBytes(16, 18, 24, 255) });
+    pxl.beginPass(.{ .clear_color = Color.fromBytes(16, 18, 24, 255) });
+    api.drawTriangle(.init(80, 60), .init(240, 60), .init(160, 180), Color.white);
+    api.drawRectEx(.init(380, 110), .init(120, 70), .center, Color.red);
+    api.drawRectOutlineEx(.init(380, 110), .init(120, 70), .center, 4, Color.white);
+    api.drawText(null, .init(10, 10), "fucking a-right ass\nmother FOOKER", Color.white);
     pxl.endPass();
 }

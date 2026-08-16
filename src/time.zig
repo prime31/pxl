@@ -60,6 +60,12 @@ pub fn frameCount() u32 {
     return frame_count;
 }
 
+/// Returns the raw monotonic clock ticks since an arbitrary epoch (usually
+/// system boot). Cheap entropy source for seeding PRNGs.
+pub fn now() u64 {
+    return stm.now();
+}
+
 /// Returns the total running time in seconds since the application started.
 pub fn time() f32 {
     return @floatCast(stm.sec(stm.since(start_ticks)));

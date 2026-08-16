@@ -66,6 +66,7 @@ pub const FontKerning = struct {
 
 pub const BMFont = struct {
     buffer: []const u8,
+    frees_buffer: bool,
     texture: pxl.gpu.Texture,
     info: FontInfo = undefined,
     common: FontCommon = undefined,
@@ -77,20 +78,37 @@ pub const BMFont = struct {
     chars_count: usize = 0,
     kernings_count: usize = 0,
 
-    pub fn init(file: []const u8) !BMFont {
-        // load the texture
+    /// The engine's default font (minecraftia), embedded at compile time so it
+    /// needs no filesystem.
+    pub fn init() !BMFont {
+        const fnt_embedded = @embedFile("../assets/minecraftia.fnt");
+        const png_embedded = @embedFile("../assets/minecraftia.png");
+
+        var img = try pxl.stb.Image.loadFromMemory(png_embedded[0..], 4);
+        defer img.deinit();
+        const texture = pxl.gpu.Texture.initWithData(img.data, @intCast(img.width), @intCast(img.height));
+
+        return parse(fnt_embedded[0..], texture, false);
+    }
+
+    /// Loads a BMFont from disk. `file` is a source-tree relative path such as
+    /// "examples/assets/kiwisoda.fnt"; the matching ".png" atlas is loaded too.
+    pub fn initFromFile(file: []const u8) !BMFont {
         const texture_file = pxl.mem.dupeZ(u8, file, .temp);
         @memcpy(texture_file[texture_file.len - 3 ..].ptr, "png");
         const texture = try pxl.gpu.Texture.initFromFile(texture_file);
 
-        // load the BMFont
         const buffer = try pxl.fs.read(file, .persistent);
+        return parse(buffer, texture, true);
+    }
+
+    fn parse(buffer: []const u8, texture: pxl.gpu.Texture, frees_buffer: bool) !BMFont {
         if (buffer.len < 4) return error.InvalidHeader;
 
         if (!std.mem.eql(u8, buffer[0..3], "BMF")) return error.InvalidMagicNumber;
         if (buffer[3] != 3) return error.UnsupportedVersion;
 
-        var parser = BMFont{ .buffer = buffer, .texture = texture };
+        var parser = BMFont{ .buffer = buffer, .frees_buffer = frees_buffer, .texture = texture };
         var index: usize = 4;
 
         while (index < buffer.len) {
@@ -159,7 +177,7 @@ pub const BMFont = struct {
     }
 
     pub fn deinit(self: *BMFont) void {
-        pxl.mem.free(self.buffer);
+        if (self.frees_buffer) pxl.mem.free(self.buffer);
         self.texture.deinit();
     }
 

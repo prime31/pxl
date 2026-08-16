@@ -36,6 +36,10 @@ pub const GamepadState = extern struct {
 };
 
 // public API
+pub fn getAndroidInputHandler() ?*const fn (?*const anyopaque) callconv(.c) bool {
+    return null;
+}
+
 pub fn getMaxSupportedGamepads() c_uint {
     return 0;
 }

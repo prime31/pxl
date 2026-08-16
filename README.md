@@ -77,4 +77,5 @@ Logging is redirected to logcat if `std.log.*` methods are used and can be viewe
 
 
 ### Web
-`zig build -Dtarget=wasm32-emscripten base`
+**build**: `zig build -Dtarget=wasm32-emscripten`
+**local webserver**: `python3 -m http.server 8000`

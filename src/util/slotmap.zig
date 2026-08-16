@@ -133,7 +133,7 @@ pub fn SlotMap(Val: type) type {
         /// Initializes a slot map with the given capacity.
         pub fn init(capacity: usize) @This() {
             assert(capacity <= std.math.maxInt(Key.Index));
-            comptime assert(std.math.maxInt(Key.Index) < std.math.maxInt(usize)); // For `next_index`
+            comptime assert(std.math.maxInt(Key.Index) <= std.math.maxInt(usize)); // For `next_index`
 
             return .{
                 .capacity = capacity,

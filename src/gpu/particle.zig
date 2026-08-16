@@ -55,7 +55,7 @@ pub const ParticleSystem = struct {
 
     pub fn init(max_particles: usize) ParticleSystem {
         const particles = pxl.mem.alloc(Particle, max_particles, .persistent);
-        const seed: u64 = @intCast(std.Io.Clock.now(.awake, pxl.io).toMilliseconds());
+        const seed: u64 = pxl.time.now();
         return .{
             .particles = particles,
             .active_count = 0,

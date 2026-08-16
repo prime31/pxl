@@ -79,12 +79,13 @@ var current_pass: ?Pass = null;
 var cfg: Config = undefined;
 var cbs: Callbacks = undefined;
 
-pub fn run(init: ?std.process.Init, config: Config, callbacks: Callbacks) sapp.Desc {
-    io = if (init) |i| i.io else std.Io.Threaded.global_single_threaded.io();
+pub fn run(io_arg: std.Io, config: Config, callbacks: Callbacks) sapp.Desc {
+    io = io_arg;
     cfg = config;
     cbs = callbacks;
 
-    android.hideSystemBars(sapp.androidGetNativeActivity());
+    if (builtin.target.abi.isAndroid())
+        android.hideSystemBars(sapp.androidGetNativeActivity());
 
     const desc = sapp.Desc{
         .init_cb = sokolInit,
@@ -150,7 +151,7 @@ export fn sokolInit() void {
     }
 
     batcher = gpu.Batcher.init(cfg.gfx.batcher) catch unreachable;
-    font = text.BMFont.init("examples/assets/minecraftia.fnt") catch unreachable;
+    font = text.BMFont.init() catch unreachable;
     gpu.init(cfg.gfx);
     time.init();
     input.init();

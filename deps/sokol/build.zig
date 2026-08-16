@@ -57,6 +57,12 @@ pub fn build(b: *Build) !void {
             .optimize = optimize,
             .link_libc = true,
         });
+        if (target.result.os.tag == .emscripten) {
+            // Zig has no sysroot for wasm32-emscripten, the C stdlib headers
+            // come from the Emscripten SDK instead.
+            const emsdk = dep_sokol.builder.dependency("emsdk", .{});
+            microui_mod.addSystemIncludePath(emsdk.path("upstream/emscripten/cache/sysroot/include"));
+        }
 
         const microui_lib = b.addLibrary(.{
             .name = "microui_clib",

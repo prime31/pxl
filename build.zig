@@ -12,6 +12,7 @@ const android_build = @import("android");
 
 const examples = [_]Example{
     .{ .name = "check" },
+    .{ .name = "web" },
     .{ .name = "audio" },
     .{ .name = "audio_manager" },
     .{ .name = "vorbis" },
@@ -96,6 +97,13 @@ pub fn build(b: *Build) !void {
         .optimize = optimize,
         .with_sokol_imgui = opt_imgui,
     });
+
+    if (target.result.os.tag == .emscripten) {
+        // Zig has no sysroot for wasm32-emscripten; the C stdlib headers come
+        // from the Emscripten SDK (already a dependency of sokol).
+        const dep_emsdk = dep_sokol.builder.dependency("emsdk", .{});
+        dep_stb.module("stb").addSystemIncludePath(dep_emsdk.path("upstream/emscripten/cache/sysroot/include"));
+    }
 
     // for now add all shaders in one module
     const shader_zig_path = try compileShaderPath(b, dep_sokol, shaders.engine_shader_dir ++ shaders.engine_shaders[0]);
@@ -214,6 +222,7 @@ fn buildNative(b: *Build, opts: ExeConfig) !void {
 fn buildWeb(b: *Build, opts: BuildWasmOptions) !void {
     // get the Emscripten SDK dependency from the sokol dependency
     const dep_emsdk = opts.dep_sokol.builder.dependency("emsdk", .{});
+    setupEmsdkPython(b, dep_emsdk);
 
     // need to inject the Emscripten system header include path into
     // the cimgui C library otherwise the C/C++ code won't find C stdlib headers
@@ -222,9 +231,28 @@ fn buildWeb(b: *Build, opts: BuildWasmOptions) !void {
         opts.dep_cimgui.artifact(opts.cimgui_clib_name).root_module.addSystemIncludePath(emsdk_incl_path);
     }
 
+    const mod_app = b.createModule(.{
+        .root_source_file = b.path("examples/web.zig"),
+        .target = opts.mod_pxl.resolved_target,
+        .optimize = opts.mod_pxl.optimize,
+        .imports = &.{
+            .{ .name = "pxl", .module = opts.mod_pxl },
+        },
+    });
+
+    const mod_entry = b.createModule(.{
+        .root_source_file = b.path("src/web_entrypoint.zig"),
+        .target = opts.mod_pxl.resolved_target,
+        .optimize = opts.mod_pxl.optimize,
+        .imports = &.{
+            .{ .name = "pxl", .module = opts.mod_pxl },
+            .{ .name = "app", .module = mod_app },
+        },
+    });
+
     const lib = b.addLibrary(.{
-        .name = "pacman",
-        .root_module = opts.mod_pxl,
+        .name = "web",
+        .root_module = mod_entry,
     });
 
     // create a build step which invokes the Emscripten linker
@@ -244,9 +272,9 @@ fn buildWeb(b: *Build, opts: BuildWasmOptions) !void {
     b.getInstallStep().dependOn(&link_step.step);
 
     // ...and a special run step to start the web build output via 'emrun'
-    const run = sokol.emRunStep(b, .{ .name = "pacman", .emsdk = emsdk });
+    const run = sokol.emRunStep(b, .{ .name = "web", .emsdk = emsdk });
     run.step.dependOn(&link_step.step);
-    b.step("run", "Run pacman").dependOn(&run.step);
+    b.step("run", "Run web sample").dependOn(&run.step);
 }
 
 fn buildAndroid(b: *Build, optimize: OptimizeMode, android_targets: []ResolvedTarget) !void {
@@ -386,6 +414,33 @@ fn buildAndroid(b: *Build, optimize: OptimizeMode, android_targets: []ResolvedTa
         const adb_start = android_sdk.addAdbStart("com.zigpxl.bunnymark/android.app.NativeActivity");
         adb_start.step.dependOn(&adb_install.step);
         run_step.dependOn(&adb_start.step);
+    }
+}
+
+/// The emcc/emrun shell wrappers resolve python via $EMSDK_PYTHON (falling back
+/// to PATH), but emscripten 6.x requires Python >= 3.10. Point them at the
+/// Python that the emsdk installed and activated instead of whatever `python3`
+/// happens to be on PATH.
+fn setupEmsdkPython(b: *Build, dep_emsdk: *Build.Dependency) void {
+    const config_path = dep_emsdk.path(".emscripten").getPath2(b, null);
+    const root = std.fs.path.dirname(config_path) orelse return;
+    var file = std.Io.Dir.openFileAbsolute(b.graph.io, config_path, .{}) catch return;
+    defer file.close(b.graph.io);
+    var reader = file.reader(b.graph.io, &.{});
+    const config_bytes = reader.interface.allocRemainingAlignedSentinel(b.allocator, .unlimited, .of(u8), null) catch return;
+    defer b.allocator.free(config_bytes);
+
+    var it = std.mem.splitScalar(u8, config_bytes, '\n');
+    while (it.next()) |line| {
+        const trimmed = std.mem.trim(u8, line, " \t\r");
+        if (!std.mem.startsWith(u8, trimmed, "PYTHON =")) continue;
+        const start = std.mem.indexOfScalar(u8, trimmed, '\'') orelse continue;
+        const end = std.mem.lastIndexOfScalar(u8, trimmed, '\'') orelse continue;
+        if (start >= end) continue;
+        const rel = std.mem.trim(u8, trimmed[start + 1 .. end], " \t");
+        const python_path = b.fmt("{s}{s}", .{ root, rel }); // rel starts with '/'
+        b.graph.environ_map.put("EMSDK_PYTHON", python_path) catch {};
+        break;
     }
 }
 

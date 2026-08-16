@@ -14,6 +14,7 @@
 //! ```
 
 const std = @import("std");
+const pxl = @import("pxl.zig");
 
 const Oversampling = 8;
 const MaxFlangerDelay = 1024;
@@ -646,47 +647,25 @@ pub fn render(params: Params, sample_rate: u32, out: []f32) usize {
 
 // --- random helpers -----------------------------------------------------
 
-var rng: std.Random.DefaultPrng = undefined;
-var random: std.Random = undefined;
-var seeded = false;
-
-/// (Re)seed the internal RNG. Presets and noise use it, so seeding makes
+/// (Re)seed the global RNG. Presets and noise use it, so seeding makes
 /// generated sounds reproducible.
 pub fn seed(new_seed: u64) void {
-    rng = std.Random.DefaultPrng.init(new_seed);
-    random = rng.random();
-    seeded = true;
-}
-
-fn ensureSeeded() void {
-    if (!seeded) {
-        // Pull entropy from the OS; fine for seeds since we only need
-        // variation between runs, not cryptographic strength.
-        const io = std.Io.Threaded.global_single_threaded.io();
-        var bytes: [8]u8 = undefined;
-        io.random(&bytes);
-        rng = std.Random.DefaultPrng.init(std.mem.readInt(u64, &bytes, .little));
-        random = rng.random();
-        seeded = true;
-    }
+    pxl.math.rand.seed(new_seed);
 }
 
 /// Uniform float in [0, 1).
 fn rand() f32 {
-    ensureSeeded();
-    return random.float(f32);
+    return pxl.math.rand.float(f32);
 }
 
 /// Uniform float in [-1, 1).
 fn randSigned() f32 {
-    ensureSeeded();
-    return random.float(f32) * 2.0 - 1.0;
+    return pxl.math.rand.float(f32) * 2.0 - 1.0;
 }
 
 /// Uniform int in [0, max] (inclusive).
 fn rnd(max: u32) u32 {
-    ensureSeeded();
-    return random.uintLessThanBiased(u32, max + 1);
+    return pxl.math.rand.uintLessThan(u32, max + 1);
 }
 
 fn maybeNudge(value: *f32) void {

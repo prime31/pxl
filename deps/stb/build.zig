@@ -6,6 +6,7 @@ pub fn build(b: *std.Build) void {
 
     const zstbi = b.addModule("stb", .{
         .root_source_file = b.path("src/zstbi.zig"),
+        .link_libc = true,
     });
 
     zstbi.addIncludePath(b.path("libs/stbi"));
@@ -25,14 +26,6 @@ pub fn build(b: *std.Build) void {
             .file = b.path("src/zstbi.c"),
             .flags = &.{ "-std=c99", "-fno-sanitize=undefined" },
         });
-    }
-
-    if (target.result.os.tag == .emscripten) {
-        zstbi.addIncludePath(.{
-            .cwd_relative = b.pathJoin(&.{ b.sysroot.?, "/include" }),
-        });
-    } else {
-        zstbi.link_libc = true;
     }
 
     const test_step = b.step("test", "Run zstbi tests");

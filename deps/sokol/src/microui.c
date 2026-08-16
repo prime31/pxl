@@ -426,10 +426,13 @@ void mu_input_text(mu_Context *ctx, const char *text) {
 
 mu_Command* mu_push_command(mu_Context *ctx, int type, int size) {
   mu_Command *cmd = (mu_Command*) (ctx->command_list.items + ctx->command_list.idx);
-  expect(ctx->command_list.idx + size < MU_COMMANDLIST_SIZE);
+  /* Variable-size text commands would leave the command stream misaligned,
+     which faults on strict-alignment targets like wasm32. Pad to 4 bytes. */
+  const int padded_size = (size + 3) & ~3;
+  expect(ctx->command_list.idx + padded_size < MU_COMMANDLIST_SIZE);
   cmd->base.type = type;
-  cmd->base.size = size;
-  ctx->command_list.idx += size;
+  cmd->base.size = padded_size;
+  ctx->command_list.idx += padded_size;
   return cmd;
 }
 

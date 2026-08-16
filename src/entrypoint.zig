@@ -32,7 +32,7 @@ comptime {
 fn sokolMain() callconv(.c) pxl.sapp.Desc {
     const cfg: pxl.Config = if (@hasDecl(app, "config")) app.config() else .{};
 
-    return pxl.run(null, cfg, .{
+    return pxl.run(std.Io.Threaded.global_single_threaded.io(), cfg, .{
         .setup = if (@hasDecl(app, "setup")) app.setup else null,
         .update = if (@hasDecl(app, "update")) app.update else null,
         .render = if (@hasDecl(app, "render")) app.render else null,
@@ -43,7 +43,7 @@ fn sokolMain() callconv(.c) pxl.sapp.Desc {
 pub fn main(init: std.process.Init) !void {
     const cfg: pxl.Config = if (@hasDecl(app, "config")) app.config() else .{};
 
-    _ = pxl.run(init, cfg, .{
+    _ = pxl.run(init.io, cfg, .{
         .setup = if (@hasDecl(app, "setup")) app.setup else null,
         .update = if (@hasDecl(app, "update")) app.update else null,
         .render = if (@hasDecl(app, "render")) app.render else null,
