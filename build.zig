@@ -139,6 +139,8 @@ fn generateAssetManifest(b: *Build) ![]const u8 {
     defer walker.deinit();
     while (try walker.next(b.graph.io)) |entry| {
         if (entry.kind != .file) continue;
+        if (std.mem.indexOfScalar(u8, entry.path, '.') == 0) continue;
+
         if (std.mem.indexOfScalar(u8, entry.path, std.fs.path.sep) == null) {
             std.debug.print("pxl assets: '{s}' must live in a subfolder under assets/ (e.g. assets/textures/)\n", .{entry.path});
             return error.AssetNotInSubfolder;
@@ -251,53 +253,44 @@ fn generateAssetManifest(b: *Build) ![]const u8 {
         );
     }
 
-    try src.appendSlice(b.allocator,
-        \\pub fn embedTexture(id: TextureId) []const u8 {
-        \\    if (builtin.target.cpu.arch.isWasm()) {
-        \\        return switch (id) {
-        \\            inline else => |tag| @embedFile(textures[@intFromEnum(tag)].path),
-        \\        };
-        \\    }
-        \\    unreachable;
-        \\}
-        \\
-        \\pub fn embedFont(id: FontId) []const u8 {
-        \\    if (builtin.target.cpu.arch.isWasm()) {
-        \\        return switch (id) {
-        \\            inline else => |tag| @embedFile(fonts[@intFromEnum(tag)].path),
-        \\        };
-        \\    }
-        \\    unreachable;
-        \\}
-        \\
-        \\pub fn embedFontAtlas(id: FontId) []const u8 {
-        \\    if (builtin.target.cpu.arch.isWasm()) {
-        \\        return switch (id) {
-        \\            inline else => |tag| @embedFile(fonts[@intFromEnum(tag)].atlas_path.?),
-        \\        };
-        \\    }
-        \\    unreachable;
-        \\}
-        \\
-        \\pub fn embedTilemap(id: TilemapId) []const u8 {
-        \\    if (builtin.target.cpu.arch.isWasm()) {
-        \\        return switch (id) {
-        \\            inline else => |tag| @embedFile(tilemaps[@intFromEnum(tag)].path),
-        \\        };
-        \\    }
-        \\    unreachable;
-        \\}
-        \\
-        \\pub fn embedAudio(id: AudioId) []const u8 {
-        \\    if (builtin.target.cpu.arch.isWasm()) {
-        \\        return switch (id) {
-        \\            inline else => |tag| @embedFile(audio[@intFromEnum(tag)].path),
-        \\        };
-        \\    }
-        \\    unreachable;
-        \\}
-        \\
-    );
+    // Each embed fn dispatches on a runtime id with explicit prongs carrying a
+    // literal @embedFile path. An `inline else` prong would unroll every asset
+    // through a comptime array lookup; explicit literals are the standard
+    // pattern and behave identically for comptime- and runtime-known ids.
+    const embed_fns = [_]struct {
+        fn_name: []const u8,
+        id_type: []const u8,
+        kind: AssetKind,
+        use_atlas: bool = false,
+    }{
+        .{ .fn_name = "embedTexture", .id_type = "TextureId", .kind = .texture },
+        .{ .fn_name = "embedFont", .id_type = "FontId", .kind = .font },
+        .{ .fn_name = "embedFontAtlas", .id_type = "FontId", .kind = .font, .use_atlas = true },
+        .{ .fn_name = "embedTilemap", .id_type = "TilemapId", .kind = .tilemap },
+        .{ .fn_name = "embedAudio", .id_type = "AudioId", .kind = .audio },
+    };
+    for (embed_fns) |ef| {
+        try src.appendSlice(b.allocator, b.fmt("pub fn {s}(id: {s}) []const u8 {{\n", .{ ef.fn_name, ef.id_type }));
+        try src.appendSlice(b.allocator, "    if (builtin.target.cpu.arch.isWasm()) {\n");
+        var count: usize = 0;
+        for (entries.items) |e| {
+            if (e.kind == ef.kind) count += 1;
+        }
+        if (count == 0) {
+            try src.appendSlice(b.allocator, b.fmt("        @compileError(\"no {s} assets in manifest\");\n", .{ef.id_type}));
+        } else {
+            try src.appendSlice(b.allocator, "        return switch (id) {\n");
+            for (entries.items) |e| {
+                if (e.kind != ef.kind) continue;
+                const path = if (ef.use_atlas) e.atlas_path.? else e.path;
+                try src.appendSlice(b.allocator, b.fmt("            .{s} => @embedFile(\"{s}\"),\n", .{ e.id_name, path }));
+            }
+            try src.appendSlice(b.allocator, "        };\n");
+        }
+        try src.appendSlice(b.allocator, "    }\n");
+        try src.appendSlice(b.allocator, "    unreachable;\n");
+        try src.appendSlice(b.allocator, "}\n\n");
+    }
     return src.toOwnedSlice(b.allocator);
 }
 
