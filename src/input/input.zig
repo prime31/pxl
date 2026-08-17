@@ -40,6 +40,9 @@ pub fn newFrame() void {
 pub fn handleEvent(evt: *const sapp.Event) void {
     switch (evt.type) {
         .KEY_DOWN, .KEY_UP => {
+            // sokol forwards OS key-repeat as KEY_DOWN with key_repeat=true; ignoring them
+            // keeps isActionJustPressed a true edge trigger (a held key must not re-fire).
+            if (evt.type == .KEY_DOWN and evt.key_repeat) return;
             const scancode = @intFromEnum(evt.key_code);
             if (evt.type == .KEY_UP) {
                 kb.keys.release(@enumFromInt(scancode));

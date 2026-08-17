@@ -37,6 +37,7 @@ const Feel = struct {
     jump_impulse: f32 = 276, // px/s (Lazr's -4.6 px/f impulse)
     jump_hop: f32 = 0,
     jump_gravity_scale: f32 = 0.2, // gravity multiplier while rising & jump held (Lazr's jumpBonus)
+    jump_hold_time: f32 = 0.12, // seconds the reduced gravity lasts before rising at full gravity
     jump_cut_rate: f32 = 7.2, // how fast gravity returns to full when jump is released
     coyote_time: f32 = 0.08,
     jump_buffer_time: f32 = 0.08,
@@ -112,6 +113,7 @@ const Hero = struct {
 
     coyote: f32 = 0,
     jump_buffer: f32 = 0,
+    jump_time: f32 = 0,
     jump_gravity_scale_current: f32 = 1.0,
     grab_lockout: f32 = 0,
     air_jumps: f32 = 0,
@@ -150,7 +152,10 @@ const Hero = struct {
         switch (next) {
             .idle => self.setAnim(anim_idle),
             .run => self.setAnim(anim_run),
-            .jump => self.setAnim(anim_jump),
+            .jump => {
+                self.setAnim(anim_jump);
+                self.jump_time = 0;
+            },
             .fall => self.setAnim(anim_fall),
             .slide => {
                 self.setAnim(anim_slide);
@@ -411,13 +416,14 @@ const Hero = struct {
             self.vel.y *= fric;
         } else if (!climbing) {
             const rising = self.sm.current == .jump and self.vel.y < 0;
-            if (rising and input.isActionPressed("jump")) {
+            if (rising and input.isActionPressed("jump") and self.jump_time < feel.jump_hold_time) {
                 self.jump_gravity_scale_current = feel.jump_gravity_scale;
             } else if (rising) {
                 self.jump_gravity_scale_current = @min(1.0, self.jump_gravity_scale_current + feel.jump_cut_rate * dt);
             } else {
                 self.jump_gravity_scale_current = 1.0;
             }
+            self.jump_time += dt;
             self.vel.y += feel.gravity * self.jump_gravity_scale_current * dt;
             self.vel.x *= fric;
         }
@@ -605,6 +611,7 @@ fn feelPanel() void {
         slider("air accel", &feel.air_accel, 0, 3000, 25);
         slider("jump impulse", &feel.jump_impulse, 100, 800, 10);
         slider("jump gravity", &feel.jump_gravity_scale, 0, 1, 0.05);
+        slider("jump hold s", &feel.jump_hold_time, 0, 0.3, 0.01);
         slider("jump cut rate", &feel.jump_cut_rate, 0, 20, 0.5);
         slider("coyote s", &feel.coyote_time, 0, 0.3, 0.01);
         slider("buffer s", &feel.jump_buffer_time, 0, 0.3, 0.01);
