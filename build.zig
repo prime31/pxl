@@ -146,7 +146,7 @@ fn generateAssetManifest(b: *Build) ![]const u8 {
             continue;
         }
         if (entry.kind != .file) continue;
-        if (std.mem.indexOfScalar(u8, entry.path, '.') == 0) continue;
+        if (std.mem.indexOfScalar(u8, entry.basename, '.') == 0) continue;
 
         if (std.mem.indexOfScalar(u8, entry.path, std.fs.path.sep) == null) {
             std.debug.print("pxl assets: '{s}' must live in a subfolder under assets/ (e.g. assets/textures/)\n", .{entry.path});
@@ -218,16 +218,23 @@ fn generateAssetManifest(b: *Build) ![]const u8 {
         \\pub const Meta = struct {
         \\    name: []const u8,
         \\    path: []const u8,
+        \\};
+        \\
+        \\/// Font metadata: a .fnt plus the sibling .png that holds its glyphs.
+        \\/// Kinds with extra per-asset data should get their own Meta type.
+        \\pub const FontMeta = struct {
+        \\    name: []const u8,
+        \\    path: []const u8,
         \\    atlas_path: ?[]const u8 = null,
         \\};
         \\
     );
 
-    const kinds = [_]struct { kind: AssetKind, id_type: []const u8, array_name: []const u8 }{
-        .{ .kind = .texture, .id_type = "TextureId", .array_name = "textures" },
-        .{ .kind = .font, .id_type = "FontId", .array_name = "fonts" },
-        .{ .kind = .tilemap, .id_type = "TilemapId", .array_name = "tilemaps" },
-        .{ .kind = .audio, .id_type = "AudioId", .array_name = "audio" },
+    const kinds = [_]struct { kind: AssetKind, id_type: []const u8, array_name: []const u8, meta_type: []const u8 }{
+        .{ .kind = .texture, .id_type = "TextureId", .array_name = "textures", .meta_type = "Meta" },
+        .{ .kind = .font, .id_type = "FontId", .array_name = "fonts", .meta_type = "FontMeta" },
+        .{ .kind = .tilemap, .id_type = "TilemapId", .array_name = "tilemaps", .meta_type = "Meta" },
+        .{ .kind = .audio, .id_type = "AudioId", .array_name = "audio", .meta_type = "Meta" },
     };
 
     for (kinds) |k| {
@@ -238,7 +245,7 @@ fn generateAssetManifest(b: *Build) ![]const u8 {
         }
         try src.appendSlice(b.allocator, "};\n\n");
 
-        try src.appendSlice(b.allocator, b.fmt("pub const {s} = [_]Meta{{\n", .{k.array_name}));
+        try src.appendSlice(b.allocator, b.fmt("pub const {s} = [_]{s}{{\n", .{ k.array_name, k.meta_type }));
         for (entries.items) |e| {
             if (e.kind != k.kind) continue;
             if (e.atlas_path) |atlas| {
