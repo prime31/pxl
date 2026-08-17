@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const pxl = @import("pxl");
+const assets = pxl.assets;
 const mu = pxl.mu;
 
 // --- assets & playback state -------------------------------------------------
@@ -131,10 +132,10 @@ fn setDrugged(on: bool) void {
 }
 
 pub fn setup() !void {
-    music = try pxl.assets.loadAudio(.tester, .{ .streamed = true });
-    sfx_gun = try pxl.assets.loadAudio(.gunshot, .{});
-    sfx_drips = try pxl.assets.loadAudio(.drips, .{});
-    ambience = try pxl.assets.loadAudio(.drum_loop, .{ .streamed = true });
+    music = try assets.loadAudio(.tester, .{ .streamed = true });
+    sfx_gun = try assets.loadAudio(.gunshot, .{});
+    sfx_drips = try assets.loadAudio(.drips, .{});
+    ambience = try assets.loadAudio(.drum_loop, .{ .streamed = true });
 
     sfx_bus = pxl.audio.createBus() orelse @panic("out of buses");
     pxl.audio.bus(sfx_bus).?.effects.add(.{ .lowpass = .{ .cutoff = lpf_cutoff } }, pxl.audio.outputRate());
