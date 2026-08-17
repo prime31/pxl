@@ -115,7 +115,6 @@ pub fn run(io_arg: std.Io, config: Config, callbacks: Callbacks) sapp.Desc {
 
 export fn sokolInit() void {
     mem.init();
-    stb.init(mem.allocator);
 
     sg.setup(.{
         .environment = sokol.glue.environment(),
@@ -214,7 +213,6 @@ export fn sokolCleanup() void {
     sg.shutdown();
     saudio.shutdown();
 
-    stb.deinit();
     mem.deinit();
 }
 

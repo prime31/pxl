@@ -1,12 +1,10 @@
 #include <stdlib.h>
 
-void* (*zstbiMallocPtr)(size_t size) = NULL;
-void* (*zstbiReallocPtr)(void* ptr, size_t size) = NULL;
-void (*zstbiFreePtr)(void* ptr) = NULL;
-
-#define STBI_MALLOC(size) zstbiMallocPtr(size)
-#define STBI_REALLOC(ptr, size) zstbiReallocPtr(ptr, size)
-#define STBI_FREE(ptr) zstbiFreePtr(ptr)
+// NOTE: stb_image, stb_image_resize and stb_image_write used to be wired to
+// custom allocators (zstbiMallocPtr & co. dispatching into a Zig allocator).
+// That machinery is gone — the libraries below use the C runtime malloc for
+// everything (the same way stb_vorbis already did), and `stbi_image_free`
+// releases their buffers. No init/deinit is required.
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_NO_JPEG
@@ -19,26 +17,13 @@ void (*zstbiFreePtr)(void* ptr) = NULL;
 #define STBI_NO_PNM
 #include "stb_image.h"
 
-void* (*zstbirMallocPtr)(size_t size, void* context) = NULL;
-void (*zstbirFreePtr)(void* ptr, void* context) = NULL;
-
-#define STBIR_MALLOC(size, context) zstbirMallocPtr(size, context)
-#define STBIR_FREE(ptr, context) zstbirFreePtr(ptr, context)
-
-// #define STB_IMAGE_RESIZE_IMPLEMENTATION
-// #include "stb_image_resize.h"
-
-void* (*zstbiwMallocPtr)(size_t size) = NULL;
-void* (*zstbiwReallocPtr)(void* ptr, size_t size) = NULL;
-void (*zstbiwFreePtr)(void* ptr) = NULL;
-
-#define STBIW_MALLOC(size) zstbiwMallocPtr(size)
-#define STBIW_REALLOC(ptr, size) zstbiwReallocPtr(ptr, size)
-#define STBIW_FREE(ptr) zstbiwFreePtr(ptr)
-
+// stb_image_write is disabled. The Zig side (`writeToFile`/`writeToFn` in
+// zstbi.zig) is already in place; to enable image writing, uncomment the
+// define + include below. The STBIW_MALLOC/REALLOC/FREE macros are NOT needed
+// — default malloc matches everything else in this file.
+//
 // #define STB_IMAGE_WRITE_IMPLEMENTATION
 // #include "stb_image_write.h"
-
 
 // Append the stb_vorbis configuration and source compilation code.
 // The goal is to keep exactly one API surface: decode a whole in-memory
