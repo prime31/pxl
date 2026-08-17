@@ -524,8 +524,15 @@ pub const AudioManager = struct {
             const pid = self.active.items[i];
             if (self.playbacks.get(pid)) |pb| {
                 if (pb.sound == id) {
-                    self.stop(pid);
-                    continue;
+                    if (pb.stopping or !pb.playing) {
+                        self.releasePlayback(pb);
+                        self.playbacks.remove(pid);
+                        _ = self.active.swapRemove(i);
+                        continue;
+                    }
+                    pb.stopping = true;
+                    pb.loop = false;
+                    self.beginFade(pb, 0, FadeOutSeconds);
                 }
             }
             i += 1;
@@ -1070,6 +1077,30 @@ test "stereoPanGains balances channels" {
     const right = stereoPanGains(1, 1);
     try std.testing.expectEqual(@as(f32, 0.0), right.l);
     try std.testing.expectEqual(@as(f32, 1.0), right.r);
+}
+
+test "unload with a playing playback returns instead of spinning" {
+    pxl.mem.init();
+    defer pxl.mem.deinit();
+
+    var mgr: AudioManager = undefined;
+    mgr = .{};
+    mgr.output_rate = 44100;
+    mgr.output_channels = 2;
+    mgr.sounds = pxl.util.SlotMap(Sound).init(4);
+    mgr.playbacks = pxl.util.SlotMap(Playback).init(4);
+    mgr.buses = pxl.util.SlotMap(Bus).init(1);
+    mgr.master = .{ .mix = pxl.mem.alloc(f32, 128, .persistent) };
+    defer mgr.deinit();
+
+    const sid = mgr.addBuffer(&[_]f32{0.25} ** 1024, 1, 44100).?;
+    const pid = mgr.play(sid, .{}).?;
+    try std.testing.expect(mgr.isPlaying(pid));
+
+    // unload used to loop forever: stop() only marks a playing playback as
+    // stopping, so the scan never advanced past it.
+    mgr.unload(sid);
+    try std.testing.expect(mgr.getSound(sid) == null);
 }
 
 test "softClip saturates smoothly instead of hard clipping" {

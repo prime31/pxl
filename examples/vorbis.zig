@@ -9,41 +9,32 @@ const sfxr = pxl.sfxr;
 const MaxTracks = 16;
 
 const Track = struct {
-    /// Owned filename, e.g. "tester.ogg".
-    name: []u8,
+    /// Manifest id, e.g. .tester for "assets/audio/tester.ogg".
+    name: []const u8,
     sound: pxl.audio.SoundId,
     /// Track length in seconds (from the decoded stream header).
     duration: f64,
 };
 
-/// Auto-discovered .ogg files in assets/.
+/// Every audio asset in the generated manifest, loaded as a streamed sound.
 var tracks: [MaxTracks]?Track = [_]?Track{null} ** MaxTracks;
 var track_count: usize = 0;
 
 var scan_error: ?[:0]const u8 = null;
 var scan_error_buf: [256]u8 = undefined;
 
-/// Find every .ogg in assets/ and load it as a streamed sound.
+/// Load every .ogg in the manifest as a streamed sound.
 fn scanTracks() !void {
-    var dir = try std.Io.Dir.openDir(.cwd(), pxl.io, "assets", .{ .iterate = true });
-    defer dir.close(pxl.io);
-
-    var iter = dir.iterate();
-    while (try iter.next(pxl.io)) |entry| {
+    for (std.meta.tags(pxl.assets.AudioId)) |id| {
         if (track_count >= MaxTracks) break;
-        if (entry.kind != .file) continue;
-        if (!std.mem.endsWith(u8, entry.name, ".ogg")) continue;
-
-        var path_buf: [512]u8 = undefined;
-        const path = std.fmt.bufPrint(&path_buf, "assets/{s}", .{entry.name}) catch continue;
-
-        const sound = pxl.audio.load(path, .{ .streamed = true }) catch |err| {
-            scan_error = std.fmt.bufPrintZ(&scan_error_buf, "Failed to load {s}: {s}", .{ entry.name, @errorName(err) }) catch null;
+        const name = @tagName(id);
+        const sound = pxl.assets.loadAudio(id, .{ .streamed = true }) catch |err| {
+            scan_error = std.fmt.bufPrintZ(&scan_error_buf, "Failed to load {s}: {s}", .{ name, @errorName(err) }) catch null;
             continue;
         };
 
         tracks[track_count] = .{
-            .name = pxl.mem.dupe(u8, entry.name, .persistent),
+            .name = name,
             .sound = sound,
             .duration = pxl.audio.soundDuration(sound),
         };
@@ -51,7 +42,7 @@ fn scanTracks() !void {
     }
 
     if (track_count == 0) {
-        scan_error = "No .ogg files found in assets/";
+        scan_error = "No audio assets in the manifest";
     } else {
         std.debug.print("vorbis: found {d} ogg track(s): ", .{track_count});
         for (0..track_count) |i| std.debug.print("{s} ", .{tracks[i].?.name});
@@ -135,9 +126,10 @@ pub fn setup() !void {
 
 pub fn shutdown() !void {
     for (0..track_count) |i| {
-        pxl.mem.free(tracks[i].?.name);
+        pxl.assets.destroy(tracks[i].?.sound);
         tracks[i] = null;
     }
+    track_count = 0;
 }
 
 // --- microui helpers --------------------------------------------------------
