@@ -465,7 +465,7 @@ fn buildWeb(b: *Build, opts: BuildWasmOptions) !void {
     }
 
     const mod_app = b.createModule(.{
-        .root_source_file = b.path("examples/web.zig"),
+        .root_source_file = b.path("examples/lazr.zig"),
         .target = opts.mod_pxl.resolved_target,
         .optimize = opts.mod_pxl.optimize,
         .imports = &.{
@@ -499,6 +499,7 @@ fn buildWeb(b: *Build, opts: BuildWasmOptions) !void {
         .use_emmalloc = true,
         .use_filesystem = true,
         .shell_file_path = opts.dep_sokol.path("src/sokol/web/shell.html"),
+        .extra_args = &.{},
     });
 
     // attach Emscripten linker output to default install step

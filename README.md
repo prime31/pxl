@@ -77,5 +77,7 @@ Logging is redirected to logcat if `std.log.*` methods are used and can be viewe
 
 
 ### Web
-**build**: `zig build -Dtarget=wasm32-emscripten`
+For now, we require ReleaseFast due to a bug in HashMap.
+
+**build**: `zig build -Dtarget=wasm32-emscripten -Doptimize=ReleaseFast`
 **local webserver**: `python3 -m http.server 8000`
