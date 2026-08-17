@@ -135,9 +135,16 @@ fn generateAssetManifest(b: *Build) ![]const u8 {
     const assets_abs = b.pathFromRoot("assets");
     var assets_dir = try std.Io.Dir.openDirAbsolute(b.graph.io, assets_abs, .{ .iterate = true });
     defer assets_dir.close(b.graph.io);
-    var walker = try std.Io.Dir.walk(assets_dir, b.allocator);
+    // walkSelectively does NOT descend automatically: next() only yields
+    // entries of the current directory, so recurse explicitly by entering
+    // every directory we see, then handle files below.
+    var walker = try std.Io.Dir.walkSelectively(assets_dir, b.allocator);
     defer walker.deinit();
     while (try walker.next(b.graph.io)) |entry| {
+        if (entry.kind == .directory) {
+            try walker.enter(b.graph.io, entry);
+            continue;
+        }
         if (entry.kind != .file) continue;
         if (std.mem.indexOfScalar(u8, entry.path, '.') == 0) continue;
 
