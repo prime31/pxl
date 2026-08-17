@@ -22,6 +22,10 @@ pub fn shutdown() !void {}
 ```
 
 
+### Fonts
+Generate with: https://snowb.org/
+
+
 ### Bloom (WIP)
 The renderer now supports a startup bloom toggle in `pxl.Config.gfx`.
 
