@@ -8,7 +8,7 @@
 //   dash: x / left shift / gamepad east (B)
 //   grab: c / left control / gamepad west (X)
 //   shoot: f / gamepad north (Y) — hold for auto-fire
-
+//   punch: v — hold to chain the 5-move combo
 
 const std = @import("std");
 const pxl = @import("pxl");
@@ -67,7 +67,7 @@ const Feel = struct {
 
 var feel: Feel = .{};
 
-const State = enum { idle, run, jump, fall, slide, climb_wall, dash_tran, dash };
+const State = enum { idle, run, jump, fall, slide, climb_wall, dash_tran, dash, punch, duck };
 
 const Cell = struct { x: u8, y: u8 };
 const Anim = struct { cells: []const Cell, fps: f32 = 10, loops: bool = true };
@@ -94,6 +94,28 @@ const anim_dash_down = Anim{ .cells = &.{ .{ .x = 2, .y = 6 }, .{ .x = 3, .y = 6
 const anim_dash_diag_down = Anim{ .cells = &.{ .{ .x = 4, .y = 6 }, .{ .x = 5, .y = 6 } }, .fps = 12 };
 const anim_dash_diag_up = Anim{ .cells = &.{ .{ .x = 8, .y = 6 }, .{ .x = 9, .y = 6 } }, .fps = 12 };
 const anim_dash_none = Anim{ .cells = &.{.{ .x = 15, .y = 5 }}, .fps = 1 };
+const anim_duck = Anim{ .cells = &.{
+    .{ .x = 9, .y = 0 }, .{ .x = 9, .y = 0 }, .{ .x = 10, .y = 0 }, .{ .x = 10, .y = 0 }, .{ .x = 10, .y = 0 },
+}, .fps = 12, .loops = false };
+const anim_shoot_crouch = Anim{ .cells = &.{.{ .x = 4, .y = 3 }}, .fps = 1 };
+
+// Lazr's 5-move melee combo (Hero_Punching, Hero_JumpKick, Hero_SpinPunch, Hero_StandingKick, Hero_HeadButt).
+const anim_punch = Anim{ .cells = &.{
+    .{ .x = 0, .y = 7 }, .{ .x = 1, .y = 7 }, .{ .x = 2, .y = 7 }, .{ .x = 3, .y = 7 }, .{ .x = 3, .y = 7 },
+}, .fps = 20, .loops = false };
+const anim_jump_kick = Anim{ .cells = &.{
+    .{ .x = 0, .y = 7 }, .{ .x = 4, .y = 7 }, .{ .x = 5, .y = 7 }, .{ .x = 5, .y = 7 }, .{ .x = 6, .y = 7 },
+}, .fps = 20, .loops = false };
+const anim_spin_punch = Anim{ .cells = &.{
+    .{ .x = 7, .y = 7 }, .{ .x = 8, .y = 7 }, .{ .x = 9, .y = 7 }, .{ .x = 10, .y = 7 }, .{ .x = 10, .y = 7 },
+}, .fps = 15, .loops = false };
+const anim_standing_kick = Anim{ .cells = &.{
+    .{ .x = 11, .y = 7 }, .{ .x = 12, .y = 7 }, .{ .x = 13, .y = 7 }, .{ .x = 13, .y = 7 }, .{ .x = 13, .y = 7 },
+}, .fps = 20, .loops = false };
+const anim_head_butt = Anim{ .cells = &.{
+    .{ .x = 0, .y = 7 }, .{ .x = 0, .y = 7 }, .{ .x = 14, .y = 7 }, .{ .x = 14, .y = 7 }, .{ .x = 15, .y = 7 },
+}, .fps = 20, .loops = false };
+const punch_anims = [_]Anim{ anim_punch, anim_jump_kick, anim_spin_punch, anim_standing_kick, anim_head_butt };
 
 // One-shot effect anims from atlas_particleProjectile (cells are in draw-size units,
 // e.g. the 8x8 land poof frames are indexed by 8px cells like Lazr does).
@@ -107,20 +129,39 @@ const anim_land_poof = OneShotAnim{ .cells = &.{
 const anim_laser_flash = OneShotAnim{ .cells = &.{
     .{ .x = 8, .y = 1 }, .{ .x = 9, .y = 1 }, .{ .x = 10, .y = 1 },
 }, .fps = 20 };
+const anim_dash_poof = OneShotAnim{ .cells = &.{
+    .{ .x = 10, .y = 5 }, .{ .x = 11, .y = 5 }, .{ .x = 12, .y = 5 }, .{ .x = 13, .y = 5 },
+}, .fps = 10, .cell_w = 8, .cell_h = 8 };
 const laser_cell = Rect.init(10 * 16, 0, 16, 16);
 
 const OneShot = struct {
     active: bool = false,
-    cells: []const Cell = &.{},
+    cells: [8]Cell = undefined, // copied at spawn; no dangling slices
+    cell_count: u8 = 0,
     fps: f32 = 10,
     cell_w: f32 = 16,
     cell_h: f32 = 16,
     pos: Vec2 = .zero,
     flip_x: bool = false,
     origin: pxl.Anchor = .bottom_center,
+    texture: ?Texture = null, // null = proj_tex
+    life: f32 = 0, // 0 = anim duration only
+    tint: [3]f32 = .{ 1, 1, 1 },
+    alpha: f32 = 1,
+    alpha_rate: f32 = 0, // alpha lost per second
     age: f32 = 0,
 };
-var oneshots: [32]OneShot = [_]OneShot{.{}} ** 32;
+var oneshots: [128]OneShot = [_]OneShot{.{}} ** 128;
+
+const OneShotOpts = struct {
+    origin: pxl.Anchor = .bottom_center,
+    flip_x: bool = false,
+    texture: ?Texture = null,
+    life: f32 = 0,
+    tint: [3]f32 = .{ 1, 1, 1 },
+    alpha: f32 = 1,
+    alpha_rate: f32 = 0,
+};
 
 const Laser = struct {
     active: bool = false,
@@ -165,6 +206,10 @@ const Hero = struct {
     dash_dir: Vec2 = .zero,
     shoot_cooldown: f32 = 0,
     land_impact: f32 = 0,
+    punch_move: u8 = 0,
+    punch_time: f32 = 0,
+    punch_buffer: f32 = 0,
+    shadow_timer: f32 = 0,
 
     fn init(self: *Hero, x: f32, y: f32) void {
         self.* = .{};
@@ -178,6 +223,7 @@ const Hero = struct {
         self.jump_buffer = @max(0, self.jump_buffer - dt);
         self.grab_lockout = @max(0, self.grab_lockout - dt);
         self.shoot_cooldown = @max(0, self.shoot_cooldown - dt);
+        self.punch_buffer = @max(0, self.punch_buffer - dt);
 
         if (self.state.below) {
             self.coyote = feel.coyote_time;
@@ -185,6 +231,7 @@ const Hero = struct {
         }
 
         if (input.isActionJustPressed("jump")) self.jump_buffer = feel.jump_buffer_time;
+        if (input.isActionJustPressed("punch")) self.punch_buffer = 0.15;
 
         self.sm.tick(self);
         self.applyPhysics();
@@ -212,12 +259,23 @@ const Hero = struct {
                 self.trans_time = @as(f32, @floatFromInt(anim_dash_tran.cells.len)) / anim_dash_tran.fps;
             },
             .dash => self.setAnim(dashAnimFor(self.dash_dir)),
+            .punch => self.setAnim(punch_anims[self.punch_move]),
+            .duck => self.setAnim(anim_duck),
         }
     }
 
     pub fn idleState(self: *Hero) void {
         const move = moveInput();
+        if (self.punch_buffer > 0) {
+            self.punch_buffer = 0;
+            self.startPunch();
+            return;
+        }
         if (self.jump_buffer > 0 and self.tryJump(move.x)) return;
+        if (move.y > 0) {
+            self.sm.change(self, .duck);
+            return;
+        }
         if (move.x != 0) self.sm.change(self, .run);
     }
 
@@ -230,7 +288,16 @@ const Hero = struct {
         self.facing = if (move.x > 0) 1 else -1;
         self.vel.x += move.x * feel.ground_accel * pxl.time.dt();
         self.vel.x = clampf(self.vel.x, -feel.max_speed, feel.max_speed);
+        if (self.punch_buffer > 0) {
+            self.punch_buffer = 0;
+            self.startPunch();
+            return;
+        }
         if (self.jump_buffer > 0 and self.tryJump(move.x)) return;
+        if (move.y > 0) {
+            self.sm.change(self, .duck);
+            return;
+        }
         if (input.isActionJustPressed("dash") and self.dash_cooldown <= 0) {
             self.sm.change(self, .slide);
             self.vel.x = self.facing * feel.max_speed;
@@ -267,8 +334,54 @@ const Hero = struct {
             self.vel.x += move.x * feel.slide_accel * pxl.time.dt();
             self.vel.x = clampf(self.vel.x, -feel.max_speed, feel.max_speed);
         }
+        if (self.punch_buffer > 0) {
+            self.punch_buffer = 0;
+            self.startPunch();
+            return;
+        }
         if (self.jump_buffer > 0 and self.tryJump(move.x)) return;
+        if (move.y > 0) {
+            self.sm.change(self, .duck);
+            return;
+        }
         if (self.slide_time <= 0) self.sm.change(self, .idle);
+        self.spawnDashTrail(true);
+    }
+
+    pub fn duckState(self: *Hero) void {
+        const move = moveInput();
+        if (self.punch_buffer > 0) {
+            self.punch_buffer = 0;
+            self.startPunch();
+            return;
+        }
+        if (self.jump_buffer > 0 and self.tryJump(move.x)) return;
+        if (input.isActionJustPressed("dash") and self.dash_cooldown <= 0) {
+            self.sm.change(self, .slide);
+            self.vel.x = self.facing * feel.max_speed;
+            self.dash_cooldown = feel.dash_cooldown;
+        }
+        if (input.isActionPressed("shoot")) {
+            self.setAnim(anim_shoot_crouch);
+        } else if (self.anim.cells.ptr == anim_shoot_crouch.cells.ptr) {
+            self.setAnim(anim_duck);
+        }
+        if (move.y <= 0) self.sm.change(self, if (move.x != 0) .run else .idle);
+    }
+
+    pub fn punchState(self: *Hero) void {
+        self.punch_time -= pxl.time.dt();
+        if (self.punch_time <= 0) {
+            const move = moveInput();
+            self.sm.change(self, if (move.x != 0) .run else .idle);
+            return;
+        }
+        // Holding punch chains into the next combo move once the current one finishes.
+        if (self.punch_time <= 0.05 and input.isActionPressed("punch")) {
+            self.punch_move = (self.punch_move + 1) % 5;
+            self.punch_time = 0.3;
+            self.setAnim(punch_anims[self.punch_move]);
+        }
     }
 
     pub fn climbWallState(self: *Hero) void {
@@ -325,6 +438,7 @@ const Hero = struct {
             return;
         }
         self.steerDash();
+        self.spawnDashTrail(false);
         self.vel.x += self.dash_dir.x * feel.dash_accel * pxl.time.dt();
         self.vel.y += self.dash_dir.y * feel.dash_accel * pxl.time.dt();
         if (self.tryWallGrab()) {
@@ -346,6 +460,7 @@ const Hero = struct {
             return;
         }
         self.steerDash();
+        self.spawnDashTrail(false);
         self.setAnim(dashAnimFor(self.dash_dir));
         self.vel.x += self.dash_dir.x * feel.dash_accel * pxl.time.dt();
         self.vel.y += self.dash_dir.y * feel.dash_accel * pxl.time.dt();
@@ -501,13 +616,13 @@ const Hero = struct {
             if (self.sm.current == .jump or self.sm.current == .fall) {
                 self.air_jumps = feel.air_jumps;
                 if (self.land_impact > 100) {
-                    playOneShot(anim_land_poof, .init(self.rect.center().x, self.rect.bottom()), .bottom_center);
+                    playOneShot(anim_land_poof, .init(self.rect.center().x, self.rect.bottom()), .{});
                 }
                 const move = moveInput();
                 self.sm.change(self, if (move.x != 0) .run else .idle);
             }
         } else {
-            if (self.sm.current == .idle or self.sm.current == .run) {
+            if (self.sm.current == .idle or self.sm.current == .run or self.sm.current == .duck or self.sm.current == .punch) {
                 self.sm.change(self, if (self.vel.y < 0) .jump else .fall);
             } else if (self.sm.current == .jump and self.vel.y >= 0) {
                 self.sm.change(self, .fall);
@@ -516,7 +631,36 @@ const Hero = struct {
     }
 
     fn playJumpPoof(self: *Hero) void {
-        playOneShot(anim_jump_poof, .init(self.rect.center().x, self.rect.bottom()), .bottom_center);
+        playOneShot(anim_jump_poof, .init(self.rect.center().x, self.rect.bottom()), .{});
+    }
+
+    fn startPunch(self: *Hero) void {
+        self.punch_move = (self.punch_move + 1) % 5;
+        self.punch_time = 0.3;
+        self.vel.x = 0;
+        self.setAnim(punch_anims[self.punch_move]);
+        self.sm.change(self, .punch);
+    }
+
+    fn spawnDashTrail(self: *Hero, poof: bool) void {
+        if (poof) {
+            const px = if (self.facing > 0) self.rect.x - 2 else self.rect.right() + 2;
+            playOneShot(anim_dash_poof, .init(px + pxl.math.rand.range(f32, -2, 3), self.rect.bottom() - 1), .{ .origin = .center });
+        }
+        self.shadow_timer -= pxl.time.dt();
+        if (self.shadow_timer > 0) return;
+        self.shadow_timer = 4.0 / 60.0;
+        // Magenta hero silhouette that stays behind (Lazr's HeroShadow, HeroAccent tint).
+        const cell = self.anim.cells[self.anim_index];
+        playOneShot(.{ .cells = &.{cell}, .fps = 1, .cell_w = 16, .cell_h = 32 }, .init(self.rect.center().x, self.rect.bottom()), .{
+            .origin = .bottom_center,
+            .flip_x = self.facing > 0,
+            .texture = hero_tex.*,
+            .life = 1.5,
+            .tint = .{ 1, 0, 1 },
+            .alpha = 0.4,
+            .alpha_rate = 0.27,
+        });
     }
 
     fn tryShoot(self: *Hero) void {
@@ -533,7 +677,7 @@ const Hero = struct {
             Vec2.init(self.facing, 0);
         const muzzle = self.rect.center().add(dir.scale(10));
         spawnLaser(muzzle, dir);
-        playOneShot(anim_laser_flash, muzzle, .center);
+        playOneShot(anim_laser_flash, muzzle, .{ .origin = .center });
         self.shoot_cooldown = feel.laser_cooldown;
     }
 
@@ -590,10 +734,25 @@ fn updateLasers() void {
     }
 }
 
-fn playOneShot(a: OneShotAnim, pos: Vec2, origin: pxl.Anchor) void {
+fn playOneShot(a: OneShotAnim, pos: Vec2, opts: OneShotOpts) void {
     for (&oneshots) |*o| {
         if (!o.active) {
-            o.* = .{ .active = true, .cells = a.cells, .fps = a.fps, .cell_w = a.cell_w, .cell_h = a.cell_h, .pos = pos, .origin = origin };
+            o.* = .{
+                .active = true,
+                .cell_count = @intCast(a.cells.len),
+                .fps = a.fps,
+                .cell_w = a.cell_w,
+                .cell_h = a.cell_h,
+                .pos = pos,
+                .origin = opts.origin,
+                .flip_x = opts.flip_x,
+                .texture = opts.texture,
+                .life = opts.life,
+                .tint = opts.tint,
+                .alpha = opts.alpha,
+                .alpha_rate = opts.alpha_rate,
+            };
+            @memcpy(o.cells[0..a.cells.len], a.cells);
             return;
         }
     }
@@ -604,7 +763,9 @@ fn updateOneShots() void {
     for (&oneshots) |*o| {
         if (!o.active) continue;
         o.age += dt;
-        if (o.age >= @as(f32, @floatFromInt(o.cells.len)) / o.fps) o.active = false;
+        o.alpha = @max(0, o.alpha - o.alpha_rate * dt);
+        const anim_dur = @as(f32, @floatFromInt(o.cell_count)) / o.fps;
+        if (o.age >= @max(anim_dur, o.life)) o.active = false;
     }
 }
 
@@ -701,7 +862,10 @@ pub fn setup() !void {
     input.addBinding("grab", .gamepadButton(.west));
 
     input.addBinding("shoot", .key(.f));
-    input.addBinding("shoot", .gamepadButton(.north));
+    input.addBinding("shoot", .gamepadAxis(.right_trigger));
+
+    input.addBinding("punch", .key(.v));
+    input.addBinding("punch", .gamepadButton(.north));
 }
 
 pub fn update() !void {
@@ -806,10 +970,11 @@ fn drawLasers() void {
 fn drawOneShots() void {
     for (oneshots) |o| {
         if (!o.active) continue;
-        const idx = @min(o.cells.len - 1, @as(usize, @intFromFloat(o.age * o.fps)));
+        const idx = @min(o.cell_count - 1, @as(u8, @intFromFloat(o.age * o.fps)));
         const cell = o.cells[idx];
         const src = Rect.init(@as(f32, @floatFromInt(cell.x)) * o.cell_w, @as(f32, @floatFromInt(cell.y)) * o.cell_h, o.cell_w, o.cell_h);
-        api.drawSprite(.{ .texture = proj_tex.*, .source = src, .flip_x = o.flip_x }, .{ .pos = o.pos, .origin = o.origin, .scale = .one });
+        const color = Color.fromRgba(o.tint[0], o.tint[1], o.tint[2], o.alpha);
+        api.drawSprite(.{ .texture = o.texture orelse proj_tex.*, .source = src, .flip_x = o.flip_x, .color = color }, .{ .pos = o.pos, .origin = o.origin, .scale = .one });
     }
 }
 

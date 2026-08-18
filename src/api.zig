@@ -112,6 +112,14 @@ pub fn drawSprite(s: Sprite, t: Transform) void {
     var vt = src.y / th;
     var ur = (src.x + src.w) / tw;
     var vb = (src.y + src.h) / th;
+    if (s.source != null) {
+        // Half-texel inset: with nearest filtering, sampling exactly on a texel boundary
+        // can round into the neighboring tile's edge texel, showing 1px seams between tiles.
+        ul += 0.5 / tw;
+        vt += 0.5 / th;
+        ur -= 0.5 / tw;
+        vb -= 0.5 / th;
+    }
     if (s.flip_x) std.mem.swap(f32, &ul, &ur);
     if (s.flip_y) std.mem.swap(f32, &vt, &vb);
 
@@ -145,15 +153,28 @@ pub fn drawTextureEx(tex: Texture, transform: Transform, color: Color) void {
 pub fn drawTexturedRect(tex: Texture, dst: Rect, src: Rect, color: Color) void {
     const tw: f32 = @floatFromInt(tex.width);
     const th: f32 = @floatFromInt(tex.height);
-    const _u0 = src.x / tw;
-    const v0 = src.y / th;
-    const _u1 = (src.x + src.w) / tw;
-    const v1 = (src.y + src.h) / th;
+    const src_u0 = src.x / tw;
+    const src_v0 = src.y / th;
+    const src_u1 = (src.x + src.w) / tw;
+    const src_v1 = (src.y + src.h) / th;
+    // Half-texel inset toward the tile center (handles negative w/h flips): with nearest
+    // filtering, sampling exactly on a texel boundary can bleed the neighbor tile's edge
+    // texel into the seam, which shows up as 1px dark lines between tiles.
+    const inset_u = 0.5 / tw;
+    const inset_v = 0.5 / th;
+    const u_lo = @min(src_u0, src_u1) + inset_u;
+    const u_hi = @max(src_u0, src_u1) - inset_u;
+    const v_lo = @min(src_v0, src_v1) + inset_v;
+    const v_hi = @max(src_v0, src_v1) - inset_v;
+    const left_u = if (src.w > 0) u_lo else u_hi;
+    const right_u = if (src.w > 0) u_hi else u_lo;
+    const top_v = if (src.h > 0) v_lo else v_hi;
+    const bottom_v = if (src.h > 0) v_hi else v_lo;
     drawQuad(.{
-        .{ .pos = .init(dst.x, dst.y), .uv = .init(_u0, v0), .col = color },
-        .{ .pos = .init(dst.x + dst.w, dst.y), .uv = .init(_u1, v0), .col = color },
-        .{ .pos = .init(dst.x + dst.w, dst.y + dst.h), .uv = .init(_u1, v1), .col = color },
-        .{ .pos = .init(dst.x, dst.y + dst.h), .uv = .init(_u0, v1), .col = color },
+        .{ .pos = .init(dst.x, dst.y), .uv = .init(left_u, top_v), .col = color },
+        .{ .pos = .init(dst.x + dst.w, dst.y), .uv = .init(right_u, top_v), .col = color },
+        .{ .pos = .init(dst.x + dst.w, dst.y + dst.h), .uv = .init(right_u, bottom_v), .col = color },
+        .{ .pos = .init(dst.x, dst.y + dst.h), .uv = .init(left_u, bottom_v), .col = color },
     }, tex, null);
 }
 
