@@ -98,7 +98,7 @@ var hero: Hero = .{};
 var textures: std.AutoHashMap(i64, Texture) = undefined;
 
 var camera: pxl.Camera = .{ .position = .init(320, 168), .zoom = 1.0, .rotation = 0 };
-var show_debug: bool = true;
+var show_debug: bool = false;
 
 const Hero = struct {
     rect: Rect = .{},
@@ -541,7 +541,7 @@ pub fn setup() !void {
         }
     }
 
-    hero_tex = try pxl.assets.loadTexture(.sheet_hero_body1);
+    hero_tex = try pxl.assets.loadTexture(.sheet_hero_body3);
 
     // The IntGrid layer is the collision source (index 2 in ldtk.ldtk).
     for (map.root.levels[0].layerInstances.?) |layer| {
