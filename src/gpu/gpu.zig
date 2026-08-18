@@ -15,7 +15,11 @@ pub const Mesh = Batcher.Mesh;
 pub const sprite = @import("sprite.zig");
 pub const Anchor = sprite.Anchor;
 pub const Sprite = sprite.Sprite;
-pub const SpriteAnimation = sprite.SpriteAnimation;
+
+pub const animation = @import("animation.zig");
+pub const Animation = animation.Animation;
+pub const AnimationId = animation.AnimationId;
+pub const AnimationPlayer = animation.AnimationPlayer;
 
 pub const Rect = pxl.math.Rect;
 pub const Transform = sprite.Transform;

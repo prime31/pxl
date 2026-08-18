@@ -34,6 +34,7 @@ pub const util = @import("util/util.zig");
 pub const gpu = @import("gpu/gpu.zig");
 pub const text = @import("text/text.zig");
 pub const tilemap = @import("tilemap/tilemap.zig");
+pub const animation = gpu.animation;
 
 pub var io: std.Io = undefined;
 
@@ -65,6 +66,9 @@ pub const Camera = gpu.Camera;
 pub const Transform = gpu.Transform;
 pub const Anchor = gpu.Anchor;
 pub const Sprite = gpu.Sprite;
+pub const Animation = gpu.Animation;
+pub const AnimationId = gpu.AnimationId;
+pub const AnimationPlayer = gpu.AnimationPlayer;
 pub const ParticleSystem = gpu.ParticleSystem;
 pub const Particle = gpu.Particle;
 pub const EmitterParams = gpu.EmitterParams;

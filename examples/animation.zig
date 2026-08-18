@@ -2,22 +2,19 @@ const std = @import("std");
 
 const pxl = @import("pxl");
 const api = pxl.api;
-const cast = pxl.util.cast;
 
-const Vec = pxl.util.Vec;
 const Vec2 = pxl.math.Vec2;
-const Rect = pxl.math.Rect;
-const RectU = pxl.math.RectU;
 const Color = pxl.math.Color;
 const Texture = pxl.gpu.Texture;
+const Frame = pxl.animation.Frame;
 
 const cell_size = 34;
 var sprites_tex: *Texture = undefined;
 var tiles_tex: *Texture = undefined;
-var parsed_sprites: []Sprite = undefined;
+var parsed_frames: []const Frame = &.{};
 
-var sprite_animations: SpriteAnimations = .{};
-var animator: AnimationPlayer = .{};
+var tile_anim: pxl.AnimationId = .none;
+var animator: pxl.AnimationPlayer = .{};
 
 pub fn config() pxl.Config {
     return .{
@@ -33,39 +30,31 @@ pub fn setup() !void {
     sprites_tex = try pxl.assets.loadTexture(.sprites);
     tiles_tex = try pxl.assets.loadTexture(.blacknwhite);
 
-    parsed_sprites = generateSprites(sprites_tex.*, cell_size, cell_size, 0, 0, 0, 1000);
-    const parsed_tiles = generateSprites(tiles_tex.*, 12, 12, 1, 1, 21, 4);
-    sprite_animations.sprites.appendSlice(parsed_tiles);
-    pxl.mem.free(parsed_tiles);
+    parsed_frames = pxl.animation.gridFrames(sprites_tex.*, cell_size, cell_size, 0, 0, 0, 1000, 0.1);
+    tile_anim = pxl.animation.addGrid("tiles", tiles_tex.*, 12, 12, 1, 1, 21, 4, 0.1, .loop);
 
-    sprite_animations.animations.append(.{ .start = 0, .len = 4, .next = @enumFromInt(0) });
-
-    animator.play(@enumFromInt(0));
+    animator.playId(tile_anim);
 }
 
 pub fn shutdown() !void {
     pxl.assets.destroy(sprites_tex);
     pxl.assets.destroy(tiles_tex);
-    pxl.mem.free(parsed_sprites);
-    sprite_animations.animations.deinit();
-    sprite_animations.sprites.deinit();
 }
 
 pub fn render() !void {
     pxl.beginPass(.{ .clear_color = Color.fromBytes(11, 15, 22, 255) });
 
     var pos = Vec2.one;
-    for (animations) |anim| {
+    for (ranges) |range| {
+        const frames = parsed_frames[range.start..][0..range.len];
         const elapsed: usize = @intFromFloat(@floor(pxl.time.time() / 0.1));
-        const frame: usize = elapsed % anim.len;
-
-        const sprite = parsed_sprites[anim.start + frame];
-        api.drawTexturedRect(sprite.tex, .{
+        const frame = frames[elapsed % frames.len];
+        api.drawTexturedRect(frame.texture, .{
             .x = pos.x,
             .y = pos.y,
-            .w = @floatFromInt(sprite.uvs.w),
-            .h = @floatFromInt(sprite.uvs.h),
-        }, sprite.uvs.asRect(), Color.white);
+            .w = frame.source.w,
+            .h = frame.source.h,
+        }, frame.source, Color.white);
 
         pos.x += cell_size;
         if (pos.x > pxl.gpu.renderWidthf()) {
@@ -77,13 +66,13 @@ pub fn render() !void {
     pos.x = 1;
     pos.y += 100;
     animator.update();
-    const spr = animator.getSprite();
-    api.drawTexturedRect(spr.tex, .{
+    const frame = animator.frame();
+    api.drawTexturedRect(frame.texture, .{
         .x = pos.x + 50,
         .y = pos.y,
-        .w = @floatFromInt(spr.uvs.w * 5),
-        .h = @floatFromInt(spr.uvs.h * 5),
-    }, spr.uvs.asRect(), Color.white);
+        .w = frame.source.w * 5,
+        .h = frame.source.h * 5,
+    }, frame.source, Color.white);
 
     const text_pos = Vec2.init(pxl.gpu.renderWidthf() * 0.5 - 100, pxl.gpu.renderHeightf() * 0.5);
     api.drawText(null, text_pos, "fucking a-right ass\nmother FOOKER", Color.white);
@@ -91,7 +80,9 @@ pub fn render() !void {
     pxl.endPass();
 }
 
-const animations = [_]Animation{
+const Range = struct { start: usize, len: usize };
+
+const ranges = [_]Range{
     // --- Pink Blob (Top-Left) ---
     .{ .start = (0 * 35) + 0, .len = 12 }, // 0: Idle
     .{ .start = (1 * 35) + 0, .len = 12 }, // 1: Move
@@ -130,8 +121,8 @@ const animations = [_]Animation{
     .{ .start = (7 * 35) + 12, .len = 12 }, // 22: Bite Attack
     .{ .start = (8 * 35) + 12, .len = 12 }, // 23: Hit
     .{ .start = (9 * 35) + 12, .len = 12 }, // 24: Death
-    .{ .start = (10 * 35) + 12, .len = 12 }, //
-    .{ .start = (11 * 35) + 12, .len = 12 }, //
+    .{ .start = (10 * 35) + 12, .len = 12 },
+    .{ .start = (11 * 35) + 12, .len = 12 },
     .{ .start = (12 * 35) + 12, .len = 12 },
 
     // --- Vampire / Cultist (Mid-Right) ---
@@ -169,137 +160,3 @@ const animations = [_]Animation{
     .{ .start = (12 * 35) + 24, .len = 12 }, // 47: Projectile 1 (Blue)
     .{ .start = (13 * 35) + 24, .len = 12 }, // 48: Projectile 2 (Sparkles)
 };
-
-pub const SpriteAnimations = struct {
-    sprites: Vec(Sprite) = .empty,
-    animations: Vec(Animation) = .empty,
-};
-
-const Sprite = struct {
-    tex: Texture,
-    uvs: RectU,
-    frame_time: f32 = 0.1,
-};
-
-pub const Animation = struct {
-    /// Index into sprites array
-    start: u32,
-    /// Number of Sprite elements used in this animation.
-    len: u32,
-    /// After finishing, will jump to this next animation (which may be itself, in which case it will loop).
-    next: Index = .none,
-
-    /// Index into animations array.
-    pub const Index = enum(u32) {
-        none = std.math.maxInt(u32),
-        _,
-    };
-};
-
-pub const AnimationState = enum(u8) { none, running, paused, completed };
-
-pub const AnimationPlayer = struct {
-    animation: Animation.Index = .none,
-    state: AnimationState = .none,
-    current_frame: usize = 0,
-    elapsed_time: f32 = 0,
-    frame_time_left: f32 = 0,
-
-    pub fn play(self: *AnimationPlayer, anim: Animation.Index) void {
-        self.animation = anim;
-        self.elapsed_time = 0;
-        self.setFrame(0);
-        self.state = .running;
-    }
-
-    pub fn getSprite(self: AnimationPlayer) Sprite {
-        const anim = sprite_animations.animations.items[@intFromEnum(self.animation)];
-        return sprite_animations.sprites.items[anim.start + self.current_frame];
-    }
-
-    pub fn update(self: *AnimationPlayer) void {
-        if (self.state != .running) return;
-
-        self.elapsed_time += pxl.time.dt();
-        self.frame_time_left -= pxl.time.dt();
-
-        if (self.frame_time_left <= 0) {
-            const anim = sprite_animations.animations.items[@intFromEnum(self.animation)];
-            const new_frame = self.current_frame + 1;
-            if (new_frame >= anim.len) {
-                if (anim.next != .none) {
-                    self.animation = anim.next;
-                    self.setFrame(0);
-                } else self.state = .completed;
-            } else {
-                self.setFrame(new_frame);
-            }
-        }
-    }
-
-    fn setFrame(self: *AnimationPlayer, index: usize) void {
-        self.current_frame = index;
-        self.frame_time_left = sprite_animations.sprites.items[self.current_frame].frame_time;
-    }
-};
-
-pub fn generateSprites(
-    texture: Texture,
-    cell_width: u32,
-    cell_height: u32,
-    padding: u32,
-    margin: u32,
-    cell_offset: u32,
-    max_cells_to_include: u32,
-) []Sprite {
-    var sprites = std.ArrayListUnmanaged(Sprite).empty;
-
-    // Cast the texture dimensions to u32 immediately to ensure all math matches
-    const tex_w: u32 = @intCast(texture.width);
-    const tex_h: u32 = @intCast(texture.height);
-
-    if (tex_w <= margin * 2 or tex_h <= margin * 2) {
-        return sprites.toOwnedSlice(pxl.mem.allocator) catch unreachable;
-    }
-
-    const avail_w = tex_w - (margin * 2);
-    const avail_h = tex_h - (margin * 2);
-
-    const cols = (avail_w + padding) / (cell_width + padding);
-    const rows = (avail_h + padding) / (cell_height + padding);
-
-    var current_cell: u32 = 0;
-    var included_count: u32 = 0;
-
-    var r: u32 = 0;
-    while (r < rows) : (r += 1) {
-        var c: u32 = 0;
-        while (c < cols) : (c += 1) {
-            if (current_cell >= cell_offset) {
-                if (included_count >= max_cells_to_include) {
-                    return sprites.toOwnedSlice(pxl.mem.allocator) catch unreachable;
-                }
-
-                const x = margin + c * (cell_width + padding);
-                const y = margin + r * (cell_height + padding);
-
-                // Ensure we don't overflow texture bounds
-                if (x + cell_width <= tex_w and y + cell_height <= tex_h) {
-                    sprites.append(pxl.mem.allocator, .{
-                        .tex = texture,
-                        .uvs = .{
-                            .x = x,
-                            .y = y,
-                            .w = cell_width,
-                            .h = cell_height,
-                        },
-                    }) catch unreachable;
-                    included_count += 1;
-                }
-            }
-            current_cell += 1;
-        }
-    }
-
-    return sprites.toOwnedSlice(pxl.mem.allocator) catch unreachable;
-}
