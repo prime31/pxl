@@ -21,10 +21,12 @@
 //!
 //! const music_pb = pxl.audio.play(music, .{ .loop = true }) orelse ...;
 //! pxl.audio.playOneShot(coin, .{ .pan = -0.5, .pitch = 1.2 });
+//! pxl.audio.sfx(.jump, .{ .volume = 0.8 }); // live sfxr one-shot
 //! ```
 
 const std = @import("std");
 const pxl = @import("pxl.zig");
+const sfxr = pxl.sfxr;
 
 /// Frames decoded per refill for streamed sounds.
 pub const ChunkFrames = 4096;
@@ -355,7 +357,7 @@ pub const Sound = struct {
 pub const SoundId = pxl.util.SlotMap(Sound).Key;
 
 pub const Playback = struct {
-    sound: SoundId,
+    source: Source,
     bus: ?BusId,
     volume: f32 = 1,
     pan: f32 = 0,
@@ -375,6 +377,19 @@ pub const Playback = struct {
     fade_target: f32 = 1,
     fade_step: f32 = 0,
     stopping: bool = false,
+
+    pub const Source = union(enum) {
+        sound: SoundId,
+        sfxr: sfxr.Sound,
+    };
+
+    /// The backing sound id, or null for a live generator (sfxr) playback.
+    pub fn soundId(self: *const Playback) ?SoundId {
+        return switch (self.source) {
+            .sound => |id| id,
+            .sfxr => null,
+        };
+    }
 };
 
 pub const PlaybackId = pxl.util.SlotMap(Playback).Key;
@@ -522,8 +537,9 @@ pub const AudioManager = struct {
         var i: usize = 0;
         while (i < self.active.items.len) {
             const pid = self.active.items[i];
-            if (self.playbacks.get(pid)) |pb| {
-                if (pb.sound == id) {
+        if (self.playbacks.get(pid)) |pb| {
+            if (pb.soundId()) |sid| {
+                if (sid == id) {
                     if (pb.stopping or !pb.playing) {
                         self.releasePlayback(pb);
                         self.playbacks.remove(pid);
@@ -535,7 +551,8 @@ pub const AudioManager = struct {
                     self.beginFade(pb, 0, FadeOutSeconds);
                 }
             }
-            i += 1;
+        }
+        i += 1;
         }
         self.freeSound(sound);
         self.sounds.remove(id);
@@ -561,13 +578,15 @@ pub const AudioManager = struct {
         if (sound.data == .stream) {
             for (self.active.items) |pid| {
                 if (self.playbacks.get(pid)) |pb| {
-                    if (pb.sound == id and !pb.stopping) return null;
+                    if (pb.soundId()) |sid| {
+                        if (sid == id and !pb.stopping) return null;
+                    }
                 }
             }
         }
 
         var pb = Playback{
-            .sound = id,
+            .source = .{ .sound = id },
             .bus = opts.bus,
             .volume = opts.volume,
             .pan = opts.pan,
@@ -595,6 +614,35 @@ pub const AudioManager = struct {
         _ = self.play(id, o);
     }
 
+    /// Play a one-shot sfxr sound generated from `preset`. The sound is
+    /// synthesized live into the mix — no buffer or sound id is involved —
+    /// and a fresh randomized version is produced on every call.
+    /// `opts.pitch` scales the base frequency rather than resampling.
+    pub fn sfx(self: *AudioManager, preset: sfxr.Preset, opts: PlaybackOptions) ?PlaybackId {
+        var params = sfxr.Params{};
+        params.apply(preset);
+        return self.sfxParams(params, opts);
+    }
+
+    /// Play a one-shot sfxr sound from explicit params. See `sfx`.
+    pub fn sfxParams(self: *AudioManager, params: sfxr.Params, opts: PlaybackOptions) ?PlaybackId {
+        var p = params;
+        const pitch = @max(opts.pitch, 0.01);
+        if (pitch != 1.0) p.base_freq *= pitch;
+        var pb = Playback{
+            .source = .{ .sfxr = sfxr.Sound.init(p, self.output_rate) },
+            .bus = opts.bus,
+            .volume = opts.volume,
+            .pan = opts.pan,
+            .loop = false,
+        };
+        self.beginFade(&pb, 1, FadeInSeconds);
+        const pid = self.playbacks.put(pb);
+        if (pid.generation == .invalid) return null;
+        self.active.append(pid);
+        return pid;
+    }
+
     pub fn pause(self: *AudioManager, id: PlaybackId) void {
         if (self.playbacks.get(id)) |pb| pb.playing = false;
     }
@@ -609,13 +657,15 @@ pub const AudioManager = struct {
 
     pub fn position(self: *AudioManager, id: PlaybackId) f64 {
         const pb = self.playbacks.get(id) orelse return 0;
-        const sound = self.sounds.get(pb.sound) orelse return 0;
+        const sid = pb.soundId() orelse return 0;
+        const sound = self.sounds.get(sid) orelse return 0;
         return pb.pos / @as(f64, @floatFromInt(sound.sample_rate));
     }
 
     pub fn duration(self: *AudioManager, id: PlaybackId) f64 {
         const pb = self.playbacks.get(id) orelse return 0;
-        return self.soundDuration(pb.sound);
+        const sid = pb.soundId() orelse return 0;
+        return self.soundDuration(sid);
     }
 
     pub fn getSound(self: *AudioManager, id: SoundId) ?*Sound {
@@ -630,7 +680,8 @@ pub const AudioManager = struct {
 
     pub fn seek(self: *AudioManager, id: PlaybackId, seconds: f64) void {
         const pb = self.playbacks.get(id) orelse return;
-        const sound = self.sounds.get(pb.sound) orelse return;
+        const sid = pb.soundId() orelse return;
+        const sound = self.sounds.get(sid) orelse return;
         pb.pos = @max(0, seconds * @as(f64, @floatFromInt(sound.sample_rate)));
         if (sound.data == .stream) {
             sound.data.stream.seek(@intFromFloat(pb.pos)) catch {};
@@ -704,9 +755,8 @@ pub const AudioManager = struct {
         for (self.active.items) |pid| {
             const pb = self.playbacks.get(pid) orelse continue;
             if (!pb.playing) continue;
-            const sound = self.sounds.get(pb.sound) orelse continue;
             const target_bus = if (pb.bus) |bid| self.buses.get(bid).? else &self.master;
-            self.mixPlayback(pb, sound, target_bus.mix[0..sample_count], frames, pb.pitch * target_bus.pitch);
+            self.mixPlayback(pb, target_bus.mix[0..sample_count], frames, pb.pitch * target_bus.pitch);
             self.advanceFade(pb, frames);
             if (pb.stopping and pb.fade <= 0) {
                 pb.ended = true;
@@ -829,7 +879,44 @@ pub const AudioManager = struct {
         }
     }
 
-    fn mixPlayback(self: *AudioManager, pb: *Playback, sound: *const Sound, out: []f32, frames: usize, pitch: f32) void {
+    fn mixPlayback(self: *AudioManager, pb: *Playback, out: []f32, frames: usize, pitch: f32) void {
+        switch (pb.source) {
+            .sound => |id| {
+                const sound = self.sounds.get(id) orelse return;
+                self.mixSoundPlayback(pb, sound, out, frames, pitch);
+            },
+            .sfxr => |*voice| self.mixSfxrPlayback(pb, voice, out, frames),
+        }
+    }
+
+    fn mixSfxrPlayback(self: *AudioManager, pb: *Playback, voice: *sfxr.Sound, out: []f32, frames: usize) void {
+        const out_channels: usize = @intCast(self.output_channels);
+        const rate: f32 = @floatFromInt(self.output_rate);
+        const vol = pb.volume * pb.fade;
+        const g = monoPanGains(pb.pan, vol);
+
+        var i: usize = 0;
+        while (i < frames) : (i += 1) {
+            const s = voice.nextSample() orelse {
+                pb.ended = true;
+                pb.playing = false;
+                return;
+            };
+            var frame: [2]f32 = .{ 0, 0 };
+            if (out_channels == 1) {
+                frame[0] = s * vol;
+            } else {
+                frame[0] = s * g.l;
+                frame[1] = s * g.r;
+            }
+            pb.effects.processFrame(frame[0..out_channels], out_channels, rate);
+            const o = i * out_channels;
+            var c: usize = 0;
+            while (c < out_channels) : (c += 1) out[o + c] += frame[c];
+        }
+    }
+
+    fn mixSoundPlayback(self: *AudioManager, pb: *Playback, sound: *const Sound, out: []f32, frames: usize, pitch: f32) void {
         const out_channels: usize = @intCast(self.output_channels);
         const channels: usize = @intCast(sound.channels);
         const ratio = @as(f64, @floatFromInt(sound.sample_rate)) / @as(f64, @floatFromInt(self.output_rate)) * @as(f64, pitch);
@@ -991,6 +1078,18 @@ pub fn playOneShot(id: SoundId, opts: PlaybackOptions) void {
     manager.playOneShot(id, opts);
 }
 
+/// Play a one-shot sfxr sound generated from a preset. See
+/// `AudioManager.sfx`.
+pub fn sfx(preset: sfxr.Preset, opts: PlaybackOptions) ?PlaybackId {
+    return manager.sfx(preset, opts);
+}
+
+/// Play a one-shot sfxr sound from explicit params. See
+/// `AudioManager.sfxParams`.
+pub fn sfxParams(params: sfxr.Params, opts: PlaybackOptions) ?PlaybackId {
+    return manager.sfxParams(params, opts);
+}
+
 pub fn pause(id: PlaybackId) void {
     manager.pause(id);
 }
@@ -1101,6 +1200,25 @@ test "unload with a playing playback returns instead of spinning" {
     // stopping, so the scan never advanced past it.
     mgr.unload(sid);
     try std.testing.expect(mgr.getSound(sid) == null);
+}
+
+test "sfx creates a live generator playback" {
+    pxl.mem.init();
+    defer pxl.mem.deinit();
+
+    var mgr: AudioManager = undefined;
+    mgr = .{};
+    mgr.output_rate = 44100;
+    mgr.output_channels = 2;
+    mgr.sounds = pxl.util.SlotMap(Sound).init(1);
+    mgr.playbacks = pxl.util.SlotMap(Playback).init(4);
+    mgr.buses = pxl.util.SlotMap(Bus).init(1);
+    mgr.master = .{ .mix = pxl.mem.alloc(f32, 128, .persistent) };
+    defer mgr.deinit();
+
+    const pid = mgr.sfx(.tone, .{}).?;
+    try std.testing.expect(mgr.isPlaying(pid));
+    try std.testing.expect(mgr.playback(pid).?.source == .sfxr);
 }
 
 test "softClip saturates smoothly instead of hard clipping" {

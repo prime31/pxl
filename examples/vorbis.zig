@@ -59,11 +59,10 @@ var track_volume: f32 = 1.0;
 var track_pan: f32 = 0;
 var track_pitch: f32 = 1;
 
-// one-shot sfxr sounds, registered as in-memory buffers
+// one-shot sfxr sounds, generated live on press
 const Sfx = struct {
     label: [:0]const u8,
     preset: sfxr.Preset,
-    sound: ?pxl.audio.SoundId = null,
 };
 var sfx_sounds = [_]Sfx{
     .{ .label = "Coin", .preset = .pickup_coin },
@@ -101,18 +100,6 @@ fn togglePlayPause() void {
     }
 }
 
-fn setupSfx() void {
-    for (&sfx_sounds) |*s| {
-        var p = sfxr.Params{};
-        p.apply(s.preset);
-        var gen = sfxr.Sound.init(p, pxl.audio.outputRate());
-        var vec: pxl.util.Vec(f32) = .empty;
-        while (gen.nextSample()) |sample| vec.append(sample);
-        defer vec.deinit();
-        s.sound = pxl.audio.addBuffer(vec.items, 1, pxl.audio.outputRate());
-    }
-}
-
 fn currentPosition() f64 {
     if (playback_id) |id| return pxl.audio.position(id);
     return 0;
@@ -120,7 +107,6 @@ fn currentPosition() f64 {
 
 pub fn setup() !void {
     try scanTracks();
-    setupSfx();
     if (track_count > 0) playTrack(0);
 }
 
@@ -237,13 +223,13 @@ pub fn update() !void {
             }
         }
 
-        // SFX demo — one-shot buffers played on top of the track
+        // SFX demo — live one-shot voices played on top of the track
         if (mu.headerEx("SFX (mixed on top)", .{ .expanded = true })) {
             mu.layoutRow(equalWidths(3, &row), &row, 0);
             for (&sfx_sounds) |*s| {
                 mu.pushId(&s.preset, @sizeOf(sfxr.Preset));
                 if (mu.button(s.label, .none)) {
-                    if (s.sound) |id| pxl.audio.playOneShot(id, .{ .volume = 0.8 });
+                    _ = pxl.audio.sfx(s.preset, .{ .volume = 0.8 });
                 }
                 mu.popId();
             }

@@ -645,6 +645,17 @@ pub fn render(params: Params, sample_rate: u32, out: []f32) usize {
     return n;
 }
 
+/// Number of mono samples a sound with these params produces at
+/// `sample_rate`, without storing them. Length depends only on the
+/// envelope and freq cutoff, so it is deterministic for a given `Params`
+/// and matches the playback length exactly.
+pub fn sampleCount(params: Params, sample_rate: u32) usize {
+    var sound = Sound.init(params, sample_rate);
+    var n: usize = 0;
+    while (sound.nextSample() != null) n += 1;
+    return n;
+}
+
 // --- random helpers -----------------------------------------------------
 
 /// (Re)seed the global RNG. Presets and noise use it, so seeding makes
@@ -703,6 +714,12 @@ fn intToWaveType(v: u32) WaveType {
 }
 
 // --- tests --------------------------------------------------------------
+
+test "sampleCount matches rendered length" {
+    var p = Params{};
+    p.apply(.tone);
+    try std.testing.expectEqual(@as(usize, 44103), sampleCount(p, 44100));
+}
 
 test "tone preset renders an expected length of finite samples" {
     var p = Params{};

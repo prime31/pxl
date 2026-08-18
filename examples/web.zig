@@ -10,64 +10,23 @@ const Color = pxl.math.Color;
 // --- sfxr generator state ------------------------------------------------
 
 var params: sfxr.Params = .{};
-var generated: pxl.util.Vec(f32) = .empty;
+var sample_count: usize = 0;
 var dirty: bool = true;
 var auto_play: bool = true;
-var is_playing: bool = false;
-var play_pos: usize = 0;
 
 fn sampleRate() u32 {
     return @intCast(pxl.saudio.sampleRate());
 }
 
-/// Rerender the current params into `generated` (mono f32 samples).
-fn regenerate() void {
-    generated.clearRetainingCapacity();
-    var sound = sfxr.Sound.init(params, sampleRate());
-    while (sound.nextSample()) |s| generated.append(s);
-}
-
 fn play() void {
-    if (generated.items.len == 0) regenerate();
-    play_pos = 0;
-    is_playing = generated.items.len > 0;
-}
-
-/// Stream whatever remains of `generated` into the sokol audio ring buffer.
-fn streamAudio() void {
-    if (!is_playing) return;
-    const channels: usize = @intCast(pxl.saudio.channels());
-    var scratch: [4096]f32 = undefined;
-    while (play_pos < generated.items.len) {
-        const available = pxl.saudio.expect();
-        if (available <= 0) break;
-        const n = @min(
-            @min(@as(usize, @intCast(available)), scratch.len / channels),
-            generated.items.len - play_pos,
-        );
-        if (n == 0) break;
-        // `generated` is mono; upmix to interleaved output frames.
-        var i: usize = 0;
-        while (i < n) : (i += 1) {
-            const s = generated.items[play_pos + i];
-            var c: usize = 0;
-            while (c < channels) : (c += 1) scratch[i * channels + c] = s;
-        }
-        const pushed = pxl.saudio.push(&scratch[0], @intCast(n));
-        if (pushed <= 0) break;
-        play_pos += @intCast(pushed);
-        if (@as(usize, @intCast(pushed)) < n) break;
-    }
-    if (play_pos >= generated.items.len) is_playing = false;
+    _ = pxl.audio.sfxParams(params, .{});
 }
 
 pub fn setup() !void {
     params.apply(.pickup_coin);
 }
 
-pub fn shutdown() !void {
-    generated.deinit();
-}
+pub fn shutdown() !void {}
 
 // --- microui helpers ------------------------------------------------------
 
@@ -121,14 +80,12 @@ fn equalWidths(count: usize, out: *[4]c_int) c_int {
 // --- callbacks -------------------------------------------------------------
 
 pub fn update() !void {
-    // (Re)generate whenever a param changed, then preview if auto-play is on.
+    // Recompute the length whenever a param changed, then preview if auto-play is on.
     if (dirty) {
-        regenerate();
+        sample_count = sfxr.sampleCount(params, sampleRate());
         dirty = false;
         if (auto_play) play();
     }
-
-    streamAudio();
 
     if (mu.beginWindowEx("SFXR Generator", .{ .x = 20, .y = 20, .w = 360, .h = 600 }, .{ .no_close = true })) {
         // Presets — all of them randomize their values, so every press is new
@@ -168,8 +125,8 @@ pub fn update() !void {
         mu.layoutRow(2, &[_]c_int{ 110, -1 }, 0);
         mu.label("Duration");
         var info_buf: [48]u8 = undefined;
-        const dur: f32 = @as(f32, @floatFromInt(generated.items.len)) / @as(f32, @floatFromInt(sampleRate()));
-        const info = std.fmt.bufPrintZ(&info_buf, "{d:.2}s  {d} samples", .{ dur, generated.items.len }) catch "?";
+        const dur: f32 = @as(f32, @floatFromInt(sample_count)) / @as(f32, @floatFromInt(sampleRate()));
+        const info = std.fmt.bufPrintZ(&info_buf, "{d:.2}s  {d} samples", .{ dur, sample_count }) catch "?";
         mu.label(info);
 
         // Parameter groups
