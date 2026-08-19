@@ -650,7 +650,12 @@ const Hero = struct {
             const px = if (self.facing > 0) self.rect.x - 2 else self.rect.right() + 2;
             playOneShot(anim_dash_poof, .init(px + pxl.math.rand.range(f32, -2, 3), self.rect.bottom() - 1), .{ .origin = .center });
         }
-        spawnMagentaTrail(.init(self.rect.center().x, self.rect.bottom()));
+        const feet = Vec2.init(self.rect.center().x, self.rect.bottom());
+        const air = self.sm.current == .dash or self.sm.current == .dash_tran;
+        // Air dashes leave only the magenta silhouette afterimage; the pinned magenta
+        // dots are for ground dashes/slides. Sparkles emit from the center in air.
+        if (!air) spawnTrailDots(feet);
+        spawnTrailSparkles(if (air) self.rect.center() else feet);
         self.shadow_timer -= pxl.time.dt();
         if (self.shadow_timer > 0) return;
         self.shadow_timer = 4.0 / 60.0;
@@ -736,9 +741,8 @@ fn sparkleRise(p: *pxl.Particle) void {
     p.vel.x += pxl.math.rand.range(f32, -1.0, 1.0) * 30.0 * dt;
 }
 
-/// Lazr's dash/slide/bullet trail: pinned magenta dots (TrailingDot_Hero) plus
-/// tiny single-pixel sparkles that float up from them.
-fn spawnMagentaTrail(pos: Vec2) void {
+/// Lazr's dash/slide/bullet trail: pinned magenta dots (TrailingDot_Hero).
+fn spawnTrailDots(pos: Vec2) void {
     trail_fx.emit(.{
         .position = pos,
         .spawn_area = .init(2, 2),
@@ -753,7 +757,10 @@ fn spawnMagentaTrail(pos: Vec2) void {
         .color_start = Color.magenta,
         .color_end = Color.fromRgba(1, 0, 1, 0),
     }, 1);
+}
 
+/// Tiny white sparkles that float up off the trail (Dot_WhiteDot_NoMass).
+fn spawnTrailSparkles(pos: Vec2) void {
     sparkle_fx.emit(.{
         .position = pos,
         .spawn_area = .init(2, 2),
@@ -767,8 +774,8 @@ fn spawnMagentaTrail(pos: Vec2) void {
         .size_start_max = 2,
         .size_end_min = 0,
         .size_end_max = 0,
-        .color_start = Color.magenta,
-        .color_end = Color.fromRgba(1, 0, 1, 0),
+        .color_start = Color.white,
+        .color_end = Color.fromRgba(1, 1, 1, 0),
         .update = sparkleRise,
     }, 1);
 }
@@ -778,7 +785,8 @@ fn updateLasers() void {
     for (&lasers) |*l| {
         if (!l.active) continue;
         l.pos = l.pos.add(l.dir.scale(feel.laser_speed * dt));
-        spawnMagentaTrail(l.pos);
+        spawnTrailDots(l.pos);
+        spawnTrailSparkles(l.pos);
         l.age += dt;
         if (l.age >= feel.laser_lifetime or rectOverlapsSolid(collision, l.pos, 8, 8)) l.active = false;
     }
