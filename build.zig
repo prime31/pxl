@@ -512,7 +512,7 @@ fn emitAseprite(src: *std.ArrayList(u8), b: *Build, exports: []AsepriteExport) !
         }
     }
 
-    try src.appendSlice(b.allocator, "pub const AtlasId = enum(u32) {\n");
+    try src.appendSlice(b.allocator, "pub const AsepriteId = enum(u32) {\n");
     if (exports.len == 0) {
         try src.appendSlice(b.allocator, "    _,\n");
     } else {
@@ -530,25 +530,25 @@ fn emitAseprite(src: *std.ArrayList(u8), b: *Build, exports: []AsepriteExport) !
 
     try src.appendSlice(b.allocator,
         \\pub const AsepriteDirection = enum(u8) { forward, reverse, ping_pong };
-        \\pub const AtlasFrame = struct { x: u32, y: u32, w: u32, h: u32, duration: u32 };
-        \\pub const AtlasTag = struct { name: []const u8, from: u32, to: u32, direction: AsepriteDirection, loop: bool };
-        \\pub const AtlasSliceKey = struct { frame: u32, x: i32, y: i32, w: u32, h: u32, pivot_x: f32, pivot_y: f32, has_pivot: bool };
-        \\pub const AtlasSlice = struct { name: []const u8, keys: []const AtlasSliceKey };
+        \\pub const AsepriteFrame = struct { x: u32, y: u32, w: u32, h: u32, duration: u32 };
+        \\pub const AsepriteTag = struct { name: []const u8, from: u32, to: u32, direction: AsepriteDirection, loop: bool };
+        \\pub const AsepriteSliceKey = struct { frame: u32, x: i32, y: i32, w: u32, h: u32, pivot_x: f32, pivot_y: f32, has_pivot: bool };
+        \\pub const AsepriteSlice = struct { name: []const u8, keys: []const AsepriteSliceKey };
         \\pub const AsepriteMeta = struct {
         \\    name: []const u8,
         \\    path: []const u8,
         \\    size_w: u32,
         \\    size_h: u32,
-        \\    frames: []const AtlasFrame,
-        \\    tags: []const AtlasTag,
-        \\    slices: []const AtlasSlice,
+        \\    frames: []const AsepriteFrame,
+        \\    tags: []const AsepriteTag,
+        \\    slices: []const AsepriteSlice,
         \\    layers: []const []const u8,
         \\};
-        \\pub const TagInfo = struct { atlas: AtlasId, index: u16 };
+        \\pub const TagInfo = struct { aseprite: AsepriteId, index: u16 };
         \\pub const tags = [_]TagInfo{
         \\
     );
-    for (tags.items) |t| try src.appendSlice(b.allocator, b.fmt("    .{{ .atlas = .{s}, .index = {d} }},\n", .{ exports[t.atlas_idx].id_name, t.tag_idx }));
+    for (tags.items) |t| try src.appendSlice(b.allocator, b.fmt("    .{{ .aseprite = .{s}, .index = {d} }},\n", .{ exports[t.atlas_idx].id_name, t.tag_idx }));
     try src.appendSlice(b.allocator, "};\n\n");
 
     for (exports) |e| {
@@ -599,13 +599,13 @@ fn emitAseprite(src: *std.ArrayList(u8), b: *Build, exports: []AsepriteExport) !
         try src.appendSlice(b.allocator, "};\n\n");
     }
 
-    try src.appendSlice(b.allocator, "pub const atlases = [_]*const AsepriteMeta{\n");
+    try src.appendSlice(b.allocator, "pub const aseprites = [_]*const AsepriteMeta{\n");
     for (exports) |e| try src.appendSlice(b.allocator, b.fmt("    &{s}_meta,\n", .{e.id_name}));
     try src.appendSlice(b.allocator, "};\n\n");
 
-    try src.appendSlice(b.allocator, "pub fn atlasMeta(id: AtlasId) *const AsepriteMeta {\n    return atlases[@intFromEnum(id)];\n}\n\n");
+    try src.appendSlice(b.allocator, "pub fn asepriteMeta(id: AsepriteId) *const AsepriteMeta {\n    return aseprites[@intFromEnum(id)];\n}\n\n");
 
-    try src.appendSlice(b.allocator, "pub fn embedAtlas(id: AtlasId) []const u8 {\n    if (builtin.target.cpu.arch.isWasm()) {\n        return switch (id) {\n");
+    try src.appendSlice(b.allocator, "pub fn embedAseprite(id: AsepriteId) []const u8 {\n    if (builtin.target.cpu.arch.isWasm()) {\n        return switch (id) {\n");
     if (exports.len == 0) {
         try src.appendSlice(b.allocator, "            else => unreachable,\n");
     } else {

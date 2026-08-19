@@ -85,3 +85,31 @@ For now, we require ReleaseFast due to a bug in HashMap.
 
 **build**: `zig build -Dtarget=wasm32-emscripten -Doptimize=ReleaseFast`
 **local webserver**: `python3 -m http.server 8000`
+
+
+### Aseprite atlases
+Put `.aseprite` sources in `assets/aseprite/`. At build time they are exported
+(with the Aseprite CLI, `-Daseprite=/path/to/aseprite`) into
+`assets/atlases/<name>.png`, and the manifest records each file's frames, tags,
+slices and layers.
+
+```zig
+const tex = try pxl.assets.loadAseprite(.character_robot);   // loads texture + binds every tag
+const walk = pxl.assets.animation(.character_robot_walk);     // AnimationId per tag
+const meta = pxl.assets.asepriteMeta(.character_robot);   // frames/tags/slices/layers
+```
+
+Every tag becomes an animation. A tag name ending in `_loop` loops forever;
+everything else plays once. Aseprite's tag direction supplies the direction
+axis, the `_loop` suffix supplies the repeat axis:
+
+| direction | suffix | loop mode |
+|-----------|--------|-----------|
+| forward   | `_loop` | `.loop` |
+| forward   | —      | `.once` |
+| reverse   | `_loop` | `.reverse` |
+| reverse   | —      | `.reverse_once` |
+| ping-pong | `_loop` | `.ping_pong` |
+| ping-pong | —      | `.ping_pong_once` |
+
+Slices (hitboxes/pivots) are available on `meta.slices`.

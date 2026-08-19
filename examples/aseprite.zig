@@ -6,7 +6,8 @@ const Vec2 = pxl.math.Vec2;
 const Color = pxl.math.Color;
 const Rect = pxl.math.Rect;
 
-var atlas: pxl.assets.Atlas = undefined;
+var atlas: *pxl.gpu.Texture = undefined;
+var meta: *const pxl.assets.AsepriteMeta = undefined;
 
 var player: pxl.AnimationPlayer = .{};
 var current_name: []const u8 = "";
@@ -31,8 +32,8 @@ pub fn config() pxl.Config {
 }
 
 pub fn setup() !void {
-    atlas = try pxl.assets.loadAtlas(.character_robot);
-    try pxl.assets.bindAnimations(.character_robot);
+    atlas = try pxl.assets.loadAseprite(.character_robot);
+    meta = pxl.assets.asepriteMeta(.character_robot);
 
     walk_anim = pxl.assets.animation(.character_robot_walk);
     run_anim = pxl.assets.animation(.character_robot_run);
@@ -76,7 +77,7 @@ pub fn render() !void {
     }, frame.source, Color.white);
 
     // Slice bounds are in sprite-canvas space, so scale them onto the drawn frame.
-    for (atlas.meta.slices) |slice| {
+    for (meta.slices) |slice| {
         for (slice.keys) |key| {
             const pos = Vec2.init(
                 frame_x + @as(f32, @floatFromInt(key.x)) * scale,
@@ -98,18 +99,18 @@ pub fn render() !void {
     }
 
     // Full exported sheet, thumbnailed in the corner.
-    api.drawTexturedRect(atlas.texture.*, .{
+    api.drawTexturedRect(atlas.*, .{
         .x = 8,
         .y = 8,
-        .w = @as(f32, @floatFromInt(atlas.meta.size_w)) / 8,
-        .h = @as(f32, @floatFromInt(atlas.meta.size_h)) / 8,
-    }, Rect.init(0, 0, @floatFromInt(atlas.texture.width), @floatFromInt(atlas.texture.height)), Color.white);
+        .w = @as(f32, @floatFromInt(meta.size_w)) / 8,
+        .h = @as(f32, @floatFromInt(meta.size_h)) / 8,
+    }, Rect.init(0, 0, @floatFromInt(atlas.width), @floatFromInt(atlas.height)), Color.white);
 
     var y: f32 = 8;
     var buf: [256]u8 = undefined;
 
     const info = std.fmt.bufPrint(&buf, "playing: {s}   tags: {d}   frames: {d}   layers: {d}   slices: {d}", .{
-        current_name, atlas.meta.tags.len, atlas.meta.frames.len, atlas.meta.layers.len, atlas.meta.slices.len,
+        current_name, meta.tags.len, meta.frames.len, meta.layers.len, meta.slices.len,
     }) catch unreachable;
     api.drawText(null, Vec2.init(pxl.gpu.renderWidthf() * 0.5 + 40, y), info, Color.white);
     y += 16;
