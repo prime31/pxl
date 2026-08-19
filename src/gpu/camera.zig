@@ -9,18 +9,24 @@ pub const Camera = struct {
     zoom: f32 = 1.0,
     offset: ?Vec2 = null,
 
-    /// Compute the combined view-projection matrix for this camera given target dimensions
-    pub fn getMatrix(self: Camera, screen_width: f32, screen_height: f32) Mat32 {
+    /// Compute the view matrix (world -> render-target pixels). The camera is a pure
+    /// transform: pixel snapping for low-res scenes is applied downstream in the
+    /// batcher (see `Pass.pixel_snap`), so this stays fractional when the camera is
+    /// mid-lerp and the batcher rounds the result onto the pixel grid.
+    pub fn getView(self: Camera, screen_width: f32, screen_height: f32) Mat32 {
         const off = self.offset orelse Vec2.init(screen_width * 0.5, screen_height * 0.5);
-        const projection = Mat32.orthographic(screen_width, screen_height);
         const zoom_val = if (self.zoom == 0) 1.0 else self.zoom;
 
-        const view = Mat32.fromTranslation(off.x, off.y)
+        return Mat32.fromTranslation(off.x, off.y)
             .mul(Mat32.fromRotation(-self.rotation))
             .mul(Mat32.fromScale(zoom_val, zoom_val))
             .mul(Mat32.fromTranslation(-self.position.x, -self.position.y));
+    }
 
-        return projection.mul(view);
+    /// Compute the combined view-projection matrix for this camera given target dimensions
+    pub fn getMatrix(self: Camera, screen_width: f32, screen_height: f32) Mat32 {
+        const projection = Mat32.orthographic(screen_width, screen_height);
+        return projection.mul(self.getView(screen_width, screen_height));
     }
 
     /// Convert design render-target coordinates (or screen coordinates if using default policy) to world space

@@ -34,6 +34,18 @@ const UNIFORM_SLOT_FRAGMENT: u32 = 1;
 const blend_mode_count = @typeInfo(BlendMode).@"enum".fields.len;
 const max_circle_segments = 64;
 
+/// True when a matrix's linear part is a pure axis scale/flip (optionally with the
+/// axes swapped for 90-degree rotations): the off-axis entries are ~zero on either
+/// the diagonal or the anti-diagonal. Such draws stay rectangular when each vertex
+/// is rounded to the pixel grid, so they're safe to pixel-snap. Arbitrary rotations
+/// (non-axis-aligned) would have their corners distorted by per-vertex rounding.
+fn isAxisAligned(m: Mat32) bool {
+    const eps = 1e-5;
+    const diagonal = @abs(m.data[1]) <= eps and @abs(m.data[2]) <= eps;
+    const swapped = @abs(m.data[0]) <= eps and @abs(m.data[3]) <= eps;
+    return diagonal or swapped;
+}
+
 pub const sprite = @import("sprite.zig");
 pub const Anchor = sprite.Anchor;
 pub const Sprite = sprite.Sprite;
@@ -99,7 +111,12 @@ pub const Batcher = struct {
     uniform_fs_offset: u32 = 0,
     uniform_fs_size: u32 = 0,
 
-    matrix: Mat32 = Mat32.identity(),
+    view: Mat32 = Mat32.identity(),
+    projection: Mat32 = Mat32.identity(),
+    /// Round every vertex to a whole render-target pixel (in screen space, before
+    /// projection) so low-res scenes stay crisp even when the camera or a sprite
+    /// sits at a fractional position. Set per-pass via `Pass.pixel_snap`.
+    pixel_snap: bool = false,
 
     pub fn init(config: BatcherConfig) !Batcher {
         const verts = try pxl.mem.allocator.alloc(Vertex, config.max_verts);
@@ -266,12 +283,14 @@ pub const Batcher = struct {
     }
 
     /// Reset staging buffers and recording state.
-    pub fn begin(self: *Batcher, matrix: Mat32) void {
+    pub fn begin(self: *Batcher, view: Mat32, projection: Mat32, pixel_snap: bool) void {
         self.vert_count = 0;
         self.index_count = 0;
         self.cmd_count = 0;
         self.uniform_bytes_count = 0;
-        self.matrix = matrix;
+        self.view = view;
+        self.projection = projection;
+        self.pixel_snap = pixel_snap;
         self.cur_img = self.white.img;
         self.cur_smp = self.smp;
         self.blend_mode = .blend;
@@ -284,7 +303,10 @@ pub const Batcher = struct {
     }
 
     pub fn setMatrix(self: *Batcher, matrix: Mat32) void {
-        self.matrix = matrix;
+        // Replace the whole world->clip transform with a custom matrix (the old
+        // single-matrix behavior): treat it as the view with an identity projection.
+        self.view = matrix;
+        self.projection = Mat32.identity();
     }
 
     pub fn setBlendMode(self: *Batcher, mode: BlendMode) void {
@@ -364,8 +386,6 @@ pub const Batcher = struct {
         const target_tex = mesh.texture orelse self.white;
         self.setTexture(target_tex);
 
-        const current_mat = if (mesh.matrix) |m| self.matrix.mul(m) else self.matrix;
-
         std.debug.assert(mesh.verts.len <= self.verts.len and mesh.indices.len <= self.indices.len);
 
         const current_cmd_verts = if (self.cmd_count > 0 and !self.cmd_dirty)
@@ -401,12 +421,42 @@ pub const Batcher = struct {
         var cmd = &self.cmds[self.cmd_count - 1];
         const base: u16 = @intCast(self.vert_count - cmd.vert_start);
 
-        for (mesh.verts, 0..) |v, i| {
-            self.verts[self.vert_count + i] = .{
-                .pos = current_mat.transformVec2(v.pos),
-                .uv = v.uv,
-                .col = v.col,
-            };
+        if (self.pixel_snap) {
+            const screen_mat = if (mesh.matrix) |m| self.view.mul(m) else self.view;
+            if (isAxisAligned(screen_mat)) {
+                // Pixel-perfect path: transform to screen space, snap each vertex to
+                // a whole pixel, then project. Axis-aligned draws (rotation a
+                // multiple of 90 degrees) stay rectangular under rounding; arbitrary
+                // rotations skip snapping rather than have their corners distorted.
+                for (mesh.verts, 0..) |v, i| {
+                    var p = screen_mat.transformVec2(v.pos);
+                    p.x = @round(p.x);
+                    p.y = @round(p.y);
+                    p = self.projection.transformVec2(p);
+                    self.verts[self.vert_count + i] = .{ .pos = p, .uv = v.uv, .col = v.col };
+                }
+            } else {
+                const current_mat = self.projection.mul(screen_mat);
+                for (mesh.verts, 0..) |v, i| {
+                    self.verts[self.vert_count + i] = .{
+                        .pos = current_mat.transformVec2(v.pos),
+                        .uv = v.uv,
+                        .col = v.col,
+                    };
+                }
+            }
+        } else {
+            const current_mat = if (mesh.matrix) |m|
+                self.projection.mul(self.view.mul(m))
+            else
+                self.projection.mul(self.view);
+            for (mesh.verts, 0..) |v, i| {
+                self.verts[self.vert_count + i] = .{
+                    .pos = current_mat.transformVec2(v.pos),
+                    .uv = v.uv,
+                    .col = v.col,
+                };
+            }
         }
         self.vert_count += @intCast(mesh.verts.len);
 

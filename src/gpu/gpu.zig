@@ -160,6 +160,16 @@ pub fn deinit() void {
     sg.destroyView(offscreen.bind.views[pxl.shaders.VIEW_tex]);
 }
 
+/// True when the resolution policy guarantees an integer-scaled blit of a fixed
+/// design-size render target. Under these policies every draw should land on the
+/// render target's pixel grid (see `Pass.pixel_snap`).
+pub fn isPixelPerfect() bool {
+    return switch (gfx_config.resolution_policy) {
+        .no_border_pixel_perfect, .show_all_pixel_perfect => true,
+        else => false,
+    };
+}
+
 pub fn renderWidth() i32 {
     const scaler = gfx_config.resolution_policy.getScaler(gfx_config.design_width, gfx_config.design_height);
     return scaler.w;

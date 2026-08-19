@@ -77,6 +77,10 @@ pub const Pass = struct {
     /// if null performs a .load else a .clear with clear_color
     clear_color: ?math.Color = null,
     camera: ?Camera = null,
+    /// Snap every draw to the render target's pixel grid. Only has an effect when
+    /// the resolution policy is pixel-perfect; disable for a deliberately smooth
+    /// (sub-pixel) pass.
+    pixel_snap: bool = true,
 };
 
 pub var font: text.BMFont = undefined;
@@ -230,12 +234,13 @@ pub fn beginPass(pass: Pass) void {
 
     const target_w = gpu.renderWidthf();
     const target_h = gpu.renderHeightf();
-    const mat = if (pass.camera) |cam|
-        cam.getMatrix(target_w, target_h)
+    const view = if (pass.camera) |cam|
+        cam.getView(target_w, target_h)
     else
-        math.Mat32.orthographic(target_w, target_h);
+        math.Mat32.identity();
+    const projection = math.Mat32.orthographic(target_w, target_h);
 
-    batcher.begin(mat);
+    batcher.begin(view, projection, pass.pixel_snap and gpu.isPixelPerfect());
 }
 
 pub fn endPass() void {

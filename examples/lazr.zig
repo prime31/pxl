@@ -168,6 +168,10 @@ const Laser = struct {
     pos: Vec2 = .zero,
     dir: Vec2 = .zero,
     age: f32 = 0,
+    // Sub-pixel accumulators keep the bolt on whole pixels (Lazr's 7 px/f at 60fps)
+    // so it stays crisp against the pixel-snapped camera.
+    sx: pxl.tilemap.SubpixelFloat = .{},
+    sy: pxl.tilemap.SubpixelFloat = .{},
 };
 var lasers: [32]Laser = [_]Laser{.{}} ** 32;
 
@@ -784,7 +788,8 @@ fn updateLasers() void {
     const dt = pxl.time.dt();
     for (&lasers) |*l| {
         if (!l.active) continue;
-        l.pos = l.pos.add(l.dir.scale(feel.laser_speed * dt));
+        l.pos.x += @floatFromInt(l.sx.update(l.dir.x * feel.laser_speed * dt));
+        l.pos.y += @floatFromInt(l.sy.update(l.dir.y * feel.laser_speed * dt));
         spawnTrailDots(l.pos);
         spawnTrailSparkles(l.pos);
         l.age += dt;
