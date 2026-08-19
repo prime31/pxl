@@ -18,6 +18,7 @@ const examples = [_]Example{
     .{ .name = "vorbis" },
     .{ .name = "text" },
     .{ .name = "animation" },
+    .{ .name = "aseprite" },
     .{ .name = "ldtk" },
     .{ .name = "lazr" },
     .{ .name = "slugcat" },
@@ -74,14 +75,154 @@ const AssetEntry = struct {
     atlas_path: ?[]const u8 = null,
 };
 
+/// The Aseprite CLI's `--data` output (json-array). Field names mirror the JSON
+/// exactly so `std.json` can deserialize without a name-mapping layer.
+const AsepriteJson = struct {
+    frames: []Frame,
+    meta: Meta,
+
+    const Frame = struct {
+        frame: Rect,
+        duration: u32,
+        spriteSourceSize: ?Rect = null,
+        sourceSize: ?Size = null,
+        rotated: bool = false,
+        trimmed: bool = false,
+    };
+    const Rect = struct { x: i32, y: i32, w: i32, h: i32 };
+    const Size = struct { w: i32, h: i32 };
+    const Meta = struct {
+        size: Size,
+        image: []const u8 = "",
+        frameTags: ?[]Tag = null,
+        slices: ?[]Slice = null,
+        layers: ?[]Layer = null,
+    };
+    const Tag = struct { name: []const u8, from: u32, to: u32, direction: []const u8, color: ?[]const u8 = null };
+    const Slice = struct { name: []const u8, keys: ?[]Key = null, color: ?[]const u8 = null };
+    const Key = struct { frame: u32, bounds: Rect, pivot: ?Pivot = null };
+    const Pivot = struct { x: f32, y: f32 };
+    const Layer = struct { name: []const u8, opacity: ?u32 = null, blendMode: ?[]const u8 = null };
+};
+
+const AsepriteExport = struct {
+    id_name: []const u8,
+    parsed: std.json.Parsed(AsepriteJson),
+};
+
 /// Generates the asset manifest source and returns the WriteFile-produced
-/// LazyPath, with the whole assets/ tree copied next to it so `@embedFile`
-/// inside the generated file can resolve "assets/..." paths.
+/// LazyPath, with the whole assets/ tree (and generated aseprite atlases)
+/// copied next to it so `@embedFile` inside the generated file can resolve them.
 fn addAssetManifest(b: *Build) !Build.LazyPath {
-    const source = try generateAssetManifest(b);
+    const exports = try exportAsepriteFiles(b);
+    defer {
+        for (exports) |e| e.parsed.deinit();
+        b.allocator.free(exports);
+    }
+    const source = try generateAssetManifest(b, exports);
     const wf = b.addWriteFiles();
     _ = wf.addCopyDirectory(b.path("assets"), "assets", .{});
     return wf.add("asset_manifest.zig", source);
+}
+
+fn findAsepriteBin(b: *Build) ?[]const u8 {
+    if (b.option([]const u8, "aseprite", "Path to the Aseprite CLI executable")) |p| return p;
+    const mac_app = "/Applications/Aseprite.app/Contents/MacOS/aseprite";
+    if (std.Io.Dir.accessAbsolute(b.graph.io, mac_app, .{})) |_| return mac_app else |_| {}
+    return null;
+}
+
+fn runAseprite(b: *Build, bin: []const u8, src: []const u8, sheet: []const u8, data: []const u8) !void {
+    const argv = [_][]const u8{ bin, "-b", src, "--sheet", sheet, "--data", data, "--format", "json-array", "--list-tags", "--list-slices", "--list-layers" };
+    const result = std.process.run(b.allocator, b.graph.io, .{ .argv = &argv }) catch {
+        std.debug.print("pxl assets: failed to launch Aseprite CLI ({s})\n", .{bin});
+        return error.AsepriteFailed;
+    };
+    defer b.allocator.free(result.stdout);
+    defer b.allocator.free(result.stderr);
+    switch (result.term) {
+        .exited => |code| if (code != 0) {
+            std.debug.print("pxl assets: Aseprite exited with {d}:\n{s}\n", .{ code, result.stderr });
+            return error.AsepriteFailed;
+        },
+        else => {
+            std.debug.print("pxl assets: Aseprite did not exit normally:\n{s}\n", .{result.stderr});
+            return error.AsepriteFailed;
+        },
+    }
+}
+
+fn exportAsepriteFiles(b: *Build) ![]AsepriteExport {
+    const src_root = b.pathFromRoot("assets/aseprite");
+    var rel_paths = std.ArrayList([]const u8).empty;
+    defer {
+        for (rel_paths.items) |p| b.allocator.free(p);
+        rel_paths.deinit(b.allocator);
+    }
+
+    var dir = std.Io.Dir.openDirAbsolute(b.graph.io, src_root, .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound => return &.{},
+        else => return err,
+    };
+    defer dir.close(b.graph.io);
+
+    var walker = try std.Io.Dir.walkSelectively(dir, b.allocator);
+    defer walker.deinit();
+    while (try walker.next(b.graph.io)) |entry| {
+        if (entry.kind == .directory) {
+            try walker.enter(b.graph.io, entry);
+            continue;
+        }
+        if (entry.kind != .file) continue;
+        if (!std.mem.eql(u8, std.fs.path.extension(entry.path), ".aseprite")) continue;
+        try rel_paths.append(b.allocator, b.dupe(entry.path));
+    }
+    if (rel_paths.items.len == 0) return &.{};
+
+    const bin = findAsepriteBin(b) orelse {
+        std.debug.print("pxl assets: found {d} .aseprite file(s) but no Aseprite CLI. Install Aseprite or pass -Daseprite=/path/to/aseprite\n", .{rel_paths.items.len});
+        return error.AsepriteNotFound;
+    };
+
+    // The PNG is a runtime asset, so it lives in the source tree (and gets
+    // bundled into APKs). The JSON is only consumed by this build script.
+    const png_dir_abs = b.pathFromRoot("assets/atlases");
+    const json_dir_abs = b.pathFromRoot(".zig-cache/aseprite-gen");
+    _ = std.Io.Dir.createDirPathStatus(std.Io.Dir.cwd(), b.graph.io, png_dir_abs, .default_dir) catch |err| switch (err) {
+        error.PathAlreadyExists => {},
+        else => return err,
+    };
+    _ = std.Io.Dir.createDirPathStatus(std.Io.Dir.cwd(), b.graph.io, json_dir_abs, .default_dir) catch |err| switch (err) {
+        error.PathAlreadyExists => {},
+        else => return err,
+    };
+
+    var exports = std.ArrayList(AsepriteExport).empty;
+    errdefer {
+        for (exports.items) |e| e.parsed.deinit();
+        exports.deinit(b.allocator);
+    }
+
+    for (rel_paths.items) |rel| {
+        const id_name = try assetIdName(b, rel);
+        const src_abs = try std.fs.path.join(b.allocator, &.{ src_root, rel });
+        defer b.allocator.free(src_abs);
+        const png_abs = try std.fmt.allocPrint(b.allocator, "{s}/{s}.png", .{ png_dir_abs, id_name });
+        defer b.allocator.free(png_abs);
+        const json_abs = try std.fmt.allocPrint(b.allocator, "{s}/{s}.json", .{ json_dir_abs, id_name });
+        defer b.allocator.free(json_abs);
+
+        try runAseprite(b, bin, src_abs, png_abs, json_abs);
+
+        const json_bytes = try std.Io.Dir.readFileAlloc(std.Io.Dir.cwd(), b.graph.io, json_abs, b.allocator, .unlimited);
+        defer b.allocator.free(json_bytes);
+        const parsed = try std.json.parseFromSlice(AsepriteJson, b.allocator, json_bytes, .{
+            .ignore_unknown_fields = true,
+            .allocate = .alloc_always,
+        });
+        try exports.append(b.allocator, .{ .id_name = id_name, .parsed = parsed });
+    }
+    return exports.toOwnedSlice(b.allocator);
 }
 
 fn assetKind(rel_path: []const u8) ?AssetKind {
@@ -124,7 +265,18 @@ fn containsPath(paths: []const []const u8, needle: []const u8) bool {
     return false;
 }
 
-fn generateAssetManifest(b: *Build) ![]const u8 {
+/// True for a `.png` generated by the aseprite export (e.g.
+/// `assets/atlases/character_robot.png`). Those are atlases, not standalone
+/// textures, so they must not be enumerated into `TextureId`.
+fn isAsepriteExportPng(b: *Build, exports: []AsepriteExport, rel: []const u8) bool {
+    if (!std.mem.eql(u8, std.fs.path.extension(rel), ".png")) return false;
+    const id = assetIdName(b, rel) catch return false;
+    defer b.allocator.free(id);
+    for (exports) |e| if (std.mem.eql(u8, e.id_name, id)) return true;
+    return false;
+}
+
+fn generateAssetManifest(b: *Build, exports: []AsepriteExport) ![]const u8 {
     var rel_paths = std.ArrayList([]u8).empty;
     defer {
         for (rel_paths.items) |p| b.allocator.free(p);
@@ -152,6 +304,7 @@ fn generateAssetManifest(b: *Build) ![]const u8 {
             std.debug.print("pxl assets: '{s}' must live in a subfolder under assets/ (e.g. assets/textures/)\n", .{entry.path});
             return error.AssetNotInSubfolder;
         }
+        if (std.mem.eql(u8, std.fs.path.extension(entry.path), ".aseprite")) continue;
         if (assetKind(entry.path) == null) {
             std.debug.print("pxl assets: ignoring unsupported file 'assets/{s}'\n", .{entry.path});
             continue;
@@ -177,6 +330,7 @@ fn generateAssetManifest(b: *Build) ![]const u8 {
         const ext = std.fs.path.extension(rel);
         const stem = rel[0 .. rel.len - ext.len];
         if (std.mem.eql(u8, ext, ".png") and containsPath(font_stems.items, stem)) continue;
+        if (isAsepriteExportPng(b, exports, rel)) continue;
 
         const kind = assetKind(rel).?;
         var entry = AssetEntry{
@@ -305,7 +459,159 @@ fn generateAssetManifest(b: *Build) ![]const u8 {
         try src.appendSlice(b.allocator, "    unreachable;\n");
         try src.appendSlice(b.allocator, "}\n\n");
     }
+
+    try emitAseprite(&src, b, exports);
     return src.toOwnedSlice(b.allocator);
+}
+
+fn asepriteDirection(dir: []const u8) ![]const u8 {
+    if (std.mem.eql(u8, dir, "reverse")) return "reverse";
+    if (std.mem.eql(u8, dir, "pingpong") or std.mem.eql(u8, dir, "ping-pong")) return "ping_pong";
+    return "forward";
+}
+
+/// A tag ending in `_loop` loops forever; every other tag plays once. The
+/// suffix is metadata, so `base` (the name without it) is what becomes the
+/// animation name / TagId.
+const LoopSuffix = struct { base: []const u8, loop: bool };
+
+fn stripLoopSuffix(name: []const u8) LoopSuffix {
+    if (std.mem.endsWith(u8, name, "_loop")) return .{ .base = name[0 .. name.len - 5], .loop = true };
+    return .{ .base = name, .loop = false };
+}
+
+fn appendEscapedString(src: *std.ArrayList(u8), b: *Build, s: []const u8) !void {
+    for (s) |c| {
+        switch (c) {
+            '"' => try src.appendSlice(b.allocator, "\\\""),
+            '\\' => try src.appendSlice(b.allocator, "\\\\"),
+            else => try src.append(b.allocator, c),
+        }
+    }
+}
+
+fn emitAseprite(src: *std.ArrayList(u8), b: *Build, exports: []AsepriteExport) !void {
+    const TagEntry = struct { atlas_idx: u16, tag_idx: u16, name: []const u8, base: []const u8, loop: bool };
+    var tags = std.ArrayList(TagEntry).empty;
+    defer tags.deinit(b.allocator);
+    for (exports, 0..) |e, ai| {
+        const frame_tags = e.parsed.value.meta.frameTags orelse &.{};
+        for (frame_tags, 0..) |t, ti| {
+            const suffix = stripLoopSuffix(t.name);
+            try tags.append(b.allocator, .{ .atlas_idx = @intCast(ai), .tag_idx = @intCast(ti), .name = t.name, .base = suffix.base, .loop = suffix.loop });
+        }
+    }
+
+    // Stripping `_loop` can collapse two tags to the same name; catch it early.
+    for (tags.items, 0..) |t, i| {
+        for (tags.items[0..i]) |prev| {
+            if (t.atlas_idx == prev.atlas_idx and std.mem.eql(u8, t.base, prev.base)) {
+                std.debug.print("pxl assets: tags '{s}' and '{s}' collide after stripping _loop\n", .{ prev.name, t.name });
+                return error.TagNameCollision;
+            }
+        }
+    }
+
+    try src.appendSlice(b.allocator, "pub const AtlasId = enum(u32) {\n");
+    if (exports.len == 0) {
+        try src.appendSlice(b.allocator, "    _,\n");
+    } else {
+        for (exports) |e| try src.appendSlice(b.allocator, b.fmt("    {s},\n", .{e.id_name}));
+    }
+    try src.appendSlice(b.allocator, "};\n\n");
+
+    try src.appendSlice(b.allocator, "pub const TagId = enum(u32) {\n");
+    if (tags.items.len == 0) {
+        try src.appendSlice(b.allocator, "    _,\n");
+    } else {
+        for (tags.items) |t| try src.appendSlice(b.allocator, b.fmt("    {s}_{s},\n", .{ exports[t.atlas_idx].id_name, t.base }));
+    }
+    try src.appendSlice(b.allocator, "};\n\n");
+
+    try src.appendSlice(b.allocator,
+        \\pub const AsepriteDirection = enum(u8) { forward, reverse, ping_pong };
+        \\pub const AtlasFrame = struct { x: u32, y: u32, w: u32, h: u32, duration: u32 };
+        \\pub const AtlasTag = struct { name: []const u8, from: u32, to: u32, direction: AsepriteDirection, loop: bool };
+        \\pub const AtlasSliceKey = struct { frame: u32, x: i32, y: i32, w: u32, h: u32, pivot_x: f32, pivot_y: f32, has_pivot: bool };
+        \\pub const AtlasSlice = struct { name: []const u8, keys: []const AtlasSliceKey };
+        \\pub const AsepriteMeta = struct {
+        \\    name: []const u8,
+        \\    path: []const u8,
+        \\    size_w: u32,
+        \\    size_h: u32,
+        \\    frames: []const AtlasFrame,
+        \\    tags: []const AtlasTag,
+        \\    slices: []const AtlasSlice,
+        \\    layers: []const []const u8,
+        \\};
+        \\pub const TagInfo = struct { atlas: AtlasId, index: u16 };
+        \\pub const tags = [_]TagInfo{
+        \\
+    );
+    for (tags.items) |t| try src.appendSlice(b.allocator, b.fmt("    .{{ .atlas = .{s}, .index = {d} }},\n", .{ exports[t.atlas_idx].id_name, t.tag_idx }));
+    try src.appendSlice(b.allocator, "};\n\n");
+
+    for (exports) |e| {
+        const m = e.parsed.value.meta;
+        try src.appendSlice(b.allocator, b.fmt("pub const {s}_meta = AsepriteMeta{{ .name = \"{s}\", .path = \"assets/atlases/{s}.png\", .size_w = {d}, .size_h = {d},\n", .{ e.id_name, e.id_name, e.id_name, m.size.w, m.size.h }));
+
+        try src.appendSlice(b.allocator, "    .frames = &.{\n");
+        for (e.parsed.value.frames) |f| {
+            try src.appendSlice(b.allocator, b.fmt("        .{{ .x = {d}, .y = {d}, .w = {d}, .h = {d}, .duration = {d} }},\n", .{ f.frame.x, f.frame.y, f.frame.w, f.frame.h, f.duration }));
+        }
+        try src.appendSlice(b.allocator, "    },\n");
+
+        try src.appendSlice(b.allocator, "    .tags = &.{\n");
+        const frame_tags = m.frameTags orelse &.{};
+        for (frame_tags) |t| {
+            const suffix = stripLoopSuffix(t.name);
+            try src.appendSlice(b.allocator, "        .{ .name = \"");
+            try appendEscapedString(src, b, suffix.base);
+            try src.appendSlice(b.allocator, b.fmt("\", .from = {d}, .to = {d}, .direction = .{s}, .loop = {s} }},\n", .{ t.from, t.to, try asepriteDirection(t.direction), if (suffix.loop) "true" else "false" }));
+        }
+        try src.appendSlice(b.allocator, "    },\n");
+
+        try src.appendSlice(b.allocator, "    .slices = &.{\n");
+        const slices = m.slices orelse &.{};
+        for (slices) |s| {
+            try src.appendSlice(b.allocator, "        .{ .name = \"");
+            try appendEscapedString(src, b, s.name);
+            try src.appendSlice(b.allocator, "\", .keys = &.{");
+            const keys = s.keys orelse &.{};
+            for (keys) |k| {
+                const px: f32 = if (k.pivot) |p| p.x else 0;
+                const py: f32 = if (k.pivot) |p| p.y else 0;
+                const has = k.pivot != null;
+                try src.appendSlice(b.allocator, b.fmt(" .{{ .frame = {d}, .x = {d}, .y = {d}, .w = {d}, .h = {d}, .pivot_x = {d}, .pivot_y = {d}, .has_pivot = {s} }},", .{ k.frame, k.bounds.x, k.bounds.y, k.bounds.w, k.bounds.h, px, py, if (has) "true" else "false" }));
+            }
+            try src.appendSlice(b.allocator, " } },\n");
+        }
+        try src.appendSlice(b.allocator, "    },\n");
+
+        try src.appendSlice(b.allocator, "    .layers = &.{");
+        const layers = m.layers orelse &.{};
+        for (layers) |l| {
+            try src.appendSlice(b.allocator, " \"");
+            try appendEscapedString(src, b, l.name);
+            try src.appendSlice(b.allocator, "\",");
+        }
+        try src.appendSlice(b.allocator, " },\n");
+        try src.appendSlice(b.allocator, "};\n\n");
+    }
+
+    try src.appendSlice(b.allocator, "pub const atlases = [_]*const AsepriteMeta{\n");
+    for (exports) |e| try src.appendSlice(b.allocator, b.fmt("    &{s}_meta,\n", .{e.id_name}));
+    try src.appendSlice(b.allocator, "};\n\n");
+
+    try src.appendSlice(b.allocator, "pub fn atlasMeta(id: AtlasId) *const AsepriteMeta {\n    return atlases[@intFromEnum(id)];\n}\n\n");
+
+    try src.appendSlice(b.allocator, "pub fn embedAtlas(id: AtlasId) []const u8 {\n    if (builtin.target.cpu.arch.isWasm()) {\n        return switch (id) {\n");
+    if (exports.len == 0) {
+        try src.appendSlice(b.allocator, "            else => unreachable,\n");
+    } else {
+        for (exports) |e| try src.appendSlice(b.allocator, b.fmt("            .{s} => @embedFile(\"assets/atlases/{s}.png\"),\n", .{ e.id_name, e.id_name }));
+    }
+    try src.appendSlice(b.allocator, "        };\n    }\n    unreachable;\n}\n\n");
 }
 
 pub fn build(b: *Build) !void {

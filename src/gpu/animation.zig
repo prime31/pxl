@@ -23,6 +23,10 @@ pub const LoopMode = enum(u8) {
     ping_pong,
     /// Cycle first..last..first once, then complete.
     ping_pong_once,
+    /// Cycle last..first..last forever.
+    reverse,
+    /// Cycle last..first once, then complete.
+    reverse_once,
 };
 
 /// Stable id into an append-only `Store`. Animations are never deleted, so ids
@@ -191,6 +195,13 @@ pub fn add(anim: Animation) AnimationId {
     return store.add(anim);
 }
 
+/// Reserve `n` frames in the global store's pool. Callers fill the returned
+/// mutable slice; it stays valid for the store's lifetime (no free). Used by
+/// asset loaders that build frames from external metadata (e.g. aseprite).
+pub fn reserveFrames(n: usize) []Frame {
+    return store.reserveFrames(n);
+}
+
 /// Resolve an id to its animation in the global store.
 pub fn get(id: AnimationId) *const Animation {
     return store.get(id);
@@ -264,8 +275,11 @@ pub const AnimationPlayer = struct {
             return;
         }
         self.state = .running;
-        self.frame_index = 0;
-        self.frame_time_left = anim.frames[0].duration;
+        self.frame_index = switch (anim.loop_mode) {
+            .reverse, .reverse_once => anim.frames.len - 1,
+            else => 0,
+        };
+        self.frame_time_left = anim.frames[self.frame_index].duration;
     }
 
     /// Convenience for `play(pxl.animation.get(id))`.
@@ -307,7 +321,7 @@ pub const AnimationPlayer = struct {
         return self.animation.?.frames[self.frame_index];
     }
 
-    /// True once a `once`/`ping_pong_once` animation has played through.
+    /// True once a `once`/`ping_pong_once`/`reverse_once` animation has played through.
     pub fn finished(self: AnimationPlayer) bool {
         return self.state == .completed;
     }
@@ -335,6 +349,19 @@ pub const AnimationPlayer = struct {
                 return true;
             },
             .ping_pong, .ping_pong_once => return self.pingPong(anim),
+            .reverse => {
+                if (self.frame_index == 0) {
+                    self.setFrame(anim.frames.len - 1);
+                } else {
+                    self.setFrame(self.frame_index - 1);
+                }
+                return true;
+            },
+            .reverse_once => {
+                if (self.frame_index == 0) return self.finish(anim);
+                self.setFrame(self.frame_index - 1);
+                return true;
+            },
         }
     }
 
@@ -426,6 +453,35 @@ test "ping_pong_once completes after the return trip" {
     player.updateWith(5);
     try std.testing.expectEqual(@as(usize, 0), player.frame_index);
     try std.testing.expect(player.finished());
+}
+
+test "reverse_once plays backward and completes at the first frame" {
+    const frames = [_]Frame{
+        .{ .texture = Texture{}, .source = Rect{}, .duration = 1 },
+        .{ .texture = Texture{}, .source = Rect{}, .duration = 1 },
+        .{ .texture = Texture{}, .source = Rect{}, .duration = 1 },
+    };
+    const anim = Animation{ .name = "rev", .frames = &frames, .loop_mode = .reverse_once };
+    var player = AnimationPlayer{};
+    player.play(&anim);
+    try std.testing.expectEqual(@as(usize, 2), player.frame_index);
+    player.updateWith(3);
+    try std.testing.expectEqual(@as(usize, 0), player.frame_index);
+    try std.testing.expect(player.finished());
+}
+
+test "reverse wraps from the first frame back to the last" {
+    const frames = [_]Frame{
+        .{ .texture = Texture{}, .source = Rect{}, .duration = 1 },
+        .{ .texture = Texture{}, .source = Rect{}, .duration = 1 },
+        .{ .texture = Texture{}, .source = Rect{}, .duration = 1 },
+    };
+    const anim = Animation{ .name = "rev", .frames = &frames, .loop_mode = .reverse };
+    var player = AnimationPlayer{};
+    player.play(&anim);
+    player.updateWith(3);
+    try std.testing.expectEqual(@as(usize, 2), player.frame_index);
+    try std.testing.expectEqual(State.running, player.state);
 }
 
 test "store ids are stable indices and get returns the stored animation" {

@@ -78,11 +78,11 @@ pub const BMFont = struct {
     chars_count: usize = 0,
     kernings_count: usize = 0,
 
-    /// The engine's default font (minecraftia), embedded at compile time so it
+    /// The engine's default font (departure), embedded at compile time so it
     /// needs no filesystem.
     pub fn init() !BMFont {
-        const fnt_embedded = @embedFile("../assets/minecraftia.fnt");
-        const png_embedded = @embedFile("../assets/minecraftia.png");
+        const fnt_embedded = @embedFile("../assets/departure.fnt");
+        const png_embedded = @embedFile("../assets/departure.png");
 
         var img = try pxl.stb.Image.loadFromMemory(png_embedded[0..], 4);
         defer img.deinit();
