@@ -22,6 +22,9 @@ pub const Particle = struct {
     age: f32 = 0.0,
     texture: ?Texture = null,
     blend_mode: BlendMode = .blend,
+    /// Optional Comfy-style hook, run after the default integration, that can
+    /// freely control this particle's update (and set `lifetime` to kill it).
+    update: ?*const fn (*Particle) void = null,
 };
 
 pub const EmitterParams = struct {
@@ -46,6 +49,7 @@ pub const EmitterParams = struct {
     angular_velocity_max: f32 = 2.0,
     blend_mode: BlendMode = .blend,
     texture: ?Texture = null,
+    update: ?*const fn (*Particle) void = null,
 };
 
 pub const ParticleSystem = struct {
@@ -99,6 +103,7 @@ pub const ParticleSystem = struct {
                 .age = 0.0,
                 .texture = params.texture,
                 .blend_mode = params.blend_mode,
+                .update = params.update,
             };
             self.active_count += 1;
         }
@@ -109,16 +114,18 @@ pub const ParticleSystem = struct {
         while (i < self.active_count) {
             var p = &self.particles[i];
             p.age += dt;
+
+            p.vel = p.vel.add(p.accel.scale(dt));
+            p.pos = p.pos.add(p.vel.scale(dt));
+            p.rotation += p.angular_velocity * dt;
+            if (p.update) |f| f(p);
+
             if (p.age >= p.lifetime) {
                 // Swap with last active particle
                 self.particles[i] = self.particles[self.active_count - 1];
                 self.active_count -= 1;
                 continue;
             }
-
-            p.vel = p.vel.add(p.accel.scale(dt));
-            p.pos = p.pos.add(p.vel.scale(dt));
-            p.rotation += p.angular_velocity * dt;
             i += 1;
         }
     }
@@ -147,6 +154,47 @@ pub const ParticleSystem = struct {
         api.setBlendMode(.blend);
     }
 };
+
+fn hookNudge(p: *Particle) void {
+    p.vel.y -= 1.0;
+}
+
+fn hookKill(p: *Particle) void {
+    p.lifetime = 0;
+}
+
+test "custom update fn runs after integration and can kill" {
+    const particles = try std.testing.allocator.alloc(Particle, 2);
+    defer std.testing.allocator.free(particles);
+    var ps = ParticleSystem{
+        .particles = particles,
+        .active_count = 0,
+        .prng = std.Random.DefaultPrng.init(0),
+    };
+
+    ps.particles[0] = .{
+        .pos = .zero,
+        .vel = .zero,
+        .accel = .zero,
+        .color_start = Color.white,
+        .color_end = Color.white,
+        .size_start = 1,
+        .size_end = 1,
+        .rotation = 0,
+        .angular_velocity = 0,
+        .lifetime = 1,
+        .update = hookNudge,
+    };
+    ps.active_count = 1;
+
+    ps.update(0.1);
+    try std.testing.expectEqual(@as(f32, -1.0), ps.particles[0].vel.y);
+    try std.testing.expectEqual(@as(usize, 1), ps.active_count);
+
+    ps.particles[0].update = hookKill;
+    ps.update(0.1);
+    try std.testing.expectEqual(@as(usize, 0), ps.active_count);
+}
 
 fn lerpColor(c1: Color, c2: Color, t: f32) Color {
     const r1: f32 = @floatFromInt(c1.comps.r);

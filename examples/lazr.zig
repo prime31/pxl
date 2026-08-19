@@ -171,6 +171,9 @@ const Laser = struct {
 };
 var lasers: [32]Laser = [_]Laser{.{}} ** 32;
 
+var trail_fx: pxl.ParticleSystem = undefined;
+var sparkle_fx: pxl.ParticleSystem = undefined;
+
 var map: *LDtk = undefined;
 var collision: LayerInstance = undefined;
 var hero_tex: *Texture = undefined;
@@ -647,6 +650,7 @@ const Hero = struct {
             const px = if (self.facing > 0) self.rect.x - 2 else self.rect.right() + 2;
             playOneShot(anim_dash_poof, .init(px + pxl.math.rand.range(f32, -2, 3), self.rect.bottom() - 1), .{ .origin = .center });
         }
+        spawnMagentaTrail(.init(self.rect.center().x, self.rect.bottom()));
         self.shadow_timer -= pxl.time.dt();
         if (self.shadow_timer > 0) return;
         self.shadow_timer = 4.0 / 60.0;
@@ -724,11 +728,57 @@ fn spawnLaser(pos: Vec2, dir: Vec2) void {
     }
 }
 
+/// Custom particle update (Comfy-style): trail sparkles drift upward off the
+/// magenta trail with a little sideways wobble.
+fn sparkleRise(p: *pxl.Particle) void {
+    const dt = pxl.time.dt();
+    p.vel.y -= 40.0 * dt;
+    p.vel.x += pxl.math.rand.range(f32, -1.0, 1.0) * 30.0 * dt;
+}
+
+/// Lazr's dash/slide/bullet trail: pinned magenta dots (TrailingDot_Hero) plus
+/// tiny single-pixel sparkles that float up from them.
+fn spawnMagentaTrail(pos: Vec2) void {
+    trail_fx.emit(.{
+        .position = pos,
+        .spawn_area = .init(2, 2),
+        .lifetime_min = 0.4,
+        .lifetime_max = 0.6,
+        .speed_min = 0,
+        .speed_max = 0,
+        .size_start_min = 2,
+        .size_start_max = 3,
+        .size_end_min = 0,
+        .size_end_max = 1,
+        .color_start = Color.magenta,
+        .color_end = Color.fromRgba(1, 0, 1, 0),
+    }, 1);
+
+    sparkle_fx.emit(.{
+        .position = pos,
+        .spawn_area = .init(2, 2),
+        .lifetime_min = 0.5,
+        .lifetime_max = 0.9,
+        .speed_min = 15,
+        .speed_max = 45,
+        .angle_min = -std.math.pi / 2.0 - 0.6,
+        .angle_max = -std.math.pi / 2.0 + 0.6,
+        .size_start_min = 1,
+        .size_start_max = 2,
+        .size_end_min = 0,
+        .size_end_max = 0,
+        .color_start = Color.magenta,
+        .color_end = Color.fromRgba(1, 0, 1, 0),
+        .update = sparkleRise,
+    }, 1);
+}
+
 fn updateLasers() void {
     const dt = pxl.time.dt();
     for (&lasers) |*l| {
         if (!l.active) continue;
         l.pos = l.pos.add(l.dir.scale(feel.laser_speed * dt));
+        spawnMagentaTrail(l.pos);
         l.age += dt;
         if (l.age >= feel.laser_lifetime or rectOverlapsSolid(collision, l.pos, 8, 8)) l.active = false;
     }
@@ -819,6 +869,9 @@ pub fn setup() !void {
     hero_tex = try pxl.assets.loadTexture(.sheet_hero_body3);
     proj_tex = try pxl.assets.loadTexture(.atlas_particleprojectile);
 
+    trail_fx = pxl.ParticleSystem.init(2048);
+    sparkle_fx = pxl.ParticleSystem.init(2048);
+
     // The IntGrid layer is the collision source (index 2 in ldtk.ldtk).
     for (map.root.levels[0].layerInstances.?) |layer| {
         if (layer.__type == .IntGrid) {
@@ -872,6 +925,8 @@ pub fn update() !void {
     hero.update();
     updateLasers();
     updateOneShots();
+    trail_fx.update(pxl.time.dt());
+    sparkle_fx.update(pxl.time.dt());
     updateCamera();
     feelPanel();
 }
@@ -938,9 +993,11 @@ fn slider(label: [*:0]const u8, value: *f32, low: f32, high: f32, step: f32) voi
 pub fn render() !void {
     pxl.beginPass(.{ .clear_color = Color.black, .camera = camera });
     renderLevel(map.root.levels[0]);
+    trail_fx.draw();
     drawHero();
     drawLasers();
     drawOneShots();
+    sparkle_fx.draw();
 
     if (show_debug) {
         pxl.dbg.drawHollowRect(hero.rect.pos(), hero.rect.w, hero.rect.h, 1, Color.green);
@@ -980,6 +1037,8 @@ fn drawOneShots() void {
 
 pub fn shutdown() !void {
     textures.deinit();
+    trail_fx.deinit();
+    sparkle_fx.deinit();
     pxl.assets.destroy(map);
     pxl.assets.destroy(hero_tex);
     pxl.assets.destroy(proj_tex);
