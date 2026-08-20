@@ -26,6 +26,8 @@ const StateMachine = pxl.util.StateMachine;
 const LayerInstance = LDtk.LayerInstance;
 const moveBody = pxl.tilemap.moveBody;
 const rectOverlapsSolid = pxl.tilemap.rectOverlapsSolid;
+const verlet = pxl.physics.verlet;
+const Rope = verlet.Rope;
 
 const Feel = struct {
     gravity: f32 = 1800, // px/s² (~Lazr's 0.5 px/f² at 60fps)
@@ -63,11 +65,18 @@ const Feel = struct {
     laser_lifetime: f32 = 1.5, // s before a bolt fizzles out
     camera_speed: f32 = 8,
     camera_lookahead: f32 = 24,
+    rope_swing: f32 = 0.75, // sideways accel applied to a rope while swinging (Lazr's 0.75)
+    rope_push: f32 = 1.25, // how much hero movement transfers to the rope
+    rope_bullet_push: f32 = 1.0, // impulse a bolt gives the rope
+    rope_grab_reach: f32 = 12, // how close the hero must be to grab a rope
+    rope_grab_offset_y: f32 = 10, // rope point sits this far above hero center
+    rope_climb_interp: f32 = 12, // ease speed when sliding between rope nodes
+    rope_move_time: f32 = 0.12, // s between node steps while climbing
 };
 
 var feel: Feel = .{};
 
-const State = enum { idle, run, jump, fall, slide, climb_wall, dash_tran, dash, punch, duck };
+const State = enum { idle, run, jump, fall, slide, climb_wall, climb_rope, dash_tran, dash, punch, duck };
 
 const Cell = struct { x: u8, y: u8 };
 const Anim = struct { cells: []const Cell, fps: f32 = 10, loops: bool = true };
@@ -98,6 +107,12 @@ const anim_duck = Anim{ .cells = &.{
     .{ .x = 9, .y = 0 }, .{ .x = 9, .y = 0 }, .{ .x = 10, .y = 0 }, .{ .x = 10, .y = 0 }, .{ .x = 10, .y = 0 },
 }, .fps = 12, .loops = false };
 const anim_shoot_crouch = Anim{ .cells = &.{.{ .x = 4, .y = 3 }}, .fps = 1 };
+const anim_rope_idle = Anim{ .cells = &.{
+    .{ .x = 5, .y = 2 }, .{ .x = 5, .y = 2 }, .{ .x = 6, .y = 2 }, .{ .x = 6, .y = 2 },
+    .{ .x = 7, .y = 2 }, .{ .x = 7, .y = 2 }, .{ .x = 6, .y = 2 }, .{ .x = 6, .y = 2 },
+}, .fps = 6 };
+const anim_rope_swing = Anim{ .cells = &.{ .{ .x = 8, .y = 2 }, .{ .x = 9, .y = 2 } }, .fps = 10 };
+const anim_rope_climb = Anim{ .cells = &.{ .{ .x = 12, .y = 2 }, .{ .x = 12, .y = 2 }, .{ .x = 12, .y = 2 }, .{ .x = 12, .y = 2 } }, .fps = 8 };
 
 // Lazr's 5-move melee combo (Hero_Punching, Hero_JumpKick, Hero_SpinPunch, Hero_StandingKick, Hero_HeadButt).
 const anim_punch = Anim{ .cells = &.{
@@ -177,6 +192,8 @@ var lasers: [32]Laser = [_]Laser{.{}} ** 32;
 
 var trail_fx: pxl.ParticleSystem = undefined;
 var sparkle_fx: pxl.ParticleSystem = undefined;
+var ropes: pxl.util.Vec(Rope) = .empty;
+const rope_color = Color.brown;
 
 var map: *LDtk = undefined;
 var collision: LayerInstance = undefined;
@@ -217,6 +234,12 @@ const Hero = struct {
     punch_time: f32 = 0,
     punch_buffer: f32 = 0,
     shadow_timer: f32 = 0,
+    grabbed_rope: ?usize = null,
+    grab_t: f32 = 0, // eased toward grab_target for smooth node transitions
+    grab_target: usize = 0,
+    rope_move_cooldown: f32 = 0,
+    rope_release_lockout: f32 = 0, // s after dropping a rope where the hero can't push it
+    prev_center: Vec2 = .zero,
 
     fn init(self: *Hero, x: f32, y: f32) void {
         self.* = .{};
@@ -229,6 +252,7 @@ const Hero = struct {
         self.coyote = @max(0, self.coyote - dt);
         self.jump_buffer = @max(0, self.jump_buffer - dt);
         self.grab_lockout = @max(0, self.grab_lockout - dt);
+        self.rope_release_lockout = @max(0, self.rope_release_lockout - dt);
         self.shoot_cooldown = @max(0, self.shoot_cooldown - dt);
         self.punch_buffer = @max(0, self.punch_buffer - dt);
 
@@ -242,8 +266,10 @@ const Hero = struct {
 
         self.sm.tick(self);
         self.applyPhysics();
+        self.pushRopes();
         self.resolveVerticalState();
         self.tryShoot();
+        self.prev_center = self.rect.center();
     }
 
     pub fn stateChanged(self: *Hero, prev: State, next: State) void {
@@ -267,6 +293,7 @@ const Hero = struct {
             },
             .dash => self.setAnim(dashAnimFor(self.dash_dir)),
             .punch => self.setAnim(punch_anims[self.punch_move]),
+            .climb_rope => self.setAnim(anim_rope_idle),
             .duck => self.setAnim(anim_duck),
         }
     }
@@ -320,6 +347,7 @@ const Hero = struct {
             self.tryDash(move);
             return;
         }
+        if (self.tryRopeGrab()) return;
         if (self.tryWallGrab()) self.sm.change(self, .climb_wall);
     }
 
@@ -331,6 +359,7 @@ const Hero = struct {
             self.tryDash(move);
             return;
         }
+        if (self.tryRopeGrab()) return;
         if (self.tryWallGrab()) self.sm.change(self, .climb_wall);
     }
 
@@ -437,6 +466,74 @@ const Hero = struct {
                 self.sm.change(self, .fall);
             }
         }
+    }
+
+    pub fn climbRopeState(self: *Hero) void {
+        const move = moveInput();
+        const dt = pxl.time.dt();
+        const ri = self.grabbed_rope orelse {
+            self.sm.change(self, .fall);
+            return;
+        };
+        if (ri >= ropes.items.len) {
+            self.grabbed_rope = null;
+            self.sm.change(self, .fall);
+            return;
+        }
+        const rope = &ropes.items[ri];
+
+        self.rope_move_cooldown = @max(0, self.rope_move_cooldown - dt);
+        if (move.y < 0) {
+            if (self.rope_move_cooldown <= 0 and self.grab_target > 1) {
+                self.grab_target -= 1;
+                self.rope_move_cooldown = feel.rope_move_time;
+                self.setAnim(anim_rope_climb);
+            }
+        } else if (move.y > 0) {
+            if (self.rope_move_cooldown <= 0 and self.grab_target < rope.len() - 1) {
+                self.grab_target += 1;
+                self.rope_move_cooldown = feel.rope_move_time;
+                self.setAnim(anim_rope_climb);
+            }
+        } else if (move.x != 0) {
+            self.facing = if (move.x > 0) 1 else -1;
+            rope.push(self.grab_target, .init(self.facing * feel.rope_swing, 0));
+            self.setAnim(anim_rope_swing);
+        } else {
+            self.setAnim(anim_rope_idle);
+        }
+
+        // Ease the grab point toward the target node so climbing slides instead of hopping.
+        self.grab_t += (@as(f32, @floatFromInt(self.grab_target)) - self.grab_t) * @min(1.0, feel.rope_climb_interp * dt);
+
+        const p = rope.pointAt(self.grab_t);
+        self.rect.x = p.x - self.rect.w * 0.5;
+        self.rect.y = (p.y - feel.rope_grab_offset_y) - self.rect.h * 0.5;
+        self.vel = .zero;
+
+        if (input.isActionJustPressed("jump")) {
+            self.releaseRope(0.1);
+            self.vel.y = -feel.jump_impulse;
+            self.vel.x = self.facing * feel.wall_jump_impulse_x * 0.5;
+            self.jump_gravity_scale_current = feel.jump_gravity_scale;
+            self.sm.change(self, .jump);
+            self.playJumpPoof();
+            return;
+        }
+        if (input.isActionJustPressed("dash")) {
+            self.releaseRope(0.1);
+            self.tryDash(move);
+            return;
+        }
+        if (input.isActionJustPressed("grab")) {
+            self.releaseRope(0.2);
+            self.sm.change(self, .fall);
+        }
+    }
+
+    fn releaseRope(self: *Hero, lockout: f32) void {
+        self.grabbed_rope = null;
+        self.rope_release_lockout = lockout;
     }
 
     pub fn dashTranState(self: *Hero) void {
@@ -558,6 +655,34 @@ const Hero = struct {
         return false;
     }
 
+    fn tryRopeGrab(self: *Hero) bool {
+        if (self.grab_lockout > 0) return false;
+        // Press (not hold) to latch onto a rope, like starting a wall climb.
+        if (!input.isActionJustPressed("grab")) return false;
+        for (ropes.items, 0..) |rope, ri| {
+            if (rope.grab(self.rect.center(), feel.rope_grab_reach)) |pm| {
+                self.grabbed_rope = ri;
+                self.grab_target = pm;
+                self.grab_t = @floatFromInt(pm);
+                self.rope_move_cooldown = 0;
+                self.vel = .zero;
+                self.sm.change(self, .climb_rope);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    fn pushRopes(self: *Hero) void {
+        if (self.sm.current == .climb_rope) return;
+        // After dropping a rope, stop shoving the grabbed node so it doesn't drag along.
+        if (self.rope_release_lockout > 0) return;
+        const disp = self.rect.center().sub(self.prev_center);
+        if (disp.len() <= 0.0001) return;
+        const impulse = disp.scale(feel.rope_push);
+        for (ropes.items) |*rope| rope.pushNear(self.rect.center(), impulse, self.rect.h * 0.5 + 4);
+    }
+
     fn touchingWall(self: *Hero) bool {
         return self.wallSolid(self.facing);
     }
@@ -579,7 +704,7 @@ const Hero = struct {
     fn applyPhysics(self: *Hero) void {
         const dt = pxl.time.dt();
         const dashing = self.sm.current == .dash or self.sm.current == .dash_tran;
-        const climbing = self.sm.current == .climb_wall;
+        const climbing = self.sm.current == .climb_wall or self.sm.current == .climb_rope;
 
         const fric = std.math.pow(f32, feel.friction, 60.0 * dt);
         if (dashing) {
@@ -616,7 +741,7 @@ const Hero = struct {
 
     fn resolveVerticalState(self: *Hero) void {
         switch (self.sm.current) {
-            .climb_wall, .dash, .dash_tran => return,
+            .climb_wall, .climb_rope, .dash, .dash_tran => return,
             else => {},
         }
         if (self.state.below) {
@@ -792,6 +917,7 @@ fn updateLasers() void {
         l.pos.y += @floatFromInt(l.sy.update(l.dir.y * feel.laser_speed * dt));
         spawnTrailDots(l.pos);
         spawnTrailSparkles(l.pos);
+        for (ropes.items) |*rope| rope.pushNear(l.pos, l.dir.scale(feel.rope_bullet_push), 8);
         l.age += dt;
         if (l.age >= feel.laser_lifetime or rectOverlapsSolid(collision, l.pos, 8, 8)) l.active = false;
     }
@@ -830,6 +956,22 @@ fn updateOneShots() void {
         const anim_dur = @as(f32, @floatFromInt(o.cell_count)) / o.fps;
         if (o.age >= @max(anim_dur, o.life)) o.active = false;
     }
+}
+
+fn ropeSolid(pos: Vec2) bool {
+    return pxl.tilemap.isSolidAt(collision, pos);
+}
+
+fn spawnRope(anchor: Vec2, segments: usize, spacing: f32) void {
+    ropes.append(Rope.init(anchor, segments, spacing, .init(0, 2200)));
+}
+
+fn updateRopes() void {
+    for (ropes.items) |*rope| rope.update(pxl.time.dt(), ropeSolid);
+}
+
+fn drawRopes() void {
+    for (ropes.items) |*rope| rope.draw(rope_color);
 }
 
 fn dashAnimFor(dir: Vec2) Anim {
@@ -895,6 +1037,11 @@ pub fn setup() !void {
 
     hero.init(164, 156);
 
+    // Demo ropes: hang from the ceiling near the start and mid-level.
+    ropes.ensureTotalCapacity(8);
+    spawnRope(.init(55, 0), 18, 8);
+    // spawnRope(.init(600, 0), 20, 8);
+
     input.addBinding("left", .key(.left));
     input.addBinding("left", .key(.a));
     input.addBinding("left", .gamepadButton(.dpad_left));
@@ -937,6 +1084,7 @@ pub fn setup() !void {
 pub fn update() !void {
     hero.update();
     updateLasers();
+    updateRopes();
     updateOneShots();
     trail_fx.update(pxl.time.dt());
     sparkle_fx.update(pxl.time.dt());
@@ -995,6 +1143,17 @@ fn feelPanel() void {
         slider("grab box h", &feel.grab_box_height, 2, 15, 0.5);
         mu.endWindow();
     }
+
+    if (mu.beginWindowEx("Rope", .{ .x = 5, .y = 360, .w = 205, .h = 230 }, .{ .align_center = false })) {
+        slider("rope push", &feel.rope_push, 0, 5, 0.05);
+        slider("bullet push", &feel.rope_bullet_push, 0, 5, 0.05);
+        slider("swing", &feel.rope_swing, 0, 5, 0.05);
+        slider("grab reach", &feel.rope_grab_reach, 4, 40, 1);
+        slider("grab offset", &feel.rope_grab_offset_y, 0, 24, 1);
+        slider("climb interp", &feel.rope_climb_interp, 1, 40, 0.5);
+        slider("move time s", &feel.rope_move_time, 0.02, 0.5, 0.01);
+        mu.endWindow();
+    }
 }
 
 fn slider(label: [*:0]const u8, value: *f32, low: f32, high: f32, step: f32) void {
@@ -1006,6 +1165,7 @@ fn slider(label: [*:0]const u8, value: *f32, low: f32, high: f32, step: f32) voi
 pub fn render() !void {
     pxl.beginPass(.{ .clear_color = Color.black, .camera = camera });
     renderLevel(map.root.levels[0]);
+    drawRopes();
     trail_fx.draw();
     drawHero();
     drawLasers();
@@ -1052,6 +1212,8 @@ pub fn shutdown() !void {
     textures.deinit();
     trail_fx.deinit();
     sparkle_fx.deinit();
+    for (ropes.items) |*rope| rope.deinit();
+    ropes.deinit();
     pxl.assets.destroy(map);
     pxl.assets.destroy(hero_tex);
     pxl.assets.destroy(proj_tex);

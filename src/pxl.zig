@@ -29,6 +29,7 @@ pub const audio = @import("audio.zig");
 pub const fs = @import("fs.zig");
 pub const math = @import("math/math.zig");
 pub const mem = @import("mem.zig");
+pub const physics = @import("physics/physics.zig");
 pub const sfxr = @import("sfxr.zig");
 pub const util = @import("util/util.zig");
 pub const gpu = @import("gpu/gpu.zig");
