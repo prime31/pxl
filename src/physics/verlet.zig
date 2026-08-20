@@ -502,22 +502,75 @@ pub const World = struct {
         return idx;
     }
 
-    /// Spawns `count` loose chunks at `pos` bursting upward within `spread`
-    /// radians of vertical, at up to `speed` px/s — the "broken object" juice.
-    /// Points draw as small circles; set `sleep_delay` / `remove_delay` on the
-    /// returned body for settle-then-vanish behavior.
-    pub fn addDebris(self: *World, pos: Vec2, count: usize, speed: f32, spread: f32) ?usize {
+    /// Spawns `count` loose chunks at `pos` bursting outward along `dir` (the
+    /// impact push direction: away from the wall for a side hit, downward for a
+    /// ceiling hit), within `spread` radians of it, at up to `speed` px/s.
+    /// A zero `dir` bursts upward (the historical default). Each chunk is nudged
+    /// along `dir` until its radius fully clears solid geometry, so debris is
+    /// never born inside a wall/ceiling (where the collision check would freeze
+    /// it in place). Points draw as small circles; set `sleep_delay` /
+    /// `remove_delay` on the returned body for settle-then-vanish behavior.
+    pub fn addDebris(self: *World, pos: Vec2, dir: Vec2, count: usize, speed: f32, spread: f32) ?usize {
         const idx = self.addBody() orelse return null;
         const body = &self.bodies.items[idx];
+        const dir_len = dir.len();
+        const dir_n = if (dir_len > 1e-6) dir.scale(1.0 / dir_len) else Vec2.init(0, -1);
+        const dir_ang = if (dir_len > 1e-6) std.math.atan2(dir.y, dir.x) else -std.math.pi / 2.0;
         var i: usize = 0;
         while (i < count) : (i += 1) {
-            const ang = -@as(f32, std.math.pi) / 2 + pxl.math.rand.range(f32, -spread, spread);
+            const ang = dir_ang + pxl.math.rand.range(f32, -spread, spread);
             const spd = pxl.math.rand.range(f32, speed * 0.2, speed);
             const vel = Vec2.init(@cos(ang) * spd, @sin(ang) * spd);
             const pi = body.addPoint(pos, vel);
             body.points.items[pi].radius = pxl.math.rand.range(f32, 1.5, 3.5);
+            if (self.collision) |c| pushOutOfSolid(body, pi, dir_n, c);
         }
         return idx;
+    }
+
+    /// True when `pos` (ignoring radius) sits inside solid geometry.
+    fn centerSolid(collision: Collision, pos: Vec2) bool {
+        return switch (collision) {
+            .tilemap => |layer| pxl.tilemap.isSolidAt(layer, pos),
+            .custom => |q| q(pos),
+        };
+    }
+
+    /// True when the point's radius box (center + 4 cardinal extent points) is
+    /// fully in free space — the condition for it to be able to move at all.
+    fn fullyFree(collision: Collision, pos: Vec2, radius: f32) bool {
+        if (centerSolid(collision, pos)) return false;
+        return switch (collision) {
+            .tilemap => |layer|
+                !pxl.tilemap.isSolidAt(layer, .init(pos.x - radius, pos.y)) and
+                !pxl.tilemap.isSolidAt(layer, .init(pos.x + radius, pos.y)) and
+                !pxl.tilemap.isSolidAt(layer, .init(pos.x, pos.y - radius)) and
+                !pxl.tilemap.isSolidAt(layer, .init(pos.x, pos.y + radius)),
+            .custom => |q|
+                !q(.init(pos.x - radius, pos.y)) and
+                !q(.init(pos.x + radius, pos.y)) and
+                !q(.init(pos.x, pos.y - radius)) and
+                !q(.init(pos.x, pos.y + radius)),
+        };
+    }
+
+    /// Moves point `pi` along `dir` until its radius fully clears solid geometry
+    /// (capped), preserving its spawn velocity. Fast projectiles stop up to a
+    /// step inside the surface, so impact debris spawns buried in it.
+    fn pushOutOfSolid(body: *Body, pi: usize, dir: Vec2, collision: Collision) void {
+        const p = &body.points.items[pi];
+        const r = p.radius;
+        if (r <= 0) return;
+        var k: f32 = 0;
+        while (k < 32.0) : (k += 1) {
+            const candidate = p.pos.add(dir.scale(k));
+            if (fullyFree(collision, candidate, r)) {
+                const disp = candidate.sub(p.pos);
+                p.pos = candidate;
+                p.prev = p.prev.add(disp); // keep the spawn velocity intact
+                return;
+            }
+        }
     }
 
     /// Removes a body (frees its storage). Indices into `bodies` are unstable
@@ -716,6 +769,51 @@ test "self-collision pushes overlapping radius'd points apart" {
     const dist = b.points.items[a].pos.sub(b.points.items[c].pos).len();
     try std.testing.expectApproxEqAbs(@as(f32, 6.0), dist, 0.01);
     b.deinit();
+}
+
+test "addDebris emits along the requested direction" {
+    pxl.mem.init();
+    defer pxl.mem.deinit();
+    var w: World = .{};
+
+    // Bullet moving right hits a wall: burst must spray left, away from it.
+    const left = w.addDebris(.init(0, 0), .init(-1, 0), 8, 100, 0.2) orelse unreachable;
+    for (w.bodies.items[left].points.items) |p| {
+        const vel = p.pos.sub(p.prev);
+        try std.testing.expect(vel.x < 0);
+    }
+
+    // Bullet hits the ceiling: burst must spray downward.
+    const down = w.addDebris(.init(0, 0), .init(0, 1), 8, 100, 0.2) orelse unreachable;
+    for (w.bodies.items[down].points.items) |p| {
+        const vel = p.pos.sub(p.prev);
+        try std.testing.expect(vel.y > 0);
+    }
+    w.deinit();
+}
+
+test "debris spawned inside a ceiling is pushed out, not frozen" {
+    pxl.mem.init();
+    defer pxl.mem.deinit();
+    var w: World = .{};
+    w.setCollisionFn(solidAbove16); // solid above y=16 (a ceiling)
+
+    // Spawn a downward burst at y=10, well inside the ceiling tile.
+    const bi = w.addDebris(.init(50, 10), .init(0, 1), 6, 100, 0.05) orelse unreachable;
+    for (w.bodies.items[bi].points.items) |p| {
+        // Every chunk must spawn with its full radius clear of the ceiling.
+        try std.testing.expect(p.pos.y >= 16.0 + p.radius);
+    }
+
+    // And they must fall out, not freeze in place.
+    var i: usize = 0;
+    while (i < 60) : (i += 1) w.update(fixed_dt);
+    for (w.bodies.items[bi].points.items) |p| try std.testing.expect(p.pos.y > 16.0);
+    w.deinit();
+}
+
+fn solidAbove16(pos: Vec2) bool {
+    return pos.y < 16;
 }
 
 test "self-collision can't push a point through the floor" {

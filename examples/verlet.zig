@@ -109,7 +109,7 @@ pub fn update() !void {
     const shift_held = pxl.input.keyDown(.left_shift) or pxl.input.keyDown(.right_shift);
 
     if (pxl.input.keyPressed(.space)) {
-        if (world.addDebris(mouse, 24, 160, 10.2)) |bi| {
+        if (world.addDebris(mouse, .init(0, -1), 24, 160, std.math.pi)) |bi| {
             const body = &world.bodies.items[bi];
             body.self_collide = true; // chunks bump each other as they burst
             body.sleep_delay = 2.0; // settle and go inert after 2s
