@@ -258,4 +258,5 @@ test {
     std.testing.refAllDecls(@This());
     _ = @import("util/util.zig");
     _ = @import("util/slotmap.zig");
+    _ = @import("physics/physics.zig").verlet;
 }

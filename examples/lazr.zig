@@ -27,7 +27,6 @@ const LayerInstance = LDtk.LayerInstance;
 const moveBody = pxl.tilemap.moveBody;
 const rectOverlapsSolid = pxl.tilemap.rectOverlapsSolid;
 const verlet = pxl.physics.verlet;
-const Rope = verlet.Rope;
 
 const Feel = struct {
     gravity: f32 = 1800, // px/s² (~Lazr's 0.5 px/f² at 60fps)
@@ -192,7 +191,7 @@ var lasers: [32]Laser = [_]Laser{.{}} ** 32;
 
 var trail_fx: pxl.ParticleSystem = undefined;
 var sparkle_fx: pxl.ParticleSystem = undefined;
-var ropes: pxl.util.Vec(Rope) = .empty;
+var rope_world: verlet.World = .{};
 const rope_color = Color.brown;
 
 var map: *LDtk = undefined;
@@ -475,12 +474,12 @@ const Hero = struct {
             self.sm.change(self, .fall);
             return;
         };
-        if (ri >= ropes.items.len) {
+        if (ri >= rope_world.bodies.items.len) {
             self.grabbed_rope = null;
             self.sm.change(self, .fall);
             return;
         }
-        const rope = &ropes.items[ri];
+        const rope = &rope_world.bodies.items[ri];
 
         self.rope_move_cooldown = @max(0, self.rope_move_cooldown - dt);
         if (move.y < 0) {
@@ -659,7 +658,7 @@ const Hero = struct {
         if (self.grab_lockout > 0) return false;
         // Press (not hold) to latch onto a rope, like starting a wall climb.
         if (!input.isActionJustPressed("grab")) return false;
-        for (ropes.items, 0..) |rope, ri| {
+        for (rope_world.bodies.items, 0..) |rope, ri| {
             if (rope.grab(self.rect.center(), feel.rope_grab_reach)) |pm| {
                 self.grabbed_rope = ri;
                 self.grab_target = pm;
@@ -680,7 +679,7 @@ const Hero = struct {
         const disp = self.rect.center().sub(self.prev_center);
         if (disp.len() <= 0.0001) return;
         const impulse = disp.scale(feel.rope_push);
-        for (ropes.items) |*rope| rope.pushNear(self.rect.center(), impulse, self.rect.h * 0.5 + 4);
+        rope_world.pushNear(self.rect.center(), impulse, self.rect.h * 0.5 + 4);
     }
 
     fn touchingWall(self: *Hero) bool {
@@ -917,7 +916,7 @@ fn updateLasers() void {
         l.pos.y += @floatFromInt(l.sy.update(l.dir.y * feel.laser_speed * dt));
         spawnTrailDots(l.pos);
         spawnTrailSparkles(l.pos);
-        for (ropes.items) |*rope| rope.pushNear(l.pos, l.dir.scale(feel.rope_bullet_push), 8);
+        rope_world.pushNear(l.pos, l.dir.scale(feel.rope_bullet_push), 8);
         l.age += dt;
         if (l.age >= feel.laser_lifetime or rectOverlapsSolid(collision, l.pos, 8, 8)) l.active = false;
     }
@@ -958,20 +957,16 @@ fn updateOneShots() void {
     }
 }
 
-fn ropeSolid(pos: Vec2) bool {
-    return pxl.tilemap.isSolidAt(collision, pos);
-}
-
 fn spawnRope(anchor: Vec2, segments: usize, spacing: f32) void {
-    ropes.append(Rope.init(anchor, segments, spacing, .init(0, 2200)));
+    _ = rope_world.addRope(anchor, segments, spacing, false);
 }
 
 fn updateRopes() void {
-    for (ropes.items) |*rope| rope.update(pxl.time.dt(), ropeSolid);
+    rope_world.update(pxl.time.dt());
 }
 
 fn drawRopes() void {
-    for (ropes.items) |*rope| rope.draw(rope_color);
+    rope_world.draw(rope_color);
 }
 
 fn dashAnimFor(dir: Vec2) Anim {
@@ -1038,7 +1033,8 @@ pub fn setup() !void {
     hero.init(164, 156);
 
     // Demo ropes: hang from the ceiling near the start and mid-level.
-    ropes.ensureTotalCapacity(8);
+    rope_world.bodies.ensureTotalCapacity(8);
+    rope_world.setCollisionLayer(collision);
     spawnRope(.init(55, 0), 18, 8);
     // spawnRope(.init(600, 0), 20, 8);
 
@@ -1212,8 +1208,7 @@ pub fn shutdown() !void {
     textures.deinit();
     trail_fx.deinit();
     sparkle_fx.deinit();
-    for (ropes.items) |*rope| rope.deinit();
-    ropes.deinit();
+    rope_world.deinit();
     pxl.assets.destroy(map);
     pxl.assets.destroy(hero_tex);
     pxl.assets.destroy(proj_tex);
