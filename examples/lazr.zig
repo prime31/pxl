@@ -1032,11 +1032,10 @@ pub fn setup() !void {
 
     hero.init(164, 156);
 
-    // Demo ropes: hang from the ceiling near the start and mid-level.
+    // Demo rope: hang from the ceiling near the start and mid-level.
     rope_world.bodies.ensureTotalCapacity(8);
     rope_world.setCollisionLayer(collision);
     spawnRope(.init(55, 0), 18, 8);
-    // spawnRope(.init(600, 0), 20, 8);
 
     input.addBinding("left", .key(.left));
     input.addBinding("left", .key(.a));
@@ -1160,7 +1159,7 @@ fn slider(label: [*:0]const u8, value: *f32, low: f32, high: f32, step: f32) voi
 
 pub fn render() !void {
     pxl.beginPass(.{ .clear_color = Color.black, .camera = camera });
-    renderLevel(map.root.levels[0]);
+    for (map.root.levels) |lvl| renderLevel(lvl);
     drawRopes();
     trail_fx.draw();
     drawHero();

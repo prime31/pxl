@@ -41,7 +41,7 @@ pub fn config() pxl.Config {
 
 pub fn setup() !void {
     textures = std.AutoHashMap(i64, Texture).init(pxl.mem.allocator);
-    // map = try pxl.assets.loadTilemap(.ldtk);
+
     map = try pxl.assets.loadTilemap(.tiny_tiles);
     if (map.root.defs) |defs| {
         for (defs.tilesets) |tileset| {
@@ -56,8 +56,7 @@ pub fn setup() !void {
                 try textures.put(tileset.uid, tex.*);
             } else if (tileset.embedAtlas) |atlas| {
                 if (atlas == .LdtkIcons) {
-                    const id = pxl.assets.findTextureId("assets/maps/ldtk_icons.png") orelse return error.AssetNotFound;
-                    const tex = try pxl.assets.loadTexture(id);
+                    const tex = try pxl.assets.loadTexture(.ldtk_icons);
                     try textures.put(tileset.uid, tex.*);
                 }
             }
