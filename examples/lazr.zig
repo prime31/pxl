@@ -200,7 +200,6 @@ var hero_tex: *Texture = undefined;
 var proj_tex: *Texture = undefined;
 var hero: Hero = .{};
 
-var textures: std.AutoHashMap(i64, Texture) = undefined;
 
 var camera: pxl.Camera = .{ .position = .init(320, 168), .zoom = 1.0, .rotation = 0 };
 var show_debug: bool = false;
@@ -993,28 +992,7 @@ pub fn config() pxl.Config {
 }
 
 pub fn setup() !void {
-    textures = std.AutoHashMap(i64, Texture).init(pxl.mem.allocator);
     map = try pxl.assets.loadTilemap(.ldtk);
-    if (map.root.defs) |defs| {
-        for (defs.tilesets) |tileset| {
-            if (tileset.relPath) |rel_path| {
-                var path_buf: [512]u8 = undefined;
-                const path = std.fmt.bufPrintZ(&path_buf, "assets/maps/{s}", .{rel_path}) catch return error.NameTooLong;
-                const id = pxl.assets.findTextureId(path) orelse {
-                    std.debug.print("tileset texture not in asset manifest: {s}\n", .{path});
-                    return error.AssetNotFound;
-                };
-                const tex = try pxl.assets.loadTexture(id);
-                try textures.put(tileset.uid, tex.*);
-            } else if (tileset.embedAtlas) |atlas| {
-                if (atlas == .LdtkIcons) {
-                    const id = pxl.assets.findTextureId("assets/maps/ldtk_icons.png") orelse return error.AssetNotFound;
-                    const tex = try pxl.assets.loadTexture(id);
-                    try textures.put(tileset.uid, tex.*);
-                }
-            }
-        }
-    }
 
     hero_tex = try pxl.assets.loadTexture(.sheet_hero_body3);
     proj_tex = try pxl.assets.loadTexture(.atlas_particleprojectile);
@@ -1204,7 +1182,6 @@ fn drawOneShots() void {
 }
 
 pub fn shutdown() !void {
-    textures.deinit();
     trail_fx.deinit();
     sparkle_fx.deinit();
     rope_world.deinit();
@@ -1230,7 +1207,7 @@ fn renderLevel(level: LDtk.Level) void {
             .Tiles, .AutoLayer, .IntGrid => {
                 const grid_size: f32 = @floatFromInt(layer.__gridSize);
                 const tileset_uid = layer.overrideTilesetUid orelse layer.__tilesetDefUid orelse continue;
-                const tex = textures.get(tileset_uid) orelse unreachable;
+                const tex = map.getTexture(tileset_uid) orelse unreachable;
 
                 for (layer.gridTiles) |tile| drawTile(tile, tex, grid_size, layer_x, layer_y, layer.__opacity);
                 for (layer.autoLayerTiles) |tile| drawTile(tile, tex, grid_size, layer_x, layer_y, layer.__opacity);
@@ -1280,7 +1257,7 @@ fn renderEntity(entity: LDtk.EntityInstance, layer_x: f32, layer_y: f32) void {
     const y: f32 = layer_y + @as(f32, @floatFromInt(entity.px[1])) - (pivot_y * height);
 
     if (entity.__tile) |tile| {
-        const tex = textures.get(tile.tilesetUid) orelse unreachable;
+        const tex = map.getTexture(tile.tilesetUid) orelse unreachable;
         api.drawTexturedRect(tex, Rect{ .x = x, .y = y, .w = width, .h = height }, Rect{
             .x = @floatFromInt(tile.x),
             .y = @floatFromInt(tile.y),

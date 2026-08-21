@@ -1,10 +1,12 @@
 const std = @import("std");
 const pxl = @import("../pxl.zig");
 const cast = pxl.util.cast;
+const Texture = pxl.gpu.Texture;
 
 /// LDtk Project Parser
 parsed_root: std.json.Parsed(Root),
 root: Root,
+tileset_textures: std.AutoHashMap(i64, *Texture) = undefined,
 
 /// Parse an entire LDtk project JSON file (.ldtk)
 pub fn parse(ldtk_file_content: []const u8) !@This() {
@@ -29,8 +31,46 @@ pub fn parseLevel(level_file_content: []const u8) !std.json.Parsed(Level) {
 }
 
 pub fn deinit(this: *@This()) void {
+    var iter = this.tileset_textures.iterator();
+    while (iter.next()) |entry| {
+        pxl.assets.destroy(entry.value_ptr.*);
+    }
+    this.tileset_textures.deinit();
     this.parsed_root.deinit();
 }
+
+/// Load all tileset textures referenced by this map into a hashmap keyed by tileset UID.
+/// `path_prefix` is prepended to each tileset's relPath (e.g. "assets/maps/").
+pub fn loadTilesetTextures(self: *@This(), path_prefix: []const u8) !void {
+    self.tileset_textures = std.AutoHashMap(i64, *Texture).init(pxl.mem.allocator);
+    if (self.root.defs) |defs| {
+        for (defs.tilesets) |tileset| {
+            if (tileset.relPath) |rel_path| {
+                var path_buf: [512]u8 = undefined;
+                const path = std.fmt.bufPrintZ(&path_buf, "{s}{s}", .{ path_prefix, rel_path }) catch return error.NameTooLong;
+                const id = pxl.assets.findTextureId(path) orelse {
+                    std.debug.print("tileset texture not in asset manifest: {s}\n", .{path});
+                    return error.AssetNotFound;
+                };
+                const tex = try pxl.assets.loadTexture(id);
+                try self.tileset_textures.put(tileset.uid, tex);
+            } else if (tileset.embedAtlas) |atlas| {
+                if (atlas == .LdtkIcons) {
+                    const tex = try pxl.assets.loadTexture(.ldtk_icons);
+                    try self.tileset_textures.put(tileset.uid, tex);
+                }
+            }
+        }
+    }
+}
+
+/// Get a tileset texture by its UID. Returns null if the UID is not found.
+pub fn getTexture(self: *const @This(), uid: i64) ?Texture {
+    const ptr = self.tileset_textures.get(uid) orelse return null;
+    return ptr.*;
+}
+
+
 
 /// 1. LDtk JSON Root
 pub const Root = struct {

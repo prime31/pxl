@@ -101,7 +101,13 @@ pub fn loadTilemap(id: TilemapId) !*LDtk {
         manifest.embedTilemap(id)
     else
         try pxl.fs.read(manifest.tilemaps[i].path, .temp);
+
     tilemaps[i] = try LDtk.parse(bytes);
+    // Auto-load tileset textures. The prefix is the directory of the LDtk file.
+    const tilemap_path = manifest.tilemaps[i].path;
+    const dir_end = std.mem.lastIndexOfScalar(u8, tilemap_path, std.fs.path.sep) orelse 0;
+    const prefix = tilemap_path[0 .. dir_end + 1]; // include trailing sep
+    try tilemaps[i].loadTilesetTextures(prefix);
     tilemap_refs[i] = 1;
     return &tilemaps[i];
 }

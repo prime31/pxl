@@ -60,7 +60,6 @@ var follow_cam: bool = true;
 var show_debug: bool = true;
 var slugcat: Slugcat = .{};
 
-var textures: std.AutoHashMap(i64, Texture) = undefined;
 
 // ---------------------------------------------------------------------------
 // Small vector helpers (Rain World's Custom.* equivalents)
@@ -931,28 +930,7 @@ pub fn config() pxl.Config {
 }
 
 pub fn setup() !void {
-    textures = std.AutoHashMap(i64, Texture).init(pxl.mem.allocator);
     map = try pxl.assets.loadTilemap(.tiny_tiles);
-    if (map.root.defs) |defs| {
-        for (defs.tilesets) |tileset| {
-            if (tileset.relPath) |rel_path| {
-                var path_buf: [512]u8 = undefined;
-                const path = std.fmt.bufPrintZ(&path_buf, "assets/maps/{s}", .{rel_path}) catch return error.NameTooLong;
-                const id = pxl.assets.findTextureId(path) orelse {
-                    std.debug.print("tileset texture not in asset manifest: {s}\n", .{path});
-                    return error.AssetNotFound;
-                };
-                const tex = try pxl.assets.loadTexture(id);
-                try textures.put(tileset.uid, tex.*);
-            } else if (tileset.embedAtlas) |atlas| {
-                if (atlas == .LdtkIcons) {
-                    const id = pxl.assets.findTextureId("assets/maps/ldtk_icons.png") orelse return error.AssetNotFound;
-                    const tex = try pxl.assets.loadTexture(id);
-                    try textures.put(tileset.uid, tex.*);
-                }
-            }
-        }
-    }
 
     // Grab the IntGrid collision layer and derive the world size from it.
     const layers = map.root.levels[0].layerInstances.?;
@@ -1072,7 +1050,6 @@ pub fn render() !void {
 }
 
 pub fn shutdown() !void {
-    textures.deinit();
     pxl.assets.destroy(map);
 }
 
@@ -1102,7 +1079,7 @@ pub fn renderLevel(level: LDtk.Level) void {
                 const grid_size: f32 = @floatFromInt(layer.__gridSize);
                 // Resolve active tileset UID (override instance UID takes precedence if set)
                 const tileset_uid = layer.overrideTilesetUid orelse layer.__tilesetDefUid orelse continue;
-                const tex = textures.get(tileset_uid) orelse unreachable;
+                const tex = map.getTexture(tileset_uid) orelse unreachable;
 
                 for (layer.gridTiles) |tile| {
                     drawTile(tile, tex, grid_size, layer_x, layer_y, layer.__opacity);
@@ -1174,7 +1151,7 @@ pub fn renderEntity(entity: LDtk.EntityInstance, layer_x: f32, layer_y: f32) voi
 
     // 1. Draw entity Tile if present
     if (entity.__tile) |tile| {
-        const tex = textures.get(tile.tilesetUid) orelse unreachable;
+        const tex = map.getTexture(tile.tilesetUid) orelse unreachable;
 
         const dest_rect = Rect{
             .x = x,
