@@ -1,8 +1,8 @@
 /// pxl color, stored as RGBA packed u32 (0xAABBGGRR). Use the constants or
 /// `Color::rgba(r, g, b, a)` for custom colors.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Color(pub(crate) u32);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Color(pub u32);
 
 impl Color {
     pub const WHITE: Self = Self(0xFFFF_FFFF);

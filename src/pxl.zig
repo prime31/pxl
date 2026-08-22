@@ -32,6 +32,7 @@ pub const mem = @import("mem.zig");
 pub const physics = @import("physics/physics.zig");
 pub const sfxr = @import("sfxr.zig");
 pub const util = @import("util/util.zig");
+pub const window = @import("window.zig");
 pub const gpu = @import("gpu/gpu.zig");
 pub const text = @import("text/text.zig");
 pub const tilemap = @import("tilemap/tilemap.zig");
@@ -61,6 +62,11 @@ pub const WindowConfig = struct {
     width: i32 = 1024,
     height: i32 = 768,
     window_title: [*c]const u8 = "Pxl",
+    disable_vsync: bool = false,
+    enable_clipboard: bool = false,
+    enable_dragndrop: bool = false,
+    srgb: bool = false,
+    hdr: bool = false,
 };
 
 pub const Camera = gpu.Camera;
@@ -107,11 +113,11 @@ pub fn run(io_arg: std.Io, config: Config, callbacks: Callbacks) sapp.Desc {
         .high_dpi = if (builtin.target.abi.isAndroid()) true else config.win.high_dpi,
         .fullscreen = if (builtin.target.abi.isAndroid()) true else config.win.fullscreen,
         .window_title = config.win.window_title,
-        .srgb = false,
-        .hdr = false,
-        .disable_vsync = false,
-        .enable_clipboard = false,
-        .enable_dragndrop = false,
+        .srgb = config.win.srgb,
+        .hdr = config.win.hdr,
+        .disable_vsync = config.win.disable_vsync,
+        .enable_clipboard = config.win.enable_clipboard,
+        .enable_dragndrop = config.win.enable_dragndrop,
         .width = config.win.width,
         .height = config.win.height,
         .icon = .{ .sokol_default = true },

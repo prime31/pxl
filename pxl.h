@@ -176,6 +176,15 @@ typedef enum {
 } PxlMouseButton;
 
 typedef enum {
+    PXL_RESOLUTION_DEFAULT                = 0,
+    PXL_RESOLUTION_NO_BORDER              = 1,
+    PXL_RESOLUTION_NO_BORDER_PIXEL_PERFECT = 2,
+    PXL_RESOLUTION_SHOW_ALL               = 3,
+    PXL_RESOLUTION_SHOW_ALL_PIXEL_PERFECT = 4,
+    PXL_RESOLUTION_BEST_FIT               = 5,
+} PxlResolutionPolicy;
+
+typedef enum {
     PXL_GAMEPAD_A            = 0,
     PXL_GAMEPAD_B            = 1,
     PXL_GAMEPAD_X            = 2,
@@ -212,6 +221,19 @@ typedef struct {
     bool          fullscreen;
     bool          debug_render_enabled;
     PxlColor      clear_color;
+    bool          disable_vsync;
+    bool          enable_clipboard;
+    bool          enable_dragndrop;
+    bool          srgb;
+    bool          hdr;
+    int32_t       design_width;
+    int32_t       design_height;
+    int32_t       resolution_policy;
+    bool          bloom_enabled;
+    int32_t       bloom_downsample;
+    float         bloom_threshold;
+    float         bloom_intensity;
+    float         bloom_blur_radius;
 } PxlConfig;
 
 typedef struct {
@@ -293,6 +315,26 @@ void pxl_input_add_binding(const char* action, int32_t keycode);
 
 bool pxl_input_is_gamepad_connected(size_t index);
 bool pxl_input_is_gamepad_button_down(size_t index, int32_t button);
+
+// ── Window ───────────────────────────────────────────────────────────────────
+
+int32_t pxl_window_width(void);
+int32_t pxl_window_height(void);
+float   pxl_window_widthf(void);
+float   pxl_window_heightf(void);
+float   pxl_window_dpi_scale(void);
+bool    pxl_window_is_fullscreen(void);
+void    pxl_window_toggle_fullscreen(void);
+void    pxl_window_show_mouse(bool show);
+bool    pxl_window_mouse_shown(void);
+void    pxl_window_lock_mouse(bool lock);
+bool    pxl_window_mouse_locked(void);
+void    pxl_window_request_quit(void);
+void    pxl_window_cancel_quit(void);
+void    pxl_window_quit(void);
+void    pxl_window_set_title(const char* title);
+void    pxl_window_set_clipboard(const char* str);
+const char* pxl_window_get_clipboard(void);
 
 // ── Audio ────────────────────────────────────────────────────────────────────
 // Sound and playback handles are opaque u64 values. 0 = invalid/null.

@@ -19,3 +19,11 @@ path = "src/bin/ferrismark.rs"
 [dependencies]
 pxl = { path = "../pxl" }
 glam = "0.28"
+rand = "0.8"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

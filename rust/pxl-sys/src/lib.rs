@@ -57,6 +57,19 @@ pub struct PxlConfig {
     pub fullscreen: bool,
     pub debug_render_enabled: bool,
     pub clear_color: PxlColor,
+    pub disable_vsync: bool,
+    pub enable_clipboard: bool,
+    pub enable_dragndrop: bool,
+    pub srgb: bool,
+    pub hdr: bool,
+    pub design_width: i32,
+    pub design_height: i32,
+    pub resolution_policy: i32,
+    pub bloom_enabled: bool,
+    pub bloom_downsample: i32,
+    pub bloom_threshold: f32,
+    pub bloom_intensity: f32,
+    pub bloom_blur_radius: f32,
 }
 
 #[repr(C)]
@@ -176,6 +189,25 @@ extern "C" {
     pub fn pxl_input_is_action_pressed(action: *const c_char) -> bool;
     pub fn pxl_input_is_action_just_pressed(action: *const c_char) -> bool;
     pub fn pxl_input_add_binding(action: *const c_char, keycode: i32);
+
+    // Window
+    pub fn pxl_window_width() -> i32;
+    pub fn pxl_window_height() -> i32;
+    pub fn pxl_window_widthf() -> f32;
+    pub fn pxl_window_heightf() -> f32;
+    pub fn pxl_window_dpi_scale() -> f32;
+    pub fn pxl_window_is_fullscreen() -> bool;
+    pub fn pxl_window_toggle_fullscreen();
+    pub fn pxl_window_show_mouse(show: bool);
+    pub fn pxl_window_mouse_shown() -> bool;
+    pub fn pxl_window_lock_mouse(lock: bool);
+    pub fn pxl_window_mouse_locked() -> bool;
+    pub fn pxl_window_request_quit();
+    pub fn pxl_window_cancel_quit();
+    pub fn pxl_window_quit();
+    pub fn pxl_window_set_title(title: *const c_char);
+    pub fn pxl_window_set_clipboard(str: *const c_char);
+    pub fn pxl_window_get_clipboard() -> *const c_char;
 
     // Audio
     pub fn pxl_audio_load(path: *const c_char, streamed: bool) -> u64;

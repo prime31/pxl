@@ -7,18 +7,37 @@
 //! - Opaque handles (`Texture`, `Font`, `Tilemap`, `AnimPlayer`) wrap raw
 //!   pointers with (optional) RAII guards.
 //!
-//! # Example
-//! ```no_run
-//! pxl::run(pxl::Config::default(), pxl::Callbacks {
-//!     setup: Some(|| { /* load assets */ }),
-//!     update: Some(|| { /* game logic */ }),
-//!     render: Some(|| {
-//!         pxl::pass::begin(pxl::Pass::default());
-//!         pxl::draw::rect(glam::Vec2::ZERO, glam::Vec2::new(100., 100.), pxl::Color::RED);
-//!         pxl::pass::end();
-//!     }),
-//!     ..Default::default()
-//! });
+//! # Quick start with `simple_game!`
+//!
+//! ```ignore
+//! use pxl::*;
+//! simple_game!(setup, update, render);
+//!
+//! fn setup() { }
+//! fn update() { }
+//! fn render() {
+//!     pass::begin(Pass::default());
+//!     draw::rect(glam::Vec2::ZERO, glam::Vec2::new(100., 100.), Color::RED);
+//!     pass::end();
+//! }
+//! ```
+//!
+//! # With state
+//!
+//! ```ignore
+//! use pxl::*;
+//!
+//! struct MyGame { x: f32 }
+//!
+//! pxl_game!(MyGame, setup, update, render);
+//!
+//! fn setup(s: &mut MyGame) { s.x = 100.0; }
+//! fn update(s: &mut MyGame) { s.x += time::dt() * 50.0; }
+//! fn render(s: &MyGame) {
+//!     pass::begin(Pass::default());
+//!     draw::text(&format!("x: {:.1}", s.x), glam::Vec2::new(10., 10.), Color::WHITE);
+//!     pass::end();
+//! }
 //! ```
 
 pub mod assets;
@@ -27,12 +46,15 @@ pub mod draw;
 pub mod input;
 pub mod pass;
 pub mod time;
+pub mod window;
 
 mod color;
 mod math;
 
 pub use color::Color;
-pub use math::{Anchor, AnimCell, BlendMode, Keycode, LoopMode, MouseButton, SfxPreset};
+pub use math::{
+    Anchor, AnimCell, BlendMode, Keycode, LoopMode, MouseButton, ResolutionPolicy, SfxPreset,
+};
 
 // ── Config & entrypoint ──────────────────────────────────────────────────────
 
@@ -50,6 +72,21 @@ pub struct Config {
     pub fullscreen: bool,
     pub debug_render_enabled: bool,
     pub clear_color: Color,
+    pub disable_vsync: bool,
+    pub enable_clipboard: bool,
+    pub enable_dragndrop: bool,
+    pub srgb: bool,
+    pub hdr: bool,
+    /// Fixed design resolution. 0 = use window size.
+    pub design_width: i32,
+    pub design_height: i32,
+    /// How the render texture scales to the window.
+    pub resolution_policy: ResolutionPolicy,
+    pub bloom_enabled: bool,
+    pub bloom_downsample: i32,
+    pub bloom_threshold: f32,
+    pub bloom_intensity: f32,
+    pub bloom_blur_radius: f32,
 }
 
 impl Default for Config {
@@ -64,6 +101,19 @@ impl Default for Config {
             fullscreen: false,
             debug_render_enabled: true,
             clear_color: Color::AYA,
+            disable_vsync: false,
+            enable_clipboard: false,
+            enable_dragndrop: false,
+            srgb: false,
+            hdr: false,
+            design_width: 0,
+            design_height: 0,
+            resolution_policy: ResolutionPolicy::Default,
+            bloom_enabled: false,
+            bloom_downsample: 2,
+            bloom_threshold: 0.7,
+            bloom_intensity: 1.2,
+            bloom_blur_radius: 1.0,
         }
     }
 }
@@ -84,10 +134,18 @@ static mut CB_UPDATE: Option<fn()> = None;
 static mut CB_RENDER: Option<fn()> = None;
 static mut CB_SHUTDOWN: Option<fn()> = None;
 
-extern "C" fn bridge_setup() { call_user(unsafe { CB_SETUP }); }
-extern "C" fn bridge_update() { call_user(unsafe { CB_UPDATE }); }
-extern "C" fn bridge_render() { call_user(unsafe { CB_RENDER }); }
-extern "C" fn bridge_shutdown() { call_user(unsafe { CB_SHUTDOWN }); }
+extern "C" fn bridge_setup() {
+    call_user(unsafe { CB_SETUP });
+}
+extern "C" fn bridge_update() {
+    call_user(unsafe { CB_UPDATE });
+}
+extern "C" fn bridge_render() {
+    call_user(unsafe { CB_RENDER });
+}
+extern "C" fn bridge_shutdown() {
+    call_user(unsafe { CB_SHUTDOWN });
+}
 
 /// Call a user fn, catching panics so they don't unwind across the C ABI
 /// boundary (which causes `panic_cannot_unwind` → abort).
@@ -117,14 +175,237 @@ pub fn run(config: Config, callbacks: Callbacks) {
         fullscreen: config.fullscreen,
         debug_render_enabled: config.debug_render_enabled,
         clear_color: config.clear_color.0,
+        disable_vsync: config.disable_vsync,
+        enable_clipboard: config.enable_clipboard,
+        enable_dragndrop: config.enable_dragndrop,
+        srgb: config.srgb,
+        hdr: config.hdr,
+        design_width: config.design_width,
+        design_height: config.design_height,
+        resolution_policy: config.resolution_policy as i32,
+        bloom_enabled: config.bloom_enabled,
+        bloom_downsample: config.bloom_downsample,
+        bloom_threshold: config.bloom_threshold,
+        bloom_intensity: config.bloom_intensity,
+        bloom_blur_radius: config.bloom_blur_radius,
     };
     let c_cbs = pxl_sys::PxlCallbacks {
-        setup: if callbacks.setup.is_some() { Some(bridge_setup) } else { None },
-        update: if callbacks.update.is_some() { Some(bridge_update) } else { None },
-        render: if callbacks.render.is_some() { Some(bridge_render) } else { None },
-        shutdown: if callbacks.shutdown.is_some() { Some(bridge_shutdown) } else { None },
+        setup: if callbacks.setup.is_some() {
+            Some(bridge_setup)
+        } else {
+            None
+        },
+        update: if callbacks.update.is_some() {
+            Some(bridge_update)
+        } else {
+            None
+        },
+        render: if callbacks.render.is_some() {
+            Some(bridge_render)
+        } else {
+            None
+        },
+        shutdown: if callbacks.shutdown.is_some() {
+            Some(bridge_shutdown)
+        } else {
+            None
+        },
     };
     unsafe { pxl_sys::pxl_run(c_cfg, c_cbs) };
+}
+
+// ── pxl_game! / simple_game! macros ──────────────────────────────────────────
+
+/// Access the game state struct immutably from anywhere. Only available when
+/// your game was defined with `pxl_game!`.
+pub fn state<T>() -> &'static T {
+    unsafe { &*(STATE_PTR as *const T) }
+}
+
+/// Access the game state struct mutably from anywhere. Only available when
+/// your game was defined with `pxl_game!`.
+pub fn state_mut<T>() -> &'static mut T {
+    unsafe { &mut *(STATE_PTR as *mut T) }
+}
+
+/// Opaque pointer to the game state. Set by `pxl_game!`-generated code.
+#[doc(hidden)]
+pub static mut STATE_PTR: *mut () = std::ptr::null_mut();
+
+/// Call at the top of `main()` so relative asset paths resolve regardless
+/// of where `cargo run` is invoked from.
+#[doc(hidden)]
+pub fn set_project_root() {
+    std::env::set_current_dir(env!("PXL_PROJECT_ROOT")).ok();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// pxl_game! — games with a state struct.
+// pxl_game!(MyState, my_config_fn, setup, update, render, shutdown);
+// pxl_game!(MyState, setup, update, render, shutdown);
+// pxl_game!(MyState, setup, update, render);
+//
+// User callbacks receive &mut MyState (setup/update/shutdown) or &MyState (render).
+//
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[macro_export]
+macro_rules! pxl_game {
+    // 5 args: state + setup/update/render/shutdown (default config)
+    ($state:ident, $setup:ident, $update:ident, $render:ident, $shutdown:ident) => {
+        static mut __PX_GAME_STATE: std::mem::MaybeUninit<$state> = std::mem::MaybeUninit::uninit();
+        fn __px_setup() {
+            $setup(unsafe { $crate::state_mut::<$state>() });
+        }
+        fn __px_update() {
+            $update(unsafe { $crate::state_mut::<$state>() });
+        }
+        fn __px_render() {
+            $render(unsafe { $crate::state::<$state>() });
+        }
+        fn __px_shutdown() {
+            $shutdown(unsafe { $crate::state_mut::<$state>() });
+        }
+        fn main() {
+            $crate::set_project_root();
+            unsafe {
+                $crate::STATE_PTR = __PX_GAME_STATE.as_mut_ptr() as *mut ();
+            }
+            let game = unsafe { __PX_GAME_STATE.write(<$state>::default()) };
+            $crate::run(
+                $crate::Config::default(),
+                $crate::Callbacks {
+                    setup: Some(__px_setup),
+                    update: Some(__px_update),
+                    render: Some(__px_render),
+                    shutdown: Some(__px_shutdown),
+                },
+            );
+            let _ = game;
+        }
+    };
+
+    // 6 args: state + config_fn + setup/update/render/shutdown
+    ($state:ident, $config_fn:ident, $setup:ident, $update:ident, $render:ident, $shutdown:ident) => {
+        static mut __PX_GAME_STATE: std::mem::MaybeUninit<$state> = std::mem::MaybeUninit::uninit();
+        fn __px_setup() {
+            $setup(unsafe { $crate::state_mut::<$state>() });
+        }
+        fn __px_update() {
+            $update(unsafe { $crate::state_mut::<$state>() });
+        }
+        fn __px_render() {
+            $render(unsafe { $crate::state::<$state>() });
+        }
+        fn __px_shutdown() {
+            $shutdown(unsafe { $crate::state_mut::<$state>() });
+        }
+        fn main() {
+            $crate::set_project_root();
+            unsafe {
+                $crate::STATE_PTR = __PX_GAME_STATE.as_mut_ptr() as *mut ();
+            }
+            let game = unsafe { __PX_GAME_STATE.write(<$state>::default()) };
+            $crate::run(
+                $config_fn(),
+                $crate::Callbacks {
+                    setup: Some(__px_setup),
+                    update: Some(__px_update),
+                    render: Some(__px_render),
+                    shutdown: Some(__px_shutdown),
+                },
+            );
+            let _ = game;
+        }
+    }; // 5 args: state + config_fn + setup/update/render (no shutdown)
+       //   NOTE: this arm is unreachable — 5 idents collides with the no-config
+       //   5-ident arm above. config_fn is only supported with all 4 callbacks (6 args).
+       //   ($state:ident, $config_fn:ident, $setup:ident, $update:ident, $render:ident) => { ... }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+// simple_game! — stateless games (plain fn() callbacks; use globals if needed).
+//
+//   simple_game!(my_config_fn, setup, update, render, shutdown);  // 5 idents
+//   simple_game!(setup, update, render, shutdown);                  // 4 idents
+//   simple_game!(setup, update, render);                            // 3 idents
+//   simple_game!(update, render);                                   // 2 idents
+//   simple_game!(update);                                           // 1 ident
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[macro_export]
+macro_rules! simple_game {
+    // 5 idents: config_fn + setup/update/render/shutdown
+    ($config_fn:ident, $setup:ident, $update:ident, $render:ident, $shutdown:ident) => {
+        fn main() {
+            $crate::set_project_root();
+            $crate::run(
+                $config_fn(),
+                $crate::Callbacks {
+                    setup: Some($setup),
+                    update: Some($update),
+                    render: Some($render),
+                    shutdown: Some($shutdown),
+                },
+            );
+        }
+    };
+    // 4 idents: setup/update/render/shutdown (default config)
+    ($setup:ident, $update:ident, $render:ident, $shutdown:ident) => {
+        fn main() {
+            $crate::set_project_root();
+            $crate::run(
+                $crate::Config::default(),
+                $crate::Callbacks {
+                    setup: Some($setup),
+                    update: Some($update),
+                    render: Some($render),
+                    shutdown: Some($shutdown),
+                },
+            );
+        }
+    };
+    // 3 idents: setup/update/render (default config, no shutdown)
+    ($setup:ident, $update:ident, $render:ident) => {
+        fn main() {
+            $crate::set_project_root();
+            $crate::run(
+                $crate::Config::default(),
+                $crate::Callbacks {
+                    setup: Some($setup),
+                    update: Some($update),
+                    render: Some($render),
+                    ..Default::default()
+                },
+            );
+        }
+    };
+    // 2 idents: update/render (default config, no setup/shutdown)
+    ($update:ident, $render:ident) => {
+        fn main() {
+            $crate::set_project_root();
+            $crate::run(
+                $crate::Config::default(),
+                $crate::Callbacks {
+                    update: Some($update),
+                    render: Some($render),
+                    ..Default::default()
+                },
+            );
+        }
+    };
+    // 1 ident: update only (default config, no setup/render/shutdown)
+    ($update:ident) => {
+        fn main() {
+            $crate::set_project_root();
+            $crate::run(
+                $crate::Config::default(),
+                $crate::Callbacks {
+                    update: Some($update),
+                    ..Default::default()
+                },
+            );
+        }
+    };
 }
 
 // ── Handles ──────────────────────────────────────────────────────────────────

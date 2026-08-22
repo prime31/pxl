@@ -204,3 +204,14 @@ pub enum MouseButton {
     Middle = 2,
 }
 
+#[repr(i32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResolutionPolicy {
+    Default = 0,
+    NoBorder = 1,
+    NoBorderPixelPerfect = 2,
+    ShowAll = 3,
+    ShowAllPixelPerfect = 4,
+    BestFit = 5,
+}
+

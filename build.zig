@@ -343,9 +343,9 @@ fn collectAssetEntries(b: *Build, exports: []AsepriteExport) !std.ArrayList(Asse
         var entry = AssetEntry{
             .id_name = try assetIdName(b, rel),
             .kind = kind,
-            .path = b.pathFromRoot(b.fmt("assets/{s}", .{rel})),
+            .path = b.fmt("assets/{s}", .{rel}),
         };
-        if (kind == .font) entry.atlas_path = b.pathFromRoot(b.fmt("assets/{s}.png", .{stem}));
+        if (kind == .font) entry.atlas_path = b.fmt("assets/{s}.png", .{stem});
         try entries.append(b.allocator, entry);
     }
 

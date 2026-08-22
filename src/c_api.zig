@@ -38,6 +38,19 @@ pub const PxlConfig = extern struct {
     fullscreen: bool = false,
     debug_render_enabled: bool = true,
     clear_color: Color = Color.aya,
+    disable_vsync: bool = false,
+    enable_clipboard: bool = false,
+    enable_dragndrop: bool = false,
+    srgb: bool = false,
+    hdr: bool = false,
+    design_width: i32 = 0,
+    design_height: i32 = 0,
+    resolution_policy: i32 = 0,
+    bloom_enabled: bool = false,
+    bloom_downsample: i32 = 2,
+    bloom_threshold: f32 = 0.7,
+    bloom_intensity: f32 = 1.2,
+    bloom_blur_radius: f32 = 1.0,
 };
 
 pub const PxlCallbacks = extern struct {
@@ -136,8 +149,23 @@ export fn pxl_run(config: PxlConfig, callbacks: PxlCallbacks) void {
             .width = config.width,
             .height = config.height,
             .window_title = config.window_title,
+            .disable_vsync = config.disable_vsync,
+            .enable_clipboard = config.enable_clipboard,
+            .enable_dragndrop = config.enable_dragndrop,
+            .srgb = config.srgb,
+            .hdr = config.hdr,
         },
-        .gfx = .{ .clear_color = config.clear_color },
+        .gfx = .{
+            .clear_color = config.clear_color,
+            .design_width = config.design_width,
+            .design_height = config.design_height,
+            .resolution_policy = @enumFromInt(config.resolution_policy),
+            .bloom_enabled = config.bloom_enabled,
+            .bloom_downsample = config.bloom_downsample,
+            .bloom_threshold = config.bloom_threshold,
+            .bloom_intensity = config.bloom_intensity,
+            .bloom_blur_radius = config.bloom_blur_radius,
+        },
         .debug_render_enabled = config.debug_render_enabled,
     };
 
@@ -318,6 +346,32 @@ export fn pxl_input_is_action_just_pressed(action: [*c]const u8) bool {
 
 export fn pxl_input_add_binding(action: [*c]const u8, keycode: i32) void {
     pxl.input.addBinding(std.mem.sliceTo(action, 0), pxl.input.InputBinding.key(@enumFromInt(keycode)));
+}
+
+// ── Window ───────────────────────────────────────────────────────────────────
+
+export fn pxl_window_width() i32 { return pxl.window.width(); }
+export fn pxl_window_height() i32 { return pxl.window.height(); }
+export fn pxl_window_widthf() f32 { return pxl.window.widthf(); }
+export fn pxl_window_heightf() f32 { return pxl.window.heightf(); }
+export fn pxl_window_dpi_scale() f32 { return pxl.window.dpiScale(); }
+export fn pxl_window_is_fullscreen() bool { return pxl.window.isFullscreen(); }
+export fn pxl_window_toggle_fullscreen() void { pxl.window.toggleFullscreen(); }
+export fn pxl_window_show_mouse(show: bool) void { pxl.window.showMouse(show); }
+export fn pxl_window_mouse_shown() bool { return pxl.window.mouseShown(); }
+export fn pxl_window_lock_mouse(lock: bool) void { pxl.window.lockMouse(lock); }
+export fn pxl_window_mouse_locked() bool { return pxl.window.mouseLocked(); }
+export fn pxl_window_request_quit() void { pxl.window.requestQuit(); }
+export fn pxl_window_cancel_quit() void { pxl.window.cancelQuit(); }
+export fn pxl_window_quit() void { pxl.window.quit(); }
+export fn pxl_window_set_title(title: [*c]const u8) void {
+    pxl.window.setWindowTitle(std.mem.sliceTo(title, 0));
+}
+export fn pxl_window_set_clipboard(str: [*c]const u8) void {
+    pxl.window.setClipboardString(std.mem.sliceTo(str, 0));
+}
+export fn pxl_window_get_clipboard() [*c]const u8 {
+    return pxl.window.getClipboardString().ptr;
 }
 
 // ── Audio ────────────────────────────────────────────────────────────────────
