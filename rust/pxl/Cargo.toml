@@ -1,0 +1,9 @@
+[package]
+name = "pxl"
+version = "0.1.0"
+edition = "2021"
+description = "Safe Rust bindings for the pxl game framework"
+
+[dependencies]
+pxl-sys = { path = "../pxl-sys" }
+glam = "0.28"

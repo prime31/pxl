@@ -1,0 +1,21 @@
+[package]
+name = "pxl-examples"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "hello"
+path = "src/bin/hello.rs"
+
+[[bin]]
+name = "shapes"
+path = "src/bin/shapes.rs"
+
+[[bin]]
+name = "ferrismark"
+path = "src/bin/ferrismark.rs"
+
+[dependencies]
+pxl = { path = "../pxl" }
+glam = "0.28"

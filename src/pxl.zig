@@ -39,7 +39,7 @@ pub const animation = gpu.animation;
 
 pub var io: std.Io = undefined;
 
-const Callbacks = struct {
+pub const Callbacks = struct {
     setup: ?*const fn () anyerror!void = null,
     update: ?*const fn () anyerror!void = null,
     render: ?*const fn () anyerror!void = null,

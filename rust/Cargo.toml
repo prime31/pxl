@@ -1,0 +1,3 @@
+[workspace]
+members = ["pxl-sys", "pxl", "examples"]
+resolver = "2"

@@ -1,0 +1,9 @@
+[package]
+name = "pxl-sys"
+version = "0.1.0"
+edition = "2021"
+description = "Raw FFI bindings for the pxl game framework"
+links = "pxl"
+build = "build.rs"
+
+[build-dependencies]

@@ -9,8 +9,8 @@ const kb = @import("keyboard.zig");
 const mouse = @import("mouse.zig");
 
 const InputMapper = @import("input_mapper.zig").InputMapper;
-const InputBinding = @import("input_mapper.zig").InputBinding;
-const AxisDiagonal = @import("input_mapper.zig").AxisDiagonal;
+pub const InputBinding = @import("input_mapper.zig").InputBinding;
+pub const AxisDiagonal = @import("input_mapper.zig").AxisDiagonal;
 
 pub const GamepadButton = gamepad.GamepadButton;
 pub const GamepadAxis = gamepad.GamepadAxis;

@@ -113,3 +113,9 @@ axis, the `_loop` suffix supplies the repeat axis:
 | ping-pong | —      | `.ping_pong_once` |
 
 Slices (hitboxes/pivots) are available on `meta.slices`.
+
+
+
+## Rust Support
+
+`cargo run --bin hello`
