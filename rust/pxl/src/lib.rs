@@ -53,7 +53,8 @@ mod math;
 
 pub use color::Color;
 pub use math::{
-    Anchor, AnimCell, BlendMode, Keycode, LoopMode, MouseButton, ResolutionPolicy, SfxPreset,
+    Anchor, AnimCell, AxisDiagonal, BlendMode, Keycode, LoopMode, MouseButton, ResolutionPolicy,
+    SfxPreset,
 };
 
 // ── Config & entrypoint ──────────────────────────────────────────────────────
@@ -251,6 +252,39 @@ pub fn set_project_root() {
 
 #[macro_export]
 macro_rules! pxl_game {
+    // 4 args: state + setup/update/render (default config)
+    ($state:ident, $setup:ident, $update:ident, $render:ident) => {
+        static mut __PX_GAME_STATE: std::mem::MaybeUninit<$state> = std::mem::MaybeUninit::uninit();
+        fn __px_setup() {
+            $setup(unsafe { $crate::state_mut::<$state>() });
+        }
+        fn __px_update() {
+            $update(unsafe { $crate::state_mut::<$state>() });
+        }
+        fn __px_render() {
+            $render(unsafe { $crate::state::<$state>() });
+        }
+
+        fn main() {
+            $crate::set_project_root();
+            unsafe {
+                $crate::STATE_PTR = __PX_GAME_STATE.as_mut_ptr() as *mut ();
+            }
+
+            let game = unsafe { __PX_GAME_STATE.write(<$state>::default()) };
+            $crate::run(
+                $crate::Config::default(),
+                $crate::Callbacks {
+                    setup: Some(__px_setup),
+                    update: Some(__px_update),
+                    render: Some(__px_render),
+                    shutdown: None,
+                },
+            );
+            let _ = game;
+        }
+    };
+
     // 5 args: state + setup/update/render/shutdown (default config)
     ($state:ident, $setup:ident, $update:ident, $render:ident, $shutdown:ident) => {
         static mut __PX_GAME_STATE: std::mem::MaybeUninit<$state> = std::mem::MaybeUninit::uninit();
@@ -318,10 +352,12 @@ macro_rules! pxl_game {
             let _ = game;
         }
     }; // 5 args: state + config_fn + setup/update/render (no shutdown)
+
        //   NOTE: this arm is unreachable — 5 idents collides with the no-config
        //   5-ident arm above. config_fn is only supported with all 4 callbacks (6 args).
        //   ($state:ident, $config_fn:ident, $setup:ident, $update:ident, $render:ident) => { ... }
 }
+
 // ─────────────────────────────────────────────────────────────────────────────
 // simple_game! — stateless games (plain fn() callbacks; use globals if needed).
 //
@@ -349,6 +385,7 @@ macro_rules! simple_game {
             );
         }
     };
+
     // 4 idents: setup/update/render/shutdown (default config)
     ($setup:ident, $update:ident, $render:ident, $shutdown:ident) => {
         fn main() {
@@ -364,6 +401,7 @@ macro_rules! simple_game {
             );
         }
     };
+
     // 3 idents: setup/update/render (default config, no shutdown)
     ($setup:ident, $update:ident, $render:ident) => {
         fn main() {
@@ -379,6 +417,7 @@ macro_rules! simple_game {
             );
         }
     };
+
     // 2 idents: update/render (default config, no setup/shutdown)
     ($update:ident, $render:ident) => {
         fn main() {
@@ -393,6 +432,7 @@ macro_rules! simple_game {
             );
         }
     };
+
     // 1 ident: update only (default config, no setup/render/shutdown)
     ($update:ident) => {
         fn main() {

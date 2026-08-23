@@ -215,3 +215,13 @@ pub enum ResolutionPolicy {
     BestFit = 5,
 }
 
+/// How to normalize diagonals in `input::get_vector`.
+#[repr(i32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AxisDiagonal {
+    Raw = 0,
+    Normalized = 1,
+    Square = 2,
+    Digital = 3,
+}
+

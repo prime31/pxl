@@ -4,6 +4,7 @@
 - should Batcher Mesh just have a ?Pipeline and pushMesh takes in the uniforms to keep it as one api?
 - zig-frm parallax_tilemap.zig has decent player starter
 - when making an LDtk map that starts in negative x (just drag left map border to make map expand into it) collision and/or rendering get fucked up
+- input methods that take strings should dupe them and free them later
 
 
 ### Build all with summary
@@ -118,4 +119,7 @@ Slices (hitboxes/pivots) are available on `meta.slices`.
 
 ## Rust Support
 
+In rust/examples folder:
+`ruster`
+or manually
 `cargo run --bin hello`

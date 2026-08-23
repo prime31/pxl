@@ -185,6 +185,13 @@ typedef enum {
 } PxlResolutionPolicy;
 
 typedef enum {
+    PXL_AXIS_DIAGONAL_RAW        = 0,
+    PXL_AXIS_DIAGONAL_NORMALIZED = 1,
+    PXL_AXIS_DIAGONAL_SQUARE     = 2,
+    PXL_AXIS_DIAGONAL_DIGITAL    = 3,
+} PxlAxisDiagonal;
+
+typedef enum {
     PXL_GAMEPAD_A            = 0,
     PXL_GAMEPAD_B            = 1,
     PXL_GAMEPAD_X            = 2,
@@ -290,7 +297,6 @@ void pxl_draw_text(const char* text, float x, float y, PxlColor color);
 
 void pxl_draw_set_blend_mode(PxlBlendMode mode);
 void pxl_draw_reset_blend_mode(void);
-void pxl_draw_set_camera(float offset_x, float offset_y, float zoom, float rotation);
 
 // ── Time ─────────────────────────────────────────────────────────────────────
 
@@ -312,6 +318,8 @@ void pxl_input_mouse_pos(float* x, float* y);
 bool pxl_input_is_action_pressed(const char* action);
 bool pxl_input_is_action_just_pressed(const char* action);
 void pxl_input_add_binding(const char* action, int32_t keycode);
+
+PxlVec2 pxl_input_get_vector(const char* neg_x, const char* pos_x, const char* neg_y, const char* pos_y, int32_t diagonal);
 
 bool pxl_input_is_gamepad_connected(size_t index);
 bool pxl_input_is_gamepad_button_down(size_t index, int32_t button);

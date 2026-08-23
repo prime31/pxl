@@ -169,7 +169,6 @@ extern "C" {
 
     pub fn pxl_draw_set_blend_mode(mode: PxlBlendMode);
     pub fn pxl_draw_reset_blend_mode();
-    pub fn pxl_draw_set_camera(offset_x: f32, offset_y: f32, zoom: f32, rotation: f32);
 
     // Time
     pub fn pxl_time_dt() -> f32;
@@ -189,6 +188,13 @@ extern "C" {
     pub fn pxl_input_is_action_pressed(action: *const c_char) -> bool;
     pub fn pxl_input_is_action_just_pressed(action: *const c_char) -> bool;
     pub fn pxl_input_add_binding(action: *const c_char, keycode: i32);
+    pub fn pxl_input_get_vector(
+        neg_x: *const c_char,
+        pos_x: *const c_char,
+        neg_y: *const c_char,
+        pos_y: *const c_char,
+        diagonal: i32,
+    ) -> PxlVec2;
 
     // Window
     pub fn pxl_window_width() -> i32;
@@ -213,13 +219,8 @@ extern "C" {
     pub fn pxl_audio_load(path: *const c_char, streamed: bool) -> u64;
     pub fn pxl_audio_unload(sound_handle: u64);
 
-    pub fn pxl_audio_play(
-        sound_handle: u64,
-        volume: f32,
-        pan: f32,
-        pitch: f32,
-        loop_: bool,
-    ) -> u64;
+    pub fn pxl_audio_play(sound_handle: u64, volume: f32, pan: f32, pitch: f32, loop_: bool)
+        -> u64;
     pub fn pxl_audio_play_one_shot(sound_handle: u64, volume: f32, pan: f32, pitch: f32);
     pub fn pxl_audio_sfx(preset: i32, volume: f32, pan: f32, pitch: f32) -> u64;
     pub fn pxl_audio_stop(playback_handle: u64);

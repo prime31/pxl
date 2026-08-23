@@ -129,10 +129,18 @@ threadlocal var c_update: ?*const fn () callconv(.c) void = null;
 threadlocal var c_render: ?*const fn () callconv(.c) void = null;
 threadlocal var c_shutdown: ?*const fn () callconv(.c) void = null;
 
-fn wrapSetup() anyerror!void { if (c_setup) |cb| cb(); }
-fn wrapUpdate() anyerror!void { if (c_update) |cb| cb(); }
-fn wrapRender() anyerror!void { if (c_render) |cb| cb(); }
-fn wrapShutdown() anyerror!void { if (c_shutdown) |cb| cb(); }
+fn wrapSetup() anyerror!void {
+    if (c_setup) |cb| cb();
+}
+fn wrapUpdate() anyerror!void {
+    if (c_update) |cb| cb();
+}
+fn wrapRender() anyerror!void {
+    if (c_render) |cb| cb();
+}
+fn wrapShutdown() anyerror!void {
+    if (c_shutdown) |cb| cb();
+}
 
 export fn pxl_run(config: PxlConfig, callbacks: PxlCallbacks) void {
     c_setup = callbacks.setup;
@@ -281,15 +289,6 @@ export fn pxl_draw_reset_blend_mode() void {
     pxl.api.resetPipeline();
 }
 
-export fn pxl_draw_set_camera(offset_x: f32, offset_y: f32, zoom: f32, rotation: f32) void {
-    // Camera is set per-pass via pxl_pass_begin. This function is a no-op
-    // for backwards compat; use PxlPass.has_camera + cam_* fields instead.
-    _ = offset_x;
-    _ = offset_y;
-    _ = zoom;
-    _ = rotation;
-}
-
 // ── Time ─────────────────────────────────────────────────────────────────────
 
 export fn pxl_time_dt() f32 {
@@ -348,22 +347,66 @@ export fn pxl_input_add_binding(action: [*c]const u8, keycode: i32) void {
     pxl.input.addBinding(std.mem.sliceTo(action, 0), pxl.input.InputBinding.key(@enumFromInt(keycode)));
 }
 
+export fn pxl_input_get_vector(
+    neg_x: [*c]const u8,
+    pos_x: [*c]const u8,
+    neg_y: [*c]const u8,
+    pos_y: [*c]const u8,
+    diagonal: i32,
+) Vec2 {
+    return pxl.input.getVector(
+        std.mem.sliceTo(neg_x, 0),
+        std.mem.sliceTo(pos_x, 0),
+        std.mem.sliceTo(neg_y, 0),
+        std.mem.sliceTo(pos_y, 0),
+        @enumFromInt(diagonal),
+    );
+}
+
 // ── Window ───────────────────────────────────────────────────────────────────
 
-export fn pxl_window_width() i32 { return pxl.window.width(); }
-export fn pxl_window_height() i32 { return pxl.window.height(); }
-export fn pxl_window_widthf() f32 { return pxl.window.widthf(); }
-export fn pxl_window_heightf() f32 { return pxl.window.heightf(); }
-export fn pxl_window_dpi_scale() f32 { return pxl.window.dpiScale(); }
-export fn pxl_window_is_fullscreen() bool { return pxl.window.isFullscreen(); }
-export fn pxl_window_toggle_fullscreen() void { pxl.window.toggleFullscreen(); }
-export fn pxl_window_show_mouse(show: bool) void { pxl.window.showMouse(show); }
-export fn pxl_window_mouse_shown() bool { return pxl.window.mouseShown(); }
-export fn pxl_window_lock_mouse(lock: bool) void { pxl.window.lockMouse(lock); }
-export fn pxl_window_mouse_locked() bool { return pxl.window.mouseLocked(); }
-export fn pxl_window_request_quit() void { pxl.window.requestQuit(); }
-export fn pxl_window_cancel_quit() void { pxl.window.cancelQuit(); }
-export fn pxl_window_quit() void { pxl.window.quit(); }
+export fn pxl_window_width() i32 {
+    return pxl.window.width();
+}
+export fn pxl_window_height() i32 {
+    return pxl.window.height();
+}
+export fn pxl_window_widthf() f32 {
+    return pxl.window.widthf();
+}
+export fn pxl_window_heightf() f32 {
+    return pxl.window.heightf();
+}
+export fn pxl_window_dpi_scale() f32 {
+    return pxl.window.dpiScale();
+}
+export fn pxl_window_is_fullscreen() bool {
+    return pxl.window.isFullscreen();
+}
+export fn pxl_window_toggle_fullscreen() void {
+    pxl.window.toggleFullscreen();
+}
+export fn pxl_window_show_mouse(show: bool) void {
+    pxl.window.showMouse(show);
+}
+export fn pxl_window_mouse_shown() bool {
+    return pxl.window.mouseShown();
+}
+export fn pxl_window_lock_mouse(lock: bool) void {
+    pxl.window.lockMouse(lock);
+}
+export fn pxl_window_mouse_locked() bool {
+    return pxl.window.mouseLocked();
+}
+export fn pxl_window_request_quit() void {
+    pxl.window.requestQuit();
+}
+export fn pxl_window_cancel_quit() void {
+    pxl.window.cancelQuit();
+}
+export fn pxl_window_quit() void {
+    pxl.window.quit();
+}
 export fn pxl_window_set_title(title: [*c]const u8) void {
     pxl.window.setWindowTitle(std.mem.sliceTo(title, 0));
 }
