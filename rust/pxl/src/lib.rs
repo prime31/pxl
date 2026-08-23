@@ -46,6 +46,7 @@ pub mod draw;
 pub mod input;
 pub mod pass;
 pub mod time;
+pub mod prelude;
 pub mod window;
 
 mod color;

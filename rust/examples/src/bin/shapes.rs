@@ -2,7 +2,7 @@
 //! rects, circles, lines, text, and frame-rate-independent physics.
 
 use glam::Vec2;
-use pxl::*;
+use pxl::prelude::*;
 use rand::Rng;
 
 pxl_game!(Game, config, setup, update, render);
@@ -20,8 +20,8 @@ struct Game {
     bouncers: [Bouncer; 5],
 }
 
-fn config() -> pxl::Config {
-    pxl::Config {
+fn config() -> Config {
+    Config {
         bloom_enabled: true,
         bloom_blur_radius: 2.,
         bloom_intensity: 1.2,
@@ -36,7 +36,7 @@ fn setup(state: &mut Game) {
         b.pos = Vec2 {
             x: rand::random(),
             y: rand::random(),
-        } * f32::min(pxl::window::widthf(), pxl::window::heightf());
+        } * f32::min(window::widthf(), window::heightf());
         b.vel = Vec2 {
             x: rand::thread_rng().gen_range(-200.0..200.),
             y: rand::thread_rng().gen_range(-200.0..200.),
@@ -100,4 +100,3 @@ fn render(state: &Game) {
     );
     pass::end();
 }
-
