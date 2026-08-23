@@ -790,11 +790,25 @@ pub fn build(b: *Build) !void {
             mod_c_root.addImport("cimgui", dep_sokol_builder.module("cimgui"));
 
         const lib = b.addLibrary(.{
-            .linkage = .dynamic,
+            .linkage = .static,
             .name = "pxl",
             .root_module = mod_c_root,
         });
+        // Static archives don't pull in Zig's compiler_rt by default, which leaves
+        // runtime symbols undefined when consumers link the .a.
+        lib.bundle_compiler_rt = true;
+
+        // sokol_clib is compiled with UBSan instrumentation in Debug/ReleaseSafe
+        // (sanitize_c defaults to .full), emitting ___ubsan_handle_* calls that
+        // Zig's compiler_rt does not implement. Consumers linking the static libs
+        // (e.g. Rust) can't resolve those, so build sokol without C sanitizers.
+        dep_sokol.artifact("sokol_clib").root_module.sanitize_c = .off;
         const install_lib = b.addInstallArtifact(lib, .{});
+
+        // sokol's C code lives in a separate static lib that pxl links against.
+        // It does not get bundled into libpxl.a, so install it alongside so
+        // consumers (e.g. the Rust FFI) can link both archives.
+        const install_sokol = b.addInstallArtifact(dep_sokol.artifact("sokol_clib"), .{});
 
         // Install headers next to the static lib.
         const install_h = b.addInstallFile(b.path("pxl.h"), "include/pxl.h");
@@ -802,6 +816,7 @@ pub fn build(b: *Build) !void {
 
         const lib_step = b.step("lib", "Build libpxl.a + C headers");
         lib_step.dependOn(&install_lib.step);
+        lib_step.dependOn(&install_sokol.step);
         lib_step.dependOn(&install_h.step);
         lib_step.dependOn(&install_assets_h.step);
     }

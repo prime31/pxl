@@ -1,4 +1,4 @@
-/// Embeds a runpath so example binaries can find libpxl.dylib at runtime.
+/// Exports the project root so example binaries can resolve relative asset paths.
 fn main() {
     // rust/examples/Cargo.toml → rust/examples → rust → project root
     let crate_root = std::env::var("CARGO_MANIFEST_DIR").unwrap();
@@ -7,10 +7,9 @@ fn main() {
         .unwrap()
         .parent() // rust/
         .unwrap();
-    let lib_dir = project_root.join("zig-out").join("lib");
 
-    if lib_dir.exists() {
-        println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
-        println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path/../../../zig-out/lib");
-    }
+    println!(
+        "cargo:rustc-env=PXL_PROJECT_ROOT={}",
+        project_root.display()
+    );
 }

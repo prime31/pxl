@@ -1,5 +1,5 @@
-/// Detects and links libpxl.dylib from a zig build. Searches in order:
-/// 1. PXL_LIB_DIR environment variable (path to directory containing libpxl.dylib)
+/// Locates and statically links libpxl.a from a zig build. Searches in order:
+/// 1. PXL_LIB_DIR environment variable (path to directory containing libpxl.a)
 /// 2. ../zig-out/lib relative to the crate root
 fn main() {
     // Compute the project root from the crate manifest directory.
@@ -21,16 +21,12 @@ fn main() {
                 None
             }
         })
-        .expect(
-            "libpxl.dylib not found. Set PXL_LIB_DIR or run `zig build lib` in the project root.",
-        );
+        .expect("libpxl.a not found. Set PXL_LIB_DIR or run `zig build lib` in the project root.");
 
     println!("cargo:rustc-link-search=native={}", lib_dir);
-    println!("cargo:rustc-link-lib=dylib=pxl");
-
-    // Embed runpaths so the binary can find libpxl.dylib at runtime.
-    println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir);
-    println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path/../../../zig-out/lib");
+    // sokol's C code is a separate archive that libpxl.a links against.
+    println!("cargo:rustc-link-lib=static=pxl");
+    println!("cargo:rustc-link-lib=static=sokol_clib");
 
     // Export the project root so pxl_game! / simple_game! can chdir at launch.
     println!(
@@ -41,6 +37,9 @@ fn main() {
     // macOS system frameworks required by sokol
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
     if target_os == "macos" {
+        // Force-load Objective-C classes/categories from the static archives
+        // (sokol_app is ObjC on macOS); without this the linker drops them.
+        println!("cargo:rustc-link-arg=-Wl,-ObjC");
         println!("cargo:rustc-link-lib=framework=Foundation");
         println!("cargo:rustc-link-lib=framework=Metal");
         println!("cargo:rustc-link-lib=framework=QuartzCore");
