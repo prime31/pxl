@@ -61,6 +61,8 @@ pub use math::{
 
 use std::ffi::CString;
 
+use crate::draw::Rect;
+
 /// Window and engine configuration.
 #[derive(Clone)]
 pub struct Config {
@@ -244,12 +246,6 @@ pub fn set_project_root() {
 // pxl_game! — games with a state struct.
 // pxl_game!(MyState, my_config_fn, setup, update, render, shutdown);
 // pxl_game!(MyState, setup, update, render, shutdown);
-// pxl_game!(MyState, setup, update, render);
-//
-// User callbacks receive &mut MyState (setup/update/shutdown) or &MyState (render).
-//
-// ─────────────────────────────────────────────────────────────────────────────
-
 #[macro_export]
 macro_rules! pxl_game {
     // 4 args: state + setup/update/render (default config)
@@ -264,29 +260,30 @@ macro_rules! pxl_game {
         fn __px_render() {
             $render(unsafe { $crate::state::<$state>() });
         }
+        fn __px_drop() {
+            unsafe { std::ptr::drop_in_place(__PX_GAME_STATE.as_mut_ptr()); }
+        }
 
         fn main() {
             $crate::set_project_root();
             unsafe {
                 $crate::STATE_PTR = __PX_GAME_STATE.as_mut_ptr() as *mut ();
+                __PX_GAME_STATE.write(<$state>::default());
             }
-
-            let game = unsafe { __PX_GAME_STATE.write(<$state>::default()) };
             $crate::run(
                 $crate::Config::default(),
                 $crate::Callbacks {
                     setup: Some(__px_setup),
                     update: Some(__px_update),
                     render: Some(__px_render),
-                    shutdown: None,
+                    shutdown: Some(__px_drop),
                 },
             );
-            let _ = game;
         }
     };
 
-    // 5 args: state + setup/update/render/shutdown (default config)
-    ($state:ident, $setup:ident, $update:ident, $render:ident, $shutdown:ident) => {
+    // 5 args: state + config_fn + setup/update/render
+    ($state:ident, $config_fn:ident, $setup:ident, $update:ident, $render:ident) => {
         static mut __PX_GAME_STATE: std::mem::MaybeUninit<$state> = std::mem::MaybeUninit::uninit();
         fn __px_setup() {
             $setup(unsafe { $crate::state_mut::<$state>() });
@@ -297,81 +294,42 @@ macro_rules! pxl_game {
         fn __px_render() {
             $render(unsafe { $crate::state::<$state>() });
         }
-        fn __px_shutdown() {
-            $shutdown(unsafe { $crate::state_mut::<$state>() });
+        fn __px_drop() {
+            unsafe { std::ptr::drop_in_place(__PX_GAME_STATE.as_mut_ptr()); }
         }
-        fn main() {
-            $crate::set_project_root();
-            unsafe {
-                $crate::STATE_PTR = __PX_GAME_STATE.as_mut_ptr() as *mut ();
-            }
-            let game = unsafe { __PX_GAME_STATE.write(<$state>::default()) };
-            $crate::run(
-                $crate::Config::default(),
-                $crate::Callbacks {
-                    setup: Some(__px_setup),
-                    update: Some(__px_update),
-                    render: Some(__px_render),
-                    shutdown: Some(__px_shutdown),
-                },
-            );
-            let _ = game;
-        }
-    };
 
-    // 6 args: state + config_fn + setup/update/render/shutdown
-    ($state:ident, $config_fn:ident, $setup:ident, $update:ident, $render:ident, $shutdown:ident) => {
-        static mut __PX_GAME_STATE: std::mem::MaybeUninit<$state> = std::mem::MaybeUninit::uninit();
-        fn __px_setup() {
-            $setup(unsafe { $crate::state_mut::<$state>() });
-        }
-        fn __px_update() {
-            $update(unsafe { $crate::state_mut::<$state>() });
-        }
-        fn __px_render() {
-            $render(unsafe { $crate::state::<$state>() });
-        }
-        fn __px_shutdown() {
-            $shutdown(unsafe { $crate::state_mut::<$state>() });
-        }
         fn main() {
             $crate::set_project_root();
             unsafe {
                 $crate::STATE_PTR = __PX_GAME_STATE.as_mut_ptr() as *mut ();
+                __PX_GAME_STATE.write(<$state>::default());
             }
-            let game = unsafe { __PX_GAME_STATE.write(<$state>::default()) };
             $crate::run(
                 $config_fn(),
                 $crate::Callbacks {
                     setup: Some(__px_setup),
                     update: Some(__px_update),
                     render: Some(__px_render),
-                    shutdown: Some(__px_shutdown),
+                    shutdown: Some(__px_drop),
                 },
             );
-            let _ = game;
         }
-    }; // 5 args: state + config_fn + setup/update/render (no shutdown)
-
-       //   NOTE: this arm is unreachable — 5 idents collides with the no-config
-       //   5-ident arm above. config_fn is only supported with all 4 callbacks (6 args).
-       //   ($state:ident, $config_fn:ident, $setup:ident, $update:ident, $render:ident) => { ... }
+    };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // simple_game! — stateless games (plain fn() callbacks; use globals if needed).
 //
-//   simple_game!(my_config_fn, setup, update, render, shutdown);  // 5 idents
-//   simple_game!(setup, update, render, shutdown);                  // 4 idents
-//   simple_game!(setup, update, render);                            // 3 idents
-//   simple_game!(update, render);                                   // 2 idents
-//   simple_game!(update);                                           // 1 ident
+//   simple_game!(my_config_fn, setup, update, render);  // 4 idents
+//   simple_game!(setup, update, render);                  // 3 idents
+//   simple_game!(update, render);                         // 2 idents
+//   simple_game!(update);                                 // 1 ident
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[macro_export]
 macro_rules! simple_game {
-    // 5 idents: config_fn + setup/update/render/shutdown
-    ($config_fn:ident, $setup:ident, $update:ident, $render:ident, $shutdown:ident) => {
+    // 4 idents: config_fn + setup/update/render
+    ($config_fn:ident, $setup:ident, $update:ident, $render:ident) => {
         fn main() {
             $crate::set_project_root();
             $crate::run(
@@ -380,29 +338,13 @@ macro_rules! simple_game {
                     setup: Some($setup),
                     update: Some($update),
                     render: Some($render),
-                    shutdown: Some($shutdown),
+                    ..Default::default()
                 },
             );
         }
     };
 
-    // 4 idents: setup/update/render/shutdown (default config)
-    ($setup:ident, $update:ident, $render:ident, $shutdown:ident) => {
-        fn main() {
-            $crate::set_project_root();
-            $crate::run(
-                $crate::Config::default(),
-                $crate::Callbacks {
-                    setup: Some($setup),
-                    update: Some($update),
-                    render: Some($render),
-                    shutdown: Some($shutdown),
-                },
-            );
-        }
-    };
-
-    // 3 idents: setup/update/render (default config, no shutdown)
+    // 3 idents: setup/update/render (default config)
     ($setup:ident, $update:ident, $render:ident) => {
         fn main() {
             $crate::set_project_root();
@@ -418,7 +360,7 @@ macro_rules! simple_game {
         }
     };
 
-    // 2 idents: update/render (default config, no setup/shutdown)
+    // 2 idents: update/render (default config, no setup)
     ($update:ident, $render:ident) => {
         fn main() {
             $crate::set_project_root();
@@ -433,7 +375,7 @@ macro_rules! simple_game {
         }
     };
 
-    // 1 ident: update only (default config, no setup/render/shutdown)
+    // 1 ident: update only (default config, no setup/render)
     ($update:ident) => {
         fn main() {
             $crate::set_project_root();
@@ -448,6 +390,7 @@ macro_rules! simple_game {
     };
 }
 
+
 // ── Handles ──────────────────────────────────────────────────────────────────
 
 /// Loaded texture. Dropping calls `pxl.assets.destroy(texture)`.
@@ -455,9 +398,28 @@ pub struct Texture {
     pub(crate) raw: *mut pxl_sys::PxlTexture,
 }
 
+impl Texture {
+    pub fn is_null(&self) -> bool {
+        self.raw.is_null()
+    }
+}
+
+impl Default for Texture {
+    fn default() -> Self {
+        Self {
+            raw: std::ptr::null_mut(),
+        }
+    }
+}
+
 impl Drop for Texture {
     fn drop(&mut self) {
-        unsafe { pxl_sys::pxl_assets_destroy_texture(self.raw) };
+        if !self.raw.is_null() {
+            unsafe {
+                pxl_sys::pxl_assets_destroy_texture(self.raw);
+                self.raw = std::ptr::null_mut();
+            };
+        }
     }
 }
 
@@ -466,9 +428,18 @@ pub struct Font {
     pub(crate) raw: *mut pxl_sys::PxlFont,
 }
 
+impl Default for Font {
+    fn default() -> Self {
+        Self { raw: std::ptr::null_mut() }
+    }
+}
+
 impl Drop for Font {
     fn drop(&mut self) {
-        unsafe { pxl_sys::pxl_assets_destroy_font(self.raw) };
+        if !self.raw.is_null() {
+            unsafe { pxl_sys::pxl_assets_destroy_font(self.raw) };
+            self.raw = std::ptr::null_mut();
+        }
     }
 }
 
@@ -479,13 +450,24 @@ pub struct Tilemap {
 
 impl Drop for Tilemap {
     fn drop(&mut self) {
-        unsafe { pxl_sys::pxl_assets_destroy_tilemap(self.raw) };
+        unsafe {
+            pxl_sys::pxl_assets_destroy_tilemap(self.raw);
+            self.raw = std::ptr::null_mut()
+        };
     }
 }
 
 /// Animation player. Dropping calls `anim_player_destroy`.
 pub struct AnimPlayer {
     pub(crate) raw: *mut pxl_sys::PxlAnimPlayer,
+}
+
+impl Default for AnimPlayer {
+    fn default() -> Self {
+        Self {
+            raw: std::ptr::null_mut(),
+        }
+    }
 }
 
 impl AnimPlayer {
@@ -567,7 +549,12 @@ impl AnimPlayer {
 
 impl Drop for AnimPlayer {
     fn drop(&mut self) {
-        unsafe { pxl_sys::pxl_anim_player_destroy(self.raw) };
+        if !self.raw.is_null() {
+            unsafe {
+                pxl_sys::pxl_anim_player_destroy(self.raw);
+                self.raw = std::ptr::null_mut()
+            };
+        }
     }
 }
 
@@ -580,4 +567,15 @@ pub struct Frame {
     pub src_h: f32,
     pub flip_x: bool,
     pub flip_y: bool,
+}
+
+impl Frame {
+    pub fn rect(self) -> Rect {
+        Rect {
+            x: self.src_x,
+            y: self.src_y,
+            w: self.src_w,
+            h: self.src_h,
+        }
+    }
 }

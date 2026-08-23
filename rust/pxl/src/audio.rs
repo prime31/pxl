@@ -29,13 +29,9 @@ impl Drop for Sound {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Playback(pub u64);
 
-impl Drop for Playback {
-    fn drop(&mut self) {
-        if self.0 != 0 {
-            unsafe { pxl_sys::pxl_audio_stop(self.0) };
-        }
-    }
-}
+// NOTE: no Drop impl — dropping a Playback handle does NOT stop playback.
+// One-shot sfxr and play_one_shot sounds play to completion; call .stop()
+// explicitly if you need to interrupt a looping or streamed playback.
 
 impl Playback {
     pub fn is_playing(&self) -> bool {

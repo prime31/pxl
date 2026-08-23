@@ -5,7 +5,7 @@ use glam::Vec2;
 use pxl::*;
 use rand::Rng;
 
-pxl_game!(Game, config, setup, update, render, shutdown);
+pxl_game!(Game, config, setup, update, render);
 
 #[derive(Default)]
 struct Bouncer {
@@ -101,4 +101,3 @@ fn render(state: &Game) {
     pass::end();
 }
 
-fn shutdown(_state: &mut Game) {}

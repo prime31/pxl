@@ -194,6 +194,18 @@ pub fn animation(tag_id: TagId) AnimationId {
     return tag_animations[@intFromEnum(tag_id)];
 }
 
+/// Total number of aseprite files in the manifest.
+pub fn numAseprites() u32 {
+    return manifest.aseprites.len;
+}
+
+/// Get the name of a tag by its global index.
+pub fn tagName(tag_id: TagId) []const u8 {
+    const info = manifest.tags[@intFromEnum(tag_id)];
+    const meta = asepriteMeta(info.aseprite);
+    return meta.tags[info.index].name;
+}
+
 fn loopModeFrom(dir: manifest.AsepriteDirection, loop: bool) pxl.animation.LoopMode {
     return switch (dir) {
         .forward => if (loop) .loop else .once,

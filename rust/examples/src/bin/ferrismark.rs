@@ -5,7 +5,7 @@ use glam::Vec2;
 use pxl::*;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 
-pxl_game!(Game, setup, update, render, shutdown);
+pxl_game!(Game, setup, update, render);
 
 const SPAWN_COUNT: usize = 1000;
 const SPRITE_SIZE: f32 = 32.0;
@@ -40,11 +40,6 @@ fn setup(state: &mut Game) {
         std::process::exit(1);
     }));
     eprintln!("ferrismark: ready — press Space to spawn");
-}
-
-fn shutdown(state: &mut Game) {
-    state.tex = None;
-    state.ferris.clear();
 }
 
 fn spawn_batch(state: &mut Game, w: f32, h: f32, count: usize) {

@@ -275,4 +275,11 @@ extern "C" {
     ) -> bool;
 
     pub fn pxl_anim_player_reset(player: *mut PxlAnimPlayer);
+
+    // Aseprite
+    pub fn pxl_aseprite_load(aseprite_id: u32) -> *mut PxlTexture;
+    pub fn pxl_aseprite_tag_anim(tag_id: u32) -> u32;
+    pub fn pxl_aseprite_tag_count(aseprite_id: u32) -> u32;
+    pub fn pxl_aseprite_tag_name(tag_id: u32) -> *const c_char;
+    pub fn pxl_aseprite_frame_count(aseprite_id: u32) -> u32;
 }

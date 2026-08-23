@@ -399,6 +399,14 @@ bool pxl_anim_player_current_frame(PxlAnimPlayer* player,
 
 void pxl_anim_player_reset(PxlAnimPlayer* player);
 
+// ── Aseprite ─────────────────────────────────────────────────────────────────
+
+PxlTexture* pxl_aseprite_load(uint32_t aseprite_id);
+uint32_t    pxl_aseprite_tag_anim(uint32_t tag_id);
+uint32_t    pxl_aseprite_tag_count(uint32_t aseprite_id);
+const char* pxl_aseprite_tag_name(uint32_t tag_id);
+uint32_t    pxl_aseprite_frame_count(uint32_t aseprite_id);
+
 // ── Color helpers ────────────────────────────────────────────────────────────
 
 static inline PxlColor pxl_color_rgba(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {

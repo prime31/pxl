@@ -590,3 +590,27 @@ export fn pxl_anim_player_current_frame(
 export fn pxl_anim_player_reset(player: *AnimationPlayer) void {
     player.stop();
 }
+
+// ── Aseprite ─────────────────────────────────────────────────────────────────
+
+export fn pxl_aseprite_load(aseprite_id: u32) ?*Texture {
+    return pxl.assets.loadAseprite(@enumFromInt(aseprite_id)) catch null;
+}
+
+export fn pxl_aseprite_tag_anim(tag_id: u32) u32 {
+    return packAnimId(pxl.assets.animation(@enumFromInt(tag_id)));
+}
+
+export fn pxl_aseprite_tag_count(aseprite_id: u32) u32 {
+    const meta = pxl.assets.asepriteMeta(@enumFromInt(aseprite_id));
+    return @intCast(meta.tags.len);
+}
+
+export fn pxl_aseprite_tag_name(tag_id: u32) [*c]const u8 {
+    return pxl.assets.tagName(@enumFromInt(tag_id)).ptr;
+}
+
+export fn pxl_aseprite_frame_count(aseprite_id: u32) u32 {
+    const meta = pxl.assets.asepriteMeta(@enumFromInt(aseprite_id));
+    return @intCast(meta.frames.len);
+}
