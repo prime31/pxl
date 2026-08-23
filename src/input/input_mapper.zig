@@ -71,10 +71,13 @@ pub const InputBinding = struct {
 /// this would make it more like Godots input system. Still needs the get* methods added
 pub const InputMapper = struct {
     actions: std.StringHashMap(pxl.util.Vec(InputBinding)),
+    /// Duped copies of every key string ever inserted, freed in deinit().
+    keys: pxl.util.Vec([]u8),
 
     pub fn init() InputMapper {
         return .{
             .actions = std.StringHashMap(pxl.util.Vec(InputBinding)).init(pxl.mem.allocator),
+            .keys = .empty,
         };
     }
 
@@ -82,12 +85,18 @@ pub const InputMapper = struct {
         var it = self.actions.valueIterator();
         while (it.next()) |*vec| vec.*.deinit();
         self.actions.deinit();
+        for (self.keys.items) |k| pxl.mem.allocator.free(k);
+        self.keys.deinit();
     }
 
     pub fn addBinding(self: *InputMapper, action_name: []const u8, binding: InputBinding) void {
         const res = self.actions.getOrPut(action_name) catch unreachable;
         if (!res.found_existing) {
             res.value_ptr.* = pxl.util.Vec(InputBinding).empty;
+            // Dupe the key so we own it — the caller's slice may be ephemeral (C API, etc.).
+            const dup = pxl.mem.allocator.dupe(u8, action_name) catch unreachable;
+            res.key_ptr.* = dup;
+            self.keys.append(dup);
         }
         res.value_ptr.append(binding);
     }
