@@ -3,7 +3,7 @@ const pxl = @import("../pxl.zig");
 const Vec2 = pxl.math.Vec2;
 const Color = pxl.math.Color;
 const Vec = pxl.util.Vec;
-const LayerInstance = pxl.tilemap.LDtk.LayerInstance;
+const LayerInstance = pxl.tilemap.Layer;
 
 const fixed_dt: f32 = 1.0 / 60.0;
 
@@ -466,7 +466,7 @@ pub const World = struct {
         self.bodies.deinit();
     }
 
-    /// Collide every body against an LDtk IntGrid layer (the default path).
+    /// Collide every body against a tilemap IntGrid layer (the default path).
     pub fn setCollisionLayer(self: *World, layer: LayerInstance) void {
         self.collision = .{ .tilemap = layer };
     }

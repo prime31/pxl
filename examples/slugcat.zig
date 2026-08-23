@@ -25,7 +25,7 @@ const api = pxl.api;
 const mu = pxl.mu;
 const input = pxl.input;
 
-const LDtk = pxl.tilemap.LDtk;
+const Map = pxl.tilemap.Map;
 const Rect = pxl.math.Rect;
 const Color = pxl.math.Color;
 const Vec2 = pxl.math.Vec2;
@@ -49,8 +49,8 @@ const air_accel_rate: f32 = 9.5; // vel.x lerp ~0.15/frame in the air
 const ground_friction_rate: f32 = 12; // idle deceleration while grounded
 const tile_size: f32 = 12; // collision IntGrid tile size in px
 
-var map: *LDtk = undefined;
-var collision: LDtk.LayerInstance = undefined; // IntGrid layer used for collision
+var map: *Map = undefined;
+var collision: pxl.tilemap.Layer = undefined; // IntGrid layer used for collision
 var map_w: f32 = 264;
 var map_h: f32 = 264;
 
@@ -87,7 +87,7 @@ fn rotate2D(v: Vec2, ang: f32) Vec2 {
 
 /// Is the tilemap cell solid?
 fn cellSolid(tx: i32, ty: i32) bool {
-    if (tx < 0 or ty < 0 or tx >= collision.width() or ty >= collision.height()) return false;
+    if (tx < 0 or ty < 0 or tx >= collision.width or ty >= collision.height) return false;
     return collision.isCellSolid(@intCast(tx), @intCast(ty));
 }
 
@@ -190,7 +190,7 @@ const Chunk = struct {
         self.rect.y = c.y - self.rect.h / 2;
     }
 
-    fn update(self: *Chunk, m: *LDtk, dt: f32) void {
+    fn update(self: *Chunk, m: *Map, dt: f32) void {
         self.vel.y += gravity * dt;
         moveBody(m, &self.rect, &self.state, self.vel, collision);
         // Kill the velocity into a contact so bodies don't press into terrain
@@ -932,15 +932,9 @@ pub fn setup() !void {
     map = try pxl.assets.loadTilemap(.tiny_tiles);
 
     // Grab the IntGrid collision layer and derive the world size from it.
-    const layers = map.root.levels[0].layerInstances.?;
-    for (layers) |layer| {
-        if (layer.__type == .IntGrid) {
-            collision = layer;
-            break;
-        }
-    }
-    map_w = @as(f32, @floatFromInt(collision.width())) * tile_size;
-    map_h = @as(f32, @floatFromInt(collision.height())) * tile_size;
+    collision = (map.findLayer("IntGrid") orelse return error.MissingCollisionLayer).*;
+    map_w = @as(f32, @floatFromInt(collision.width)) * tile_size;
+    map_h = @as(f32, @floatFromInt(collision.height)) * tile_size;
 
     input.addBinding("left", .key(.left));
     input.addBinding("left", .key(.a));
@@ -1039,7 +1033,7 @@ fn stateMark(b: bool) []const u8 {
 
 pub fn render() !void {
     pxl.beginPass(.{ .clear_color = Color.aya, .camera = camera });
-    for (map.root.levels) |level| pxl.tilemap.renderLevel(map, level, true);
+    for (map.levels) |level| pxl.tilemap.renderLevel(map, level, true);
 
     slugcat.render();
     if (show_debug) slugcat.renderDebug();

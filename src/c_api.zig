@@ -21,7 +21,7 @@ const LoopMode = pxl.animation.LoopMode;
 const SoundId = pxl.audio.SoundId;
 const PlaybackId = pxl.audio.PlaybackId;
 const BMFont = pxl.text.BMFont;
-const LDtk = pxl.tilemap.LDtk;
+const Map = pxl.tilemap.Map;
 const InputBinding = pxl.input.InputBinding;
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -493,7 +493,7 @@ export fn pxl_assets_load_font(id: u32) ?*BMFont {
     return pxl.assets.loadFont(@enumFromInt(id)) catch return null;
 }
 
-export fn pxl_assets_load_tilemap(id: u32) ?*LDtk {
+export fn pxl_assets_load_tilemap(id: u32) ?*Map {
     return pxl.assets.loadTilemap(@enumFromInt(id)) catch return null;
 }
 
@@ -510,7 +510,7 @@ export fn pxl_assets_destroy_font(font: *BMFont) void {
     pxl.assets.destroy(font);
 }
 
-export fn pxl_assets_destroy_tilemap(map: *LDtk) void {
+export fn pxl_assets_destroy_tilemap(map: *Map) void {
     pxl.assets.destroy(map);
 }
 
@@ -529,7 +529,7 @@ export fn pxl_assets_load_font_path(path: [*c]const u8, path_len: usize) ?*BMFon
     return pxl.assets.loadFontPath(path[0..path_len]) catch return null;
 }
 
-export fn pxl_assets_load_tilemap_path(path: [*c]const u8, path_len: usize) ?*LDtk {
+export fn pxl_assets_load_tilemap_path(path: [*c]const u8, path_len: usize) ?*Map {
     return pxl.assets.loadTilemapPath(path[0..path_len]) catch return null;
 }
 

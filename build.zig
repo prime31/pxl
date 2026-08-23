@@ -110,6 +110,328 @@ const AsepriteExport = struct {
     parsed: std.json.Parsed(AsepriteJson),
 };
 
+const PxlMapJson = std.json.Value;
+
+fn jsonGet(value: PxlMapJson, key: []const u8) ?PxlMapJson {
+    return switch (value) {
+        .object => |object| object.get(key),
+        else => null,
+    };
+}
+
+fn jsonString(value: ?PxlMapJson) []const u8 {
+    return if (value) |v| switch (v) {
+        .string => |s| s,
+        else => "",
+    } else "";
+}
+
+fn jsonInt(value: ?PxlMapJson) i64 {
+    return if (value) |v| switch (v) {
+        .integer => |i| i,
+        .float => |f| @intFromFloat(f),
+        else => 0,
+    } else 0;
+}
+
+fn jsonOptionalInt(value: ?PxlMapJson) ?i64 {
+    return if (value) |v| switch (v) {
+        .integer => |i| i,
+        .float => |f| @intFromFloat(f),
+        .null => null,
+        else => null,
+    } else null;
+}
+
+fn jsonFloat(value: ?PxlMapJson) f64 {
+    return if (value) |v| switch (v) {
+        .integer => |i| @floatFromInt(i),
+        .float => |f| f,
+        else => 0,
+    } else 0;
+}
+
+fn jsonBool(value: ?PxlMapJson) bool {
+    return if (value) |v| switch (v) {
+        .bool => |b| b,
+        else => false,
+    } else false;
+}
+
+fn jsonBoolOr(value: ?PxlMapJson, fallback: bool) bool {
+    return if (value) |v| switch (v) {
+        .bool => |b| b,
+        else => fallback,
+    } else fallback;
+}
+
+fn jsonFloatOr(value: ?PxlMapJson, fallback: f64) f64 {
+    return if (value) |v| switch (v) {
+        .integer => |i| @floatFromInt(i),
+        .float => |f| f,
+        else => fallback,
+    } else fallback;
+}
+
+fn jsonArray(value: ?PxlMapJson) []const PxlMapJson {
+    return if (value) |v| switch (v) {
+        .array => |array| array.items,
+        else => &.{},
+    } else &.{};
+}
+
+fn appendMapBytes(b: *Build, out: *std.ArrayList(u8), bytes: []const u8) !void {
+    try out.appendSlice(b.allocator, bytes);
+}
+
+fn appendMapU8(b: *Build, out: *std.ArrayList(u8), value: u8) !void {
+    try out.append(b.allocator, value);
+}
+
+fn appendMapU16(b: *Build, out: *std.ArrayList(u8), value: u16) !void {
+    var bytes: [2]u8 = undefined;
+    std.mem.writeInt(u16, &bytes, value, .little);
+    try appendMapBytes(b, out, &bytes);
+}
+
+fn appendMapU32(b: *Build, out: *std.ArrayList(u8), value: u32) !void {
+    var bytes: [4]u8 = undefined;
+    std.mem.writeInt(u32, &bytes, value, .little);
+    try appendMapBytes(b, out, &bytes);
+}
+
+fn appendMapI32(b: *Build, out: *std.ArrayList(u8), value: i32) !void {
+    try appendMapU32(b, out, @bitCast(value));
+}
+
+fn appendMapI64(b: *Build, out: *std.ArrayList(u8), value: i64) !void {
+    var bytes: [8]u8 = undefined;
+    std.mem.writeInt(i64, &bytes, value, .little);
+    try appendMapBytes(b, out, &bytes);
+}
+
+fn appendMapF32(b: *Build, out: *std.ArrayList(u8), value: f32) !void {
+    try appendMapU32(b, out, @bitCast(value));
+}
+
+fn appendMapString(b: *Build, out: *std.ArrayList(u8), value: []const u8) !void {
+    try appendMapU32(b, out, @intCast(value.len));
+    try appendMapBytes(b, out, value);
+}
+
+fn appendMapColor(b: *Build, out: *std.ArrayList(u8), value: []const u8) !void {
+    var color: u32 = 0xFF000000;
+    const hex = if (value.len > 0 and value[0] == '#') value[1..] else value;
+    if (hex.len >= 6) {
+        const r = std.fmt.parseInt(u8, hex[0..2], 16) catch 0;
+        const g = std.fmt.parseInt(u8, hex[2..4], 16) catch 0;
+        const bl = std.fmt.parseInt(u8, hex[4..6], 16) catch 0;
+        const a = if (hex.len >= 8) std.fmt.parseInt(u8, hex[6..8], 16) catch 255 else 255;
+        color = @as(u32, r) | (@as(u32, g) << 8) | (@as(u32, bl) << 16) | (@as(u32, a) << 24);
+    }
+    try appendMapU32(b, out, color);
+}
+
+fn appendMapJsonValue(b: *Build, out: *std.ArrayList(u8), value: PxlMapJson) !void {
+    switch (value) {
+        .null => try appendMapBytes(b, out, "null"),
+        .bool => |v| try appendMapBytes(b, out, if (v) "true" else "false"),
+        .integer => |v| try out.print(b.allocator, "{d}", .{v}),
+        .float => |v| try out.print(b.allocator, "{d}", .{v}),
+        .number_string => |v| try appendMapBytes(b, out, v),
+        .string => |v| {
+            try out.append(b.allocator, '"');
+            for (v) |c| {
+                switch (c) {
+                    '"' => try appendMapBytes(b, out, "\\\\\""),
+                    '\\' => try appendMapBytes(b, out, "\\\\"),
+                    '\n' => try appendMapBytes(b, out, "\\n"),
+                    '\r' => try appendMapBytes(b, out, "\\r"),
+                    '\t' => try appendMapBytes(b, out, "\\t"),
+                    else => try out.append(b.allocator, c),
+                }
+            }
+            try out.append(b.allocator, '"');
+        },
+        .array => |array| {
+            try out.append(b.allocator, '[');
+            for (array.items, 0..) |item, i| {
+                if (i != 0) try out.append(b.allocator, ',');
+                try appendMapJsonValue(b, out, item);
+            }
+            try out.append(b.allocator, ']');
+        },
+        .object => |object| {
+            try out.append(b.allocator, '{');
+            var it = object.iterator();
+            var first = true;
+            while (it.next()) |entry| {
+                if (!first) try out.append(b.allocator, ',');
+                first = false;
+                try appendMapJsonValue(b, out, .{ .string = entry.key_ptr.* });
+                try out.append(b.allocator, ':');
+                try appendMapJsonValue(b, out, entry.value_ptr.*);
+            }
+            try out.append(b.allocator, '}');
+        },
+    }
+}
+
+fn appendMapField(b: *Build, out: *std.ArrayList(u8), field: PxlMapJson) !void {
+    try appendMapString(b, out, jsonString(jsonGet(field, "__identifier")));
+    try appendMapString(b, out, jsonString(jsonGet(field, "__type")));
+    var value = std.ArrayList(u8).empty;
+    defer value.deinit(b.allocator);
+    if (jsonGet(field, "__value")) |json_value| try appendMapJsonValue(b, &value, json_value);
+    try appendMapString(b, out, value.items);
+}
+
+fn appendMapEntity(b: *Build, out: *std.ArrayList(u8), entity: PxlMapJson) !void {
+    try appendMapString(b, out, jsonString(jsonGet(entity, "__identifier")));
+    try appendMapString(b, out, jsonString(jsonGet(entity, "iid")));
+    const px = jsonArray(jsonGet(entity, "px"));
+    try appendMapI32(b, out, @intCast(jsonInt(if (px.len > 0) px[0] else null)));
+    try appendMapI32(b, out, @intCast(jsonInt(if (px.len > 1) px[1] else null)));
+    try appendMapU16(b, out, @intCast(jsonInt(jsonGet(entity, "width"))));
+    try appendMapU16(b, out, @intCast(jsonInt(jsonGet(entity, "height"))));
+    const pivot = jsonArray(jsonGet(entity, "__pivot"));
+    try appendMapF32(b, out, @floatCast(jsonFloat(if (pivot.len > 0) pivot[0] else null)));
+    try appendMapF32(b, out, @floatCast(jsonFloat(if (pivot.len > 1) pivot[1] else null)));
+    if (jsonGet(entity, "__tile")) |tile| {
+        try appendMapU8(b, out, 1);
+        try appendMapI64(b, out, jsonInt(jsonGet(tile, "tilesetUid")));
+        try appendMapI32(b, out, @intCast(jsonInt(jsonGet(tile, "x"))));
+        try appendMapI32(b, out, @intCast(jsonInt(jsonGet(tile, "y"))));
+        try appendMapU16(b, out, @intCast(jsonInt(jsonGet(tile, "w"))));
+        try appendMapU16(b, out, @intCast(jsonInt(jsonGet(tile, "h"))));
+    } else try appendMapU8(b, out, 0);
+    const tags = jsonArray(jsonGet(entity, "__tags"));
+    try appendMapU16(b, out, @intCast(tags.len));
+    for (tags) |tag| try appendMapString(b, out, jsonString(tag));
+    const fields = jsonArray(jsonGet(entity, "fieldInstances"));
+    try appendMapU16(b, out, @intCast(fields.len));
+    for (fields) |field| try appendMapField(b, out, field);
+}
+
+fn generatePxlMap(b: *Build, source: []const u8, map_dir: []const u8) ![]u8 {
+    var parsed = try std.json.parseFromSlice(PxlMapJson, b.allocator, source, .{ .allocate = .alloc_always });
+    defer parsed.deinit();
+    const root = parsed.value;
+    var out = std.ArrayList(u8).empty;
+    errdefer out.deinit(b.allocator);
+    try appendMapBytes(b, &out, "PXLM");
+    try appendMapU16(b, &out, 1);
+    try appendMapU16(b, &out, 0);
+    const defs = jsonGet(root, "defs");
+    const tilesets = jsonArray(if (defs) |d| jsonGet(d, "tilesets") else null);
+    const levels = jsonArray(jsonGet(root, "levels"));
+    const first_level = if (levels.len > 0) levels[0] else null;
+    const first_layers = jsonArray(if (first_level) |level| jsonGet(level, "layerInstances") else null);
+    const first_grid_size = if (first_layers.len > 0) jsonInt(jsonGet(first_layers[0], "__gridSize")) else jsonInt(jsonGet(root, "defaultGridSize"));
+    try appendMapU16(b, &out, @intCast(first_grid_size));
+    try appendMapU16(b, &out, 0);
+    try appendMapU16(b, &out, @intCast(tilesets.len));
+    try appendMapU16(b, &out, @intCast(levels.len));
+    for (tilesets) |tileset| {
+        try appendMapI64(b, &out, jsonInt(jsonGet(tileset, "uid")));
+        try appendMapString(b, &out, jsonString(jsonGet(tileset, "identifier")));
+        const rel_path = jsonString(jsonGet(tileset, "relPath"));
+        if (rel_path.len > 0) {
+            var full_path = std.ArrayList(u8).empty;
+            defer full_path.deinit(b.allocator);
+            try full_path.appendSlice(b.allocator, map_dir);
+            try full_path.appendSlice(b.allocator, rel_path);
+            try appendMapString(b, &out, full_path.items);
+        } else {
+            try appendMapString(b, &out, "assets/maps/ldtk_icons.png");
+        }
+        try appendMapU16(b, &out, @intCast(jsonInt(jsonGet(tileset, "tileGridSize"))));
+        try appendMapU32(b, &out, @intCast(jsonInt(jsonGet(tileset, "pxWid"))));
+        try appendMapU32(b, &out, @intCast(jsonInt(jsonGet(tileset, "pxHei"))));
+        try appendMapU16(b, &out, @intCast(jsonInt(jsonGet(tileset, "spacing"))));
+        try appendMapU16(b, &out, @intCast(jsonInt(jsonGet(tileset, "padding"))));
+    }
+    for (levels) |level| {
+        try appendMapString(b, &out, jsonString(jsonGet(level, "identifier")));
+        try appendMapString(b, &out, jsonString(jsonGet(level, "iid")));
+        try appendMapI64(b, &out, jsonInt(jsonGet(level, "uid")));
+        try appendMapI32(b, &out, @intCast(jsonInt(jsonGet(level, "worldX"))));
+        try appendMapI32(b, &out, @intCast(jsonInt(jsonGet(level, "worldY"))));
+        try appendMapU32(b, &out, @intCast(jsonInt(jsonGet(level, "pxWid"))));
+        try appendMapU32(b, &out, @intCast(jsonInt(jsonGet(level, "pxHei"))));
+        try appendMapColor(b, &out, jsonString(jsonGet(level, "__bgColor")));
+        const layers = jsonArray(jsonGet(level, "layerInstances"));
+        try appendMapU16(b, &out, @intCast(layers.len));
+        for (layers) |layer| {
+            try appendMapString(b, &out, jsonString(jsonGet(layer, "__identifier")));
+            try appendMapString(b, &out, jsonString(jsonGet(layer, "iid")));
+            const kind_name = jsonString(jsonGet(layer, "__type"));
+            const kind: u8 = if (std.mem.eql(u8, kind_name, "IntGrid")) 0 else if (std.mem.eql(u8, kind_name, "Entities")) 3 else if (std.mem.eql(u8, kind_name, "Tiles")) 1 else 2;
+            try appendMapU8(b, &out, kind);
+            try appendMapU8(b, &out, if (jsonBoolOr(jsonGet(layer, "visible"), true)) 1 else 0);
+            try appendMapU8(b, &out, @as(u8, @intFromFloat(@round(jsonFloatOr(jsonGet(layer, "__opacity"), 1.0) * 255.0))));
+            try appendMapU16(b, &out, @intCast(jsonInt(jsonGet(layer, "__gridSize"))));
+            try appendMapU32(b, &out, @intCast(jsonInt(jsonGet(layer, "__cWid"))));
+            try appendMapU32(b, &out, @intCast(jsonInt(jsonGet(layer, "__cHei"))));
+            try appendMapI32(b, &out, @intCast(jsonInt(jsonGet(layer, "pxOffsetX"))));
+            try appendMapI32(b, &out, @intCast(jsonInt(jsonGet(layer, "pxOffsetY"))));
+            try appendMapI32(b, &out, @intCast(jsonInt(jsonGet(layer, "__pxTotalOffsetX"))));
+            try appendMapI32(b, &out, @intCast(jsonInt(jsonGet(layer, "__pxTotalOffsetY"))));
+            const tileset_uid = jsonOptionalInt(jsonGet(layer, "overrideTilesetUid")) orelse
+                jsonOptionalInt(jsonGet(layer, "__tilesetDefUid"));
+            try appendMapI64(b, &out, tileset_uid orelse -1);
+            const grid_tiles = jsonArray(jsonGet(layer, "gridTiles"));
+            const auto_tiles = jsonArray(jsonGet(layer, "autoLayerTiles"));
+            try appendMapU32(b, &out, @intCast(grid_tiles.len + auto_tiles.len));
+            for ([_][]const PxlMapJson{ grid_tiles, auto_tiles }) |tile_list| for (tile_list) |tile| {
+                const flags = @as(u8, @intCast(jsonInt(jsonGet(tile, "f"))));
+                const px = jsonArray(jsonGet(tile, "px"));
+                const src = jsonArray(jsonGet(tile, "src"));
+                try appendMapU8(b, &out, flags);
+                try appendMapI32(b, &out, @intCast(jsonInt(if (px.len > 0) px[0] else null)));
+                try appendMapI32(b, &out, @intCast(jsonInt(if (px.len > 1) px[1] else null)));
+                try appendMapU16(b, &out, @intCast(jsonInt(if (src.len > 0) src[0] else null)));
+                try appendMapU16(b, &out, @intCast(jsonInt(if (src.len > 1) src[1] else null)));
+                try appendMapI32(b, &out, @intCast(jsonInt(jsonGet(tile, "t"))));
+                try appendMapU8(b, &out, @as(u8, @intFromFloat(@round(jsonFloatOr(jsonGet(tile, "a"), 1.0) * 255.0))));
+            };
+            const collision = jsonArray(jsonGet(layer, "intGridCsv"));
+            try appendMapU32(b, &out, @intCast(collision.len));
+            for (collision) |cell| try appendMapU8(b, &out, @intCast(jsonInt(cell)));
+            const entities = jsonArray(jsonGet(layer, "entityInstances"));
+            try appendMapU32(b, &out, @intCast(entities.len));
+            for (entities) |entity| try appendMapEntity(b, &out, entity);
+        }
+    }
+    return out.toOwnedSlice(b.allocator);
+}
+
+fn generatePxlMaps(b: *Build) !void {
+    const maps_root = b.pathFromRoot("assets/maps");
+    var dir = try std.Io.Dir.openDirAbsolute(b.graph.io, maps_root, .{ .iterate = true });
+    defer dir.close(b.graph.io);
+    var walker = try std.Io.Dir.walkSelectively(dir, b.allocator);
+    defer walker.deinit();
+    while (try walker.next(b.graph.io)) |entry| {
+        if (entry.kind == .directory) {
+            try walker.enter(b.graph.io, entry);
+            continue;
+        }
+        if (entry.kind != .file or !std.mem.eql(u8, std.fs.path.extension(entry.path), ".ldtk")) continue;
+        const source_path = try std.fs.path.join(b.allocator, &.{ maps_root, entry.path });
+        defer b.allocator.free(source_path);
+        const source = try std.Io.Dir.readFileAlloc(std.Io.Dir.cwd(), b.graph.io, source_path, b.allocator, .unlimited);
+        defer b.allocator.free(source);
+        const source_dir = std.fs.path.dirname(entry.path) orelse "";
+        const map_dir = b.fmt("assets/maps/{s}", .{source_dir});
+        const compiled = try generatePxlMap(b, source, map_dir);
+        defer b.allocator.free(compiled);
+        const output_path = try std.fmt.allocPrint(b.allocator, "{s}/{s}.pxlmap", .{ maps_root, entry.path[0 .. entry.path.len - 5] });
+        defer b.allocator.free(output_path);
+        try std.Io.Dir.writeFile(std.Io.Dir.cwd(), b.graph.io, .{ .sub_path = output_path, .data = compiled });
+    }
+}
+
 /// Generates the asset manifest source and returns the WriteFile-produced
 /// LazyPath, with the whole assets/ tree (and generated aseprite atlases)
 /// copied next to it so `@embedFile` inside the generated file can resolve them.
@@ -119,6 +441,7 @@ const AssetManifest = struct {
 };
 
 fn addAssetManifest(b: *Build) !AssetManifest {
+    try generatePxlMaps(b);
     const exports = try exportAsepriteFiles(b);
     defer {
         for (exports) |e| e.parsed.deinit();
@@ -240,7 +563,7 @@ fn assetKind(rel_path: []const u8) ?AssetKind {
     const ext = std.fs.path.extension(rel_path);
     if (std.mem.eql(u8, ext, ".png")) return .texture;
     if (std.mem.eql(u8, ext, ".fnt")) return .font;
-    if (std.mem.eql(u8, ext, ".ldtk")) return .tilemap;
+    if (std.mem.eql(u8, ext, ".pxlmap")) return .tilemap;
     if (std.mem.eql(u8, ext, ".ogg")) return .audio;
     return null;
 }
@@ -313,6 +636,7 @@ fn collectAssetEntries(b: *Build, exports: []AsepriteExport) !std.ArrayList(Asse
             return error.AssetNotInSubfolder;
         }
         if (std.mem.eql(u8, std.fs.path.extension(entry.path), ".aseprite")) continue;
+        if (std.mem.eql(u8, std.fs.path.extension(entry.path), ".ldtk")) continue;
         if (assetKind(entry.path) == null) {
             std.debug.print("pxl assets: ignoring unsupported file 'assets/{s}'\n", .{entry.path});
             continue;

@@ -4,10 +4,10 @@ const api = pxl.api;
 const mu = pxl.mu;
 const input = pxl.input;
 
-const LDtk = pxl.tilemap.LDtk;
+const Map = pxl.tilemap.Map;
 const Color = pxl.math.Color;
 
-var map: *LDtk = undefined;
+var map: *Map = undefined;
 var player: pxl.tilemap.Player = .{};
 var camera: pxl.Camera = .{
     .position = .init(160, 90),
@@ -38,10 +38,10 @@ pub fn config() pxl.Config {
 pub fn setup() !void {
     map = try pxl.assets.loadTilemap(.tiny_tiles);
 
-    const grid_size: f32 = @floatFromInt(map.root.defs.?.tilesets[0].tileGridSize);
+    const grid_size: f32 = @floatFromInt(map.tileSize());
     player.rect.w = grid_size;
     player.rect.h = grid_size;
-    player.layer = map.root.levels[0].layerInstances.?[1];
+    player.layer = (map.findLayer("IntGrid") orelse return error.MissingCollisionLayer).*;
 
     input.addBinding("left", .key(.left));
     input.addBinding("left", .key(.a));
@@ -105,7 +105,7 @@ pub fn update() !void {
 
 pub fn render() !void {
     pxl.beginPass(.{ .clear_color = Color.aya, .camera = camera });
-    for (map.root.levels) |level| pxl.tilemap.renderLevel(map, level, true);
+    for (map.levels) |level| pxl.tilemap.renderLevel(map, level, true);
     api.drawRect(player.rect.pos(), player.rect.size(), Color.orange);
     pxl.endPass();
 }

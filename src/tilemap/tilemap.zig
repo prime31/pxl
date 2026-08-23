@@ -3,7 +3,13 @@ const pxl = @import("../pxl.zig");
 const math = pxl.math;
 const cast = pxl.util.cast;
 
-pub const LDtk = @import("LDtk.zig");
+pub const Map = @import("map.zig").Map;
+pub const Level = @import("map.zig").Level;
+pub const Layer = @import("map.zig").Layer;
+pub const LayerType = @import("map.zig").LayerType;
+pub const Tile = @import("map.zig").Tile;
+pub const Entity = @import("map.zig").Entity;
+pub const Field = @import("map.zig").Field;
 const render = @import("render.zig");
 
 pub const renderLevel = render.renderLevel;
@@ -13,7 +19,7 @@ pub const renderTile = render.renderTile;
 pub const renderEntities = render.renderEntities;
 pub const renderEntity = render.renderEntity;
 
-const LayerInstance = LDtk.LayerInstance;
+const LayerInstance = Layer;
 const CollisionIterator = @import("collision_iterator.zig").CollisionIterator;
 
 /// Accumulates fractional pixel movement while still letting the body move in
@@ -82,7 +88,7 @@ const vert_inset = 2;
 /// accumulators so the body only ever moves in whole pixels while retaining its
 /// fractional speed. When false the body moves fractionally for smooth
 /// non-pixel-art movement.
-pub fn moveBody(map: *LDtk, rect: *math.Rect, state: *CollisionState, velocity: math.Vec2, layer: LayerInstance) void {
+pub fn moveBody(map: *Map, rect: *math.Rect, state: *CollisionState, velocity: math.Vec2, layer: LayerInstance) void {
     // save off our current grounded state for was_grounded_last_frame / became_grounded_this_frame
     state.was_grounded_last_frame = state.below;
     state.reset(&velocity);
@@ -126,7 +132,7 @@ pub const Player = struct {
     speed: f32 = 60,
     layer: LayerInstance = undefined,
 
-    pub fn move(self: *Player, map: *LDtk, input: math.Vec2) void {
+    pub fn move(self: *Player, map: *Map, input: math.Vec2) void {
         const velocity = math.Vec2{
             .x = input.x * self.speed,
             .y = input.y * self.speed,
@@ -135,7 +141,7 @@ pub const Player = struct {
     }
 };
 
-pub fn moveX(map: *LDtk, layer: LayerInstance, rect: math.RectI, move_x: i32, state: *CollisionState) i32 {
+pub fn moveX(map: *Map, layer: LayerInstance, rect: math.RectI, move_x: i32, state: *CollisionState) i32 {
     const edge: math.Edge = if (move_x > 0) .right else .left;
     // Same freshness rule as moveY: horizontal contact flags reflect only this
     // frame's move, so a wall you've climbed past can't keep zeroing velocity.
@@ -158,7 +164,7 @@ pub fn moveX(map: *LDtk, layer: LayerInstance, rect: math.RectI, move_x: i32, st
     while (iter.next()) |pt| {
         if (layer.isCellSolid(@intCast(pt.x), @intCast(pt.y))) {
             // world_x is the LEFT of the tile
-            const tile_size = cast(i32, layer.__gridSize);
+            const tile_size = cast(i32, layer.grid_size);
             const world_x = tile_size * pt.x;
             if (move_x < 0) {
                 state.left = true;
@@ -203,7 +209,7 @@ pub fn moveX(map: *LDtk, layer: LayerInstance, rect: math.RectI, move_x: i32, st
     return move_x;
 }
 
-pub fn moveY(map: *LDtk, layer: LayerInstance, rect: math.RectI, move_y: i32, state: *CollisionState) i32 {
+pub fn moveY(map: *Map, layer: LayerInstance, rect: math.RectI, move_y: i32, state: *CollisionState) i32 {
     const edge: math.Edge = if (move_y >= 0) .bottom else .top;
     // The vertical contact flags are derived fresh from this move: moving up
     // leaves the ground, moving down can't touch the ceiling, and a move with
@@ -224,7 +230,7 @@ pub fn moveY(map: *LDtk, layer: LayerInstance, rect: math.RectI, move_y: i32, st
     while (iter.next()) |pt| {
         if (layer.isCellSolid(@intCast(pt.x), @intCast(pt.y))) {
             // world_y is the TOP of the tile
-            const tile_size = cast(i32, layer.__gridSize);
+            const tile_size = cast(i32, layer.grid_size);
             const world_y = tile_size * pt.y;
             if (move_y < 0) {
                 state.above = true;
@@ -284,7 +290,7 @@ pub fn moveY(map: *LDtk, layer: LayerInstance, rect: math.RectI, move_y: i32, st
 /// against integer tile cells, and the returned distance is the exact
 /// fractional distance to the blocking wall (so motion stays smooth, not
 /// snapped to whole pixels).
-fn moveXFloat(map: *LDtk, layer: LayerInstance, rect: math.Rect, move_x: f32, state: *CollisionState) f32 {
+fn moveXFloat(map: *Map, layer: LayerInstance, rect: math.Rect, move_x: f32, state: *CollisionState) f32 {
     const edge: math.Edge = if (move_x > 0) .right else .left;
     // Same freshness rule as moveY: horizontal contact flags reflect only this
     // frame's move, so a wall you've climbed past can't keep zeroing velocity.
@@ -318,7 +324,7 @@ fn moveXFloat(map: *LDtk, layer: LayerInstance, rect: math.Rect, move_x: f32, st
     while (iter.next()) |pt| {
         if (layer.isCellSolid(@intCast(pt.x), @intCast(pt.y))) {
             // world_x is the LEFT of the tile
-            const tile_size = cast(f32, layer.__gridSize);
+            const tile_size = cast(f32, layer.grid_size);
             const world_x = tile_size * @as(f32, @floatFromInt(pt.x));
             if (move_x < 0) {
                 state.left = true;
@@ -334,7 +340,7 @@ fn moveXFloat(map: *LDtk, layer: LayerInstance, rect: math.Rect, move_x: f32, st
 }
 
 /// Fractional variant of `moveY`, see `moveXFloat`.
-fn moveYFloat(map: *LDtk, layer: LayerInstance, rect: math.Rect, move_y: f32, state: *CollisionState) f32 {
+fn moveYFloat(map: *Map, layer: LayerInstance, rect: math.Rect, move_y: f32, state: *CollisionState) f32 {
     const edge: math.Edge = if (move_y >= 0) .bottom else .top;
     // Same freshness rule as `moveY`: the flags reflect only this frame's move.
     state.below = false;
@@ -367,7 +373,7 @@ fn moveYFloat(map: *LDtk, layer: LayerInstance, rect: math.Rect, move_y: f32, st
     while (iter.next()) |pt| {
         if (layer.isCellSolid(@intCast(pt.x), @intCast(pt.y))) {
             // world_y is the TOP of the tile
-            const tile_size = cast(f32, layer.__gridSize);
+            const tile_size = cast(f32, layer.grid_size);
             const world_y = tile_size * @as(f32, @floatFromInt(pt.y));
             if (move_y < 0) {
                 state.above = true;
@@ -382,10 +388,10 @@ fn moveYFloat(map: *LDtk, layer: LayerInstance, rect: math.Rect, move_y: f32, st
     return move_y;
 }
 
-fn debugOverlaps(map: *LDtk, bounds: math.RectI, edge: math.Edge) void {
-    const layer = map.root.levels[0].layerInstances.?[1];
+fn debugOverlaps(map: *Map, bounds: math.RectI, edge: math.Edge) void {
+    const layer = map.levels[0].layers[0];
     var tile_cnt: i32 = 0;
-    const tile_size = cast(f32, layer.__gridSize);
+    const tile_size = cast(f32, layer.grid_size);
 
     var iter = CollisionIterator.init(map, bounds, edge);
     while (iter.next()) |pt| {
@@ -405,17 +411,17 @@ fn debugOverlaps(map: *LDtk, bounds: math.RectI, edge: math.Edge) void {
 
 /// True when `world` (world-space pixels) falls inside a solid cell of an
 /// IntGrid collision layer. Points outside the layer bounds are never solid.
-pub fn isSolidAt(layer: LayerInstance, world: math.Vec2) bool {
-    const gs = cast(i32, layer.__gridSize);
+pub fn isSolidAt(layer: Layer, world: math.Vec2) bool {
+    const gs = cast(i32, layer.grid_size);
     const tx = @divFloor(cast(i32, @floor(world.x)), gs);
     const ty = @divFloor(cast(i32, @floor(world.y)), gs);
-    if (tx < 0 or ty < 0 or tx >= layer.width() or ty >= layer.height()) return false;
+    if (tx < 0 or ty < 0 or tx >= @as(i32, @intCast(layer.width)) or ty >= @as(i32, @intCast(layer.height))) return false;
     return layer.isCellSolid(@intCast(tx), @intCast(ty));
 }
 
 /// True when a `w` x `h` rect centered at `center` overlaps any solid cell.
 /// Cheap sensor query (grab boxes, headroom checks) against an IntGrid layer.
-pub fn rectOverlapsSolid(layer: LayerInstance, center: math.Vec2, w: f32, h: f32) bool {
+pub fn rectOverlapsSolid(layer: Layer, center: math.Vec2, w: f32, h: f32) bool {
     var y = center.y - h / 2 + 0.5;
     while (y < center.y + h / 2) : (y += 2) {
         var x = center.x - w / 2 + 0.5;

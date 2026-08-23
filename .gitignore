@@ -3,3 +3,5 @@ zig-*/
 .zig-*/
 .freebuff
 rust/target/
+assets/maps/*.pxlmap
+assets/maps/*/png/

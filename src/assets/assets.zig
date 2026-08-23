@@ -45,7 +45,7 @@ pub const findAudioId = manifest.findAudioId;
 
 const Texture = pxl.gpu.Texture;
 const BMFont = pxl.text.BMFont;
-const LDtk = pxl.tilemap.LDtk;
+const Map = pxl.tilemap.Map;
 const SoundId = pxl.audio.SoundId;
 const AnimationId = pxl.animation.AnimationId;
 const Rect = pxl.math.Rect;
@@ -55,13 +55,13 @@ const Vec = pxl.util.Vec;
 /// Tracked so `destroy` and `deinit` can free them like manifest assets.
 var runtime_textures: Vec(*Texture) = .empty;
 var runtime_fonts: Vec(*BMFont) = .empty;
-var runtime_tilemaps: Vec(*LDtk) = .empty;
+var runtime_tilemaps: Vec(*Map) = .empty;
 
 var textures: [manifest.textures.len]Texture = undefined;
 var tex_refs: [manifest.textures.len]u32 = [1]u32{0} ** manifest.textures.len;
 var fonts: [manifest.fonts.len]BMFont = undefined;
 var font_refs: [manifest.fonts.len]u32 = [1]u32{0} ** manifest.fonts.len;
-var tilemaps: [manifest.tilemaps.len]LDtk = undefined;
+var tilemaps: [manifest.tilemaps.len]Map = undefined;
 var tilemap_refs: [manifest.tilemaps.len]u32 = [1]u32{0} ** manifest.tilemaps.len;
 var sounds: [manifest.audio.len]?SoundId = [1]?SoundId{null} ** manifest.audio.len;
 var sound_refs: [manifest.audio.len]u32 = [1]u32{0} ** manifest.audio.len;
@@ -98,7 +98,7 @@ pub fn loadFont(id: FontId) !*BMFont {
     return &fonts[i];
 }
 
-pub fn loadTilemap(id: TilemapId) !*LDtk {
+pub fn loadTilemap(id: TilemapId) !*Map {
     const i = @intFromEnum(id);
     if (tilemap_refs[i] > 0) {
         tilemap_refs[i] += 1;
@@ -109,12 +109,8 @@ pub fn loadTilemap(id: TilemapId) !*LDtk {
     else
         try pxl.fs.read(manifest.tilemaps[i].path, .temp);
 
-    tilemaps[i] = try LDtk.parse(bytes);
-    // Auto-load tileset textures. The prefix is the directory of the LDtk file.
-    const tilemap_path = manifest.tilemaps[i].path;
-    const dir_end = std.mem.lastIndexOfScalar(u8, tilemap_path, std.fs.path.sep) orelse 0;
-    const prefix = tilemap_path[0 .. dir_end + 1]; // include trailing sep
-    try tilemaps[i].loadTilesetTextures(prefix);
+    tilemaps[i] = try Map.parse(bytes);
+    try tilemaps[i].loadTilesetTextures();
     tilemap_refs[i] = 1;
     return &tilemaps[i];
 }
@@ -145,18 +141,17 @@ pub fn loadFontPath(path: []const u8) !*BMFont {
     return font;
 }
 
-/// Load an LDtk tilemap by file path. Manifest tilemaps resolve to the cached
+/// Load a compiled PxlMap by file path. Manifest tilemaps resolve to the cached
 /// entry; other paths load from disk (desktop/Android only, not web). Tileset
 /// textures must still be manifest assets.
-pub fn loadTilemapPath(path: []const u8) !*LDtk {
+pub fn loadTilemapPath(path: []const u8) !*Map {
     if (manifest.findTilemapId(path)) |id| return loadTilemap(id);
     if (comptime builtin.target.cpu.arch.isWasm()) return error.AssetNotFound;
     const bytes = try pxl.fs.read(path, .temp);
-    const map = pxl.mem.create(LDtk, .persistent);
+    const map = pxl.mem.create(Map, .persistent);
     errdefer pxl.mem.destroy(map);
-    map.* = try LDtk.parse(bytes);
-    const dir_end = std.mem.lastIndexOfScalar(u8, path, std.fs.path.sep) orelse 0;
-    try map.loadTilesetTextures(path[0 .. dir_end + 1]);
+    map.* = try Map.parse(bytes);
+    try map.loadTilesetTextures();
     runtime_tilemaps.append(map);
     return map;
 }
@@ -288,12 +283,12 @@ fn tagIdIndex(aseprite_id: AsepriteId, tag_idx: u16) usize {
 
 /// Release one reference to an asset loaded through `pxl.assets`. The
 /// resource is freed when its refcount reaches zero. Accepts a `*Texture`,
-/// `*BMFont`, `*LDtk` or `pxl.audio.SoundId`.
+/// `*BMFont`, `*Map` or `pxl.audio.SoundId`.
 pub fn destroy(resource: anytype) void {
     switch (@TypeOf(resource)) {
         *Texture => destroyTexture(resource),
         *BMFont => destroyFont(resource),
-        *LDtk => destroyTilemap(resource),
+        *Map => destroyTilemap(resource),
         SoundId => destroyAudio(resource),
         else => @compileError("pxl.assets.destroy: unsupported type " ++ @typeName(@TypeOf(resource))),
     }
@@ -406,7 +401,7 @@ fn destroyFont(font: *BMFont) void {
     @panic("pxl.assets.destroy: font was not loaded via pxl.assets");
 }
 
-fn destroyTilemap(map: *LDtk) void {
+fn destroyTilemap(map: *Map) void {
     var i: usize = 0;
     while (i < manifest.tilemaps.len) : (i += 1) {
         if (tilemap_refs[i] == 0) continue;

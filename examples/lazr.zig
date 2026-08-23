@@ -1,5 +1,5 @@
 // Lazr — a movement-feel playground. Ports the core of Lazr's Hero.cs (idle,
-// run, jump, fall, slide, wall-climb, dash) onto pxl's LDtk tilemap + state
+// run, jump, fall, slide, wall-climb, dash) onto pxl's compiled tilemap + state
 // machine, with every feel constant live-tunable in the microui panel.
 //
 // Controls:
@@ -16,14 +16,14 @@ const api = pxl.api;
 const mu = pxl.mu;
 const input = pxl.input;
 
-const LDtk = pxl.tilemap.LDtk;
+const Map = pxl.tilemap.Map;
 const Texture = pxl.gpu.Texture;
 const Rect = pxl.math.Rect;
 const Color = pxl.math.Color;
 const Vec2 = pxl.math.Vec2;
 const CollisionState = pxl.tilemap.CollisionState;
 const StateMachine = pxl.util.StateMachine;
-const LayerInstance = LDtk.LayerInstance;
+const LayerInstance = pxl.tilemap.Layer;
 const moveBody = pxl.tilemap.moveBody;
 const rectOverlapsSolid = pxl.tilemap.rectOverlapsSolid;
 const verlet = pxl.physics.verlet;
@@ -194,7 +194,7 @@ var sparkle_fx: pxl.ParticleSystem = undefined;
 var rope_world: verlet.World = .{};
 const rope_color = Color.brown;
 
-var map: *LDtk = undefined;
+var map: *Map = undefined;
 var collision: LayerInstance = undefined;
 var hero_tex: *Texture = undefined;
 var proj_tex: *Texture = undefined;
@@ -1000,13 +1000,8 @@ pub fn setup() !void {
     trail_fx = pxl.ParticleSystem.init(2048);
     sparkle_fx = pxl.ParticleSystem.init(2048);
 
-    // The IntGrid layer is the collision source (index 2 in ldtk.ldtk).
-    for (map.root.levels[0].layerInstances.?) |layer| {
-        if (layer.__type == .IntGrid) {
-            collision = layer;
-            break;
-        }
-    }
+    // The IntGrid layer is the collision source.
+    collision = (map.findLayer("Collisions") orelse return error.MissingCollisionLayer).*;
 
     hero.init(164, 156);
 
@@ -1137,7 +1132,7 @@ fn slider(label: [*:0]const u8, value: *f32, low: f32, high: f32, step: f32) voi
 
 pub fn render() !void {
     pxl.beginPass(.{ .clear_color = Color.black, .camera = camera });
-    for (map.root.levels) |lvl| pxl.tilemap.renderLevel(map, lvl, true);
+    for (map.levels) |lvl| pxl.tilemap.renderLevel(map, lvl, true);
     drawRopes();
     trail_fx.draw();
     drawHero();

@@ -16,7 +16,7 @@ pub const CollisionIterator = struct {
 
     const Vec2I = struct { x: i32, y: i32 };
 
-    pub fn init(map: *tilemap.LDtk, bounds: math.RectI, edge: math.Edge) CollisionIterator {
+    pub fn init(map: *tilemap.Map, bounds: math.RectI, edge: math.Edge) CollisionIterator {
         const is_h = edge.horizontal();
         const prim_axis = if (is_h) math.Axis.x else math.Axis.y;
         const op_axis = if (prim_axis == .x) math.Axis.y else math.Axis.x;
@@ -75,17 +75,16 @@ pub const CollisionIterator = struct {
     }
 };
 
-fn worldToTile(map: *tilemap.LDtk, pos: i32, axis: math.Axis) i32 {
+fn worldToTile(map: *tilemap.Map, pos: i32, axis: math.Axis) i32 {
+    const grid_size: f32 = @floatFromInt(map.tile_size);
+    const level = map.levels[0];
     const pos_f: f32 = @floatFromInt(pos);
-    const layer = map.root.levels[0].layerInstances.?[0];
-
-    if (axis == .x) {
-        const tile_x = math.ifloor(i32, pos_f / layer.gridSize());
-        return math.iclamp(tile_x, 0, layer.width() - 1);
-    }
-
-    const tile_y = math.ifloor(i32, pos_f / layer.gridSize());
-    return math.iclamp(tile_y, 0, layer.height() - 1);
+    const max_tile = if (axis == .x)
+        @as(i32, @intCast(level.width / map.tile_size)) - 1
+    else
+        @as(i32, @intCast(level.height / map.tile_size)) - 1;
+    const tile = math.ifloor(i32, pos_f / grid_size);
+    return math.iclamp(tile, 0, max_tile);
 }
 
 // pub fn tileToWorldX(self: Map, x: i32) i32 {

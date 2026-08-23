@@ -1,110 +1,85 @@
 const std = @import("std");
 const pxl = @import("../pxl.zig");
-const LDtk = @import("LDtk.zig");
+const map_types = @import("map.zig");
+
+const Map = map_types.Map;
+const Level = map_types.Level;
+const Layer = map_types.Layer;
+const Tile = map_types.Tile;
+const Entity = map_types.Entity;
+const LayerType = map_types.LayerType;
 
 const api = pxl.api;
 const Color = pxl.math.Color;
 const Rect = pxl.math.Rect;
 const Texture = pxl.gpu.Texture;
 
-/// Draw every layer of `lvl` back-to-front (LDtk stores layers top-to-bottom,
-/// index 0 is the top-most layer). Hidden layers are skipped. When
-/// `render_entities` is false, .Entities layers are skipped so games can draw
-/// them themselves.
-pub fn renderLevel(map: *const LDtk, lvl: LDtk.Level, render_entities: bool) void {
-    const layer_instances = lvl.layerInstances orelse return;
-
-    var i: usize = layer_instances.len;
+pub fn renderLevel(map: *const Map, lvl: Level, render_entities: bool) void {
+    var i: usize = lvl.layers.len;
     while (i > 0) {
         i -= 1;
-        const layer = layer_instances[i];
-
+        const layer = lvl.layers[i];
         if (!layer.visible) continue;
-        if (layer.__type == .Entities and !render_entities) continue;
-
+        if (layer.kind == .entities and !render_entities) continue;
         renderLayer(map, lvl, layer);
     }
 }
 
-/// Draw a single layer at its world position (level world offset + layer offset).
-pub fn renderLayer(map: *const LDtk, lvl: LDtk.Level, layer: LDtk.LayerInstance) void {
-    const layer_x: f32 = @floatFromInt(lvl.worldX + layer.__pxTotalOffsetX);
-    const layer_y: f32 = @floatFromInt(lvl.worldY + layer.__pxTotalOffsetY);
-
-    switch (layer.__type) {
-        .Entities => renderEntities(map, layer, layer_x, layer_y),
-        .Tiles, .AutoLayer, .IntGrid => renderTiles(map, layer, layer_x, layer_y),
+pub fn renderLayer(map: *const Map, lvl: Level, layer: Layer) void {
+    const layer_x: f32 = @floatFromInt(lvl.world_x + layer.total_offset_x);
+    const layer_y: f32 = @floatFromInt(lvl.world_y + layer.total_offset_y);
+    switch (layer.kind) {
+        .entities => renderEntities(map, layer, layer_x, layer_y),
+        .tiles, .auto_layer, .int_grid => renderTiles(map, layer, layer_x, layer_y),
     }
 }
 
-/// Draw a tiles-backed layer at `layer_x`/`layer_y` (world pixels). Uses the
-/// layer's override tileset UID when present, falling back to its tileset def
-/// UID. A missing tileset texture logs a warning and skips the layer instead of
-/// crashing. Kept separate from `renderLayer` so layers can be drawn at custom
-/// offsets (parallax).
-pub fn renderTiles(map: *const LDtk, layer: LDtk.LayerInstance, layer_x: f32, layer_y: f32) void {
-    const tileset_uid = layer.overrideTilesetUid orelse layer.__tilesetDefUid orelse return;
+pub fn renderTiles(map: *const Map, layer: Layer, layer_x: f32, layer_y: f32) void {
+    const tileset_uid = layer.tileset_uid orelse return;
     const tex = map.getTexture(tileset_uid) orelse {
         std.debug.print("tilemap: missing tileset texture for tileset uid {d}; skipping layer\n", .{tileset_uid});
         return;
     };
-
-    const grid_size = layer.gridSize();
-    for (layer.gridTiles) |tile| renderTile(tile, tex, grid_size, layer_x, layer_y, layer.__opacity);
-    for (layer.autoLayerTiles) |tile| renderTile(tile, tex, grid_size, layer_x, layer_y, layer.__opacity);
+    const grid_size: f32 = @floatFromInt(layer.grid_size);
+    for (layer.tiles) |tile| renderTile(tile, tex, grid_size, layer_x, layer_y, layer.opacity);
 }
 
-/// Draw one tile instance: dest rect at `x`+px[0], `y`+px[1]; horizontal and
-/// vertical flip bits are handled with negative source extents.
-pub fn renderTile(t: LDtk.TileInstance, tex: Texture, grid_size: f32, x: f32, y: f32, opacity: f64) void {
+pub fn renderTile(t: Tile, tex: Texture, grid_size: f32, x: f32, y: f32, opacity: f32) void {
     const dest_rect = Rect{
-        .x = x + @as(f32, @floatFromInt(t.px[0])),
-        .y = y + @as(f32, @floatFromInt(t.px[1])),
+        .x = x + @as(f32, @floatFromInt(t.x)),
+        .y = y + @as(f32, @floatFromInt(t.y)),
         .w = grid_size,
         .h = grid_size,
     };
-
-    var src_x: f32 = @floatFromInt(t.src[0]);
-    var src_y: f32 = @floatFromInt(t.src[1]);
+    var src_x: f32 = @floatFromInt(t.source_x);
+    var src_y: f32 = @floatFromInt(t.source_y);
     var src_w: f32 = grid_size;
     var src_h: f32 = grid_size;
-
-    if (t.isFlippedX()) {
+    if (t.flip_x) {
         src_x += src_w;
         src_w = -src_w;
     }
-
-    if (t.isFlippedY()) {
+    if (t.flip_y) {
         src_y += src_h;
         src_h = -src_h;
     }
-
-    const src_rect = Rect{ .x = src_x, .y = src_y, .w = src_w, .h = src_h };
-    api.drawTexturedRect(tex, dest_rect, src_rect, Color.fromRgba(1, 1, 1, @floatCast(t.a * opacity)));
+    const alpha = @as(f32, @floatFromInt(t.alpha)) / 255.0 * opacity;
+    api.drawTexturedRect(tex, dest_rect, .{ .x = src_x, .y = src_y, .w = src_w, .h = src_h }, Color.fromRgba(1, 1, 1, alpha));
 }
 
-/// Draw all entities in an `Entities` layer.
-pub fn renderEntities(map: *const LDtk, layer: LDtk.LayerInstance, layer_x: f32, layer_y: f32) void {
-    if (layer.__type != .Entities) return;
-
-    for (layer.entityInstances) |entity| renderEntity(map, entity, layer_x, layer_y);
+pub fn renderEntities(map: *const Map, layer: Layer, layer_x: f32, layer_y: f32) void {
+    if (layer.kind != .entities) return;
+    for (layer.entities) |entity| renderEntity(map, entity, layer_x, layer_y);
 }
 
-/// Draw one entity: its `__tile` when present, else a translucent `__smartColor`
-/// rect as a fallback placeholder.
-pub fn renderEntity(map: *const LDtk, entity: LDtk.EntityInstance, layer_x: f32, layer_y: f32) void {
+pub fn renderEntity(map: *const Map, entity: Entity, layer_x: f32, layer_y: f32) void {
     const width: f32 = @floatFromInt(entity.width);
     const height: f32 = @floatFromInt(entity.height);
-    const pivot_x: f32 = @floatCast(entity.__pivot[0]);
-    const pivot_y: f32 = @floatCast(entity.__pivot[1]);
+    const x = layer_x + @as(f32, @floatFromInt(entity.x)) - entity.pivot_x * width;
+    const y = layer_y + @as(f32, @floatFromInt(entity.y)) - entity.pivot_y * height;
 
-    // top-left world position, pivot-adjusted
-    const x: f32 = layer_x + @as(f32, @floatFromInt(entity.px[0])) - (pivot_x * width);
-    const y: f32 = layer_y + @as(f32, @floatFromInt(entity.px[1])) - (pivot_y * height);
-
-    if (entity.__tile) |tile| {
-        const tex = map.getTexture(tile.tilesetUid) orelse return;
-
+    if (entity.tile) |tile| {
+        const tex = map.getTexture(tile.tileset_uid) orelse return;
         api.drawTexturedRect(tex, .{ .x = x, .y = y, .w = width, .h = height }, .{
             .x = @floatFromInt(tile.x),
             .y = @floatFromInt(tile.y),
@@ -112,10 +87,6 @@ pub fn renderEntity(map: *const LDtk, entity: LDtk.EntityInstance, layer_x: f32,
             .h = @floatFromInt(tile.h),
         }, Color.white);
     } else {
-        // placeholder: translucent __smartColor rect
-        var color = Color.parse(entity.__smartColor) catch Color.magenta;
-        color.set_a(153); // ~60% alpha
-
-        api.drawRect(.init(x, y - height), .init(width, height), color);
+        api.drawRect(.init(x, y - height), .init(width, height), Color.magenta);
     }
 }
