@@ -24,10 +24,6 @@ fn update(state: &mut Game) {
     let move_amt =
         input::get_vector("left", "right", "up", "down", AxisDiagonal::Raw) * 200. * time::dt();
     state.pos += move_amt;
-    // println!(
-    //     "wtf: {}",
-    //     input::get_vector("left", "right", "up", "down", AxisDiagonal::Raw)
-    // )
 }
 
 fn render(state: &Game) {

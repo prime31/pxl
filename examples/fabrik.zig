@@ -99,8 +99,8 @@ pub fn config() pxl.Config {
 }
 
 pub fn setup() !void {
-    const w = pxl.gpu.renderWidthf();
-    const h = pxl.gpu.renderHeightf();
+    const w = pxl.window.renderWidthf();
+    const h = pxl.window.renderHeightf();
 
     target = .init(w * 0.5, h * 0.5);
     actual_target = target;
@@ -113,8 +113,8 @@ pub fn setup() !void {
 }
 
 pub fn update() !void {
-    const w = pxl.gpu.renderWidthf();
-    const h = pxl.gpu.renderHeightf();
+    const w = pxl.window.renderWidthf();
+    const h = pxl.window.renderHeightf();
     const mouse = pxl.input.mousePos();
     const shift_held = pxl.input.keyDown(.left_shift) or pxl.input.keyDown(.right_shift);
 
@@ -131,8 +131,8 @@ pub fn update() !void {
 
 pub fn render() !void {
     pxl.beginPass(.{ .clear_color = Color.fromBytes(10, 12, 18, 255) });
-    const w = pxl.gpu.renderWidthf();
-    const h = pxl.gpu.renderHeightf();
+    const w = pxl.window.renderWidthf();
+    const h = pxl.window.renderHeightf();
 
     // World fixtures the tentacles are planted into.
     api.drawLine(.init(0, h - 22), .init(w, h - 22), 4, Color.fromRgb(0.27, 0.33, 0.45));

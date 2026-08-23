@@ -49,8 +49,8 @@ pub fn shutdown() !void {
 
 pub fn render() !void {
     const t = @as(f32, @floatFromInt(pxl.time.frameCount())) / 60.0;
-    const rw = pxl.gpu.renderWidthf();
-    const rh = pxl.gpu.renderHeightf();
+    const rw = pxl.window.renderWidthf();
+    const rh = pxl.window.renderHeightf();
     const cx = rw * 0.5;
     const cy = rh * 0.5;
     const scene_scale = @min(rw / 320.0, rh / 180.0);

@@ -335,30 +335,30 @@ export fn pxl_input_mouse_pos(x: *f32, y: *f32) void {
     y.* = pos.y;
 }
 
-export fn pxl_input_is_action_pressed(action: [*c]const u8) bool {
-    return pxl.input.isActionPressed(std.mem.sliceTo(action, 0));
+export fn pxl_input_is_action_pressed(action: [*c]const u8, action_len: usize) bool {
+    return pxl.input.isActionPressed(action[0..action_len]);
 }
 
-export fn pxl_input_is_action_just_pressed(action: [*c]const u8) bool {
-    return pxl.input.isActionJustPressed(std.mem.sliceTo(action, 0));
+export fn pxl_input_is_action_just_pressed(action: [*c]const u8, action_len: usize) bool {
+    return pxl.input.isActionJustPressed(action[0..action_len]);
 }
 
-export fn pxl_input_add_binding(action: [*c]const u8, keycode: i32) void {
-    pxl.input.addBinding(std.mem.sliceTo(action, 0), pxl.input.InputBinding.key(@enumFromInt(keycode)));
+export fn pxl_input_add_binding(action: [*c]const u8, action_len: usize, keycode: i32) void {
+    pxl.input.addBinding(action[0..action_len], pxl.input.InputBinding.key(@enumFromInt(keycode)));
 }
 
 export fn pxl_input_get_vector(
-    neg_x: [*c]const u8,
-    pos_x: [*c]const u8,
-    neg_y: [*c]const u8,
-    pos_y: [*c]const u8,
+    neg_x: [*c]const u8, neg_x_len: usize,
+    pos_x: [*c]const u8, pos_x_len: usize,
+    neg_y: [*c]const u8, neg_y_len: usize,
+    pos_y: [*c]const u8, pos_y_len: usize,
     diagonal: i32,
 ) Vec2 {
     return pxl.input.getVector(
-        std.mem.sliceTo(neg_x, 0),
-        std.mem.sliceTo(pos_x, 0),
-        std.mem.sliceTo(neg_y, 0),
-        std.mem.sliceTo(pos_y, 0),
+        neg_x[0..neg_x_len],
+        pos_x[0..pos_x_len],
+        neg_y[0..neg_y_len],
+        pos_y[0..pos_y_len],
         @enumFromInt(diagonal),
     );
 }
@@ -415,6 +415,22 @@ export fn pxl_window_set_clipboard(str: [*c]const u8) void {
 }
 export fn pxl_window_get_clipboard() [*c]const u8 {
     return pxl.window.getClipboardString().ptr;
+}
+
+export fn pxl_window_is_pixel_perfect() bool {
+    return pxl.window.isPixelPerfect();
+}
+export fn pxl_window_render_width() i32 {
+    return pxl.window.renderWidth();
+}
+export fn pxl_window_render_height() i32 {
+    return pxl.window.renderHeight();
+}
+export fn pxl_window_render_widthf() f32 {
+    return pxl.window.renderWidthf();
+}
+export fn pxl_window_render_heightf() f32 {
+    return pxl.window.renderHeightf();
 }
 
 // ── Audio ────────────────────────────────────────────────────────────────────

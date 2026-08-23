@@ -57,7 +57,7 @@ pub fn render() !void {
         }, frame.source, Color.white);
 
         pos.x += cell_size;
-        if (pos.x > pxl.gpu.renderWidthf()) {
+        if (pos.x > pxl.window.renderWidthf()) {
             pos.x = 1;
             pos.y += cell_size;
         }
@@ -74,7 +74,7 @@ pub fn render() !void {
         .h = frame.source.h * 5,
     }, frame.source, Color.white);
 
-    const text_pos = Vec2.init(pxl.gpu.renderWidthf() * 0.5 - 100, pxl.gpu.renderHeightf() * 0.5);
+    const text_pos = Vec2.init(pxl.window.renderWidthf() * 0.5 - 100, pxl.window.renderHeightf() * 0.5);
     api.drawText(null, text_pos, "fucking a-right ass\nmother FOOKER", Color.white);
 
     pxl.endPass();

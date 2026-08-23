@@ -53,8 +53,8 @@ fn nextColor() Color {
 
 /// Sandbox collision: the screen bounds as a point query (no tilemap here).
 fn solidAt(pos: Vec2) bool {
-    const w = pxl.gpu.renderWidthf();
-    const h = pxl.gpu.renderHeightf();
+    const w = pxl.window.renderWidthf();
+    const h = pxl.window.renderHeightf();
     return pos.y > h or pos.y < 0 or pos.x < 0 or pos.x > w;
 }
 
@@ -81,8 +81,8 @@ pub fn config() pxl.Config {
 }
 
 pub fn setup() !void {
-    const w = pxl.gpu.renderWidthf();
-    const h = pxl.gpu.renderHeightf();
+    const w = pxl.window.renderWidthf();
+    const h = pxl.window.renderHeightf();
 
     world = .{};
     world.setCollisionFn(solidAt);
@@ -198,8 +198,8 @@ pub fn update() !void {
 pub fn render() !void {
     pxl.beginPass(.{ .clear_color = Color.fromBytes(10, 12, 18, 255) });
 
-    const w = pxl.gpu.renderWidthf();
-    const h = pxl.gpu.renderHeightf();
+    const w = pxl.window.renderWidthf();
+    const h = pxl.window.renderHeightf();
 
     // Faint grid
     var x: f32 = 0;

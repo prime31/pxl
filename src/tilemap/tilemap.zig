@@ -4,6 +4,14 @@ const math = pxl.math;
 const cast = pxl.util.cast;
 
 pub const LDtk = @import("LDtk.zig");
+const render = @import("render.zig");
+
+pub const renderLevel = render.renderLevel;
+pub const renderLayer = render.renderLayer;
+pub const renderTiles = render.renderTiles;
+pub const renderTile = render.renderTile;
+pub const renderEntities = render.renderEntities;
+pub const renderEntity = render.renderEntity;
 
 const LayerInstance = LDtk.LayerInstance;
 const CollisionIterator = @import("collision_iterator.zig").CollisionIterator;

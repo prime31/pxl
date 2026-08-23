@@ -9,8 +9,8 @@ name = "hello"
 path = "src/bin/hello.rs"
 
 [[bin]]
-name = "animation"
-path = "src/bin/animation.rs"
+name = "aseprite"
+path = "src/bin/aseprite.rs"
 
 [[bin]]
 name = "shapes"

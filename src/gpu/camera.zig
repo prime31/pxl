@@ -31,8 +31,8 @@ pub const Camera = struct {
 
     /// Convert design render-target coordinates (or screen coordinates if using default policy) to world space
     pub fn screenToWorld(self: Camera, screen_pos: Vec2) Vec2 {
-        const target_w = pxl.gpu.renderWidthf();
-        const target_h = pxl.gpu.renderHeightf();
+        const target_w = pxl.window.renderWidthf();
+        const target_h = pxl.window.renderHeightf();
         const off = self.offset orelse Vec2.init(target_w * 0.5, target_h * 0.5);
         const zoom_val = if (self.zoom == 0) 1.0 else self.zoom;
 
@@ -45,8 +45,8 @@ pub const Camera = struct {
 
     /// Convert world space coordinates to design render-target coordinates
     pub fn worldToScreen(self: Camera, world_pos: Vec2) Vec2 {
-        const target_w = pxl.gpu.renderWidthf();
-        const target_h = pxl.gpu.renderHeightf();
+        const target_w = pxl.window.renderWidthf();
+        const target_h = pxl.window.renderHeightf();
         const off = self.offset orelse Vec2.init(target_w * 0.5, target_h * 0.5);
         const zoom_val = if (self.zoom == 0) 1.0 else self.zoom;
 

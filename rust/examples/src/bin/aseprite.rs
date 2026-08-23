@@ -1,5 +1,5 @@
 use glam::Vec2;
-use pxl::*;
+use pxl::{assets::aseprite_find_tag, *};
 
 pxl_game!(Game, config, setup, update, render);
 
@@ -8,6 +8,9 @@ struct Game {
     tex: pxl::Texture,
     player: pxl::AnimPlayer,
     pos: Vec2,
+    walk: u32,
+    run: u32,
+    attack: u32,
 }
 
 fn config() -> pxl::Config {
@@ -26,7 +29,12 @@ fn setup(state: &mut Game) {
 
     state.tex = assets::load_aseprite(0).unwrap();
     state.player = AnimPlayer::new();
-    state.player.play(assets::aseprite_tag_anim(2));
+
+    state.walk = aseprite_find_tag(0, "walk").unwrap();
+    state.run = aseprite_find_tag(0, "run").unwrap();
+    state.attack = aseprite_find_tag(0, "attack").unwrap();
+
+    state.player.play(state.walk);
 }
 
 fn update(state: &mut Game) {
@@ -35,20 +43,20 @@ fn update(state: &mut Game) {
     state.pos += move_amt;
 
     if input::key_pressed(Keycode::W) {
-        state.player.play(assets::aseprite_tag_anim(2));
+        state.player.play(state.walk);
     }
 
     if input::key_pressed(Keycode::R) {
-        state.player.play(assets::aseprite_tag_anim(1));
+        state.player.play(state.run);
     }
 
     if input::key_pressed(Keycode::Space) {
-        state.player.play(assets::aseprite_tag_anim(0));
+        state.player.play(state.attack);
     }
 
     state.player.update(pxl::time::dt());
     if state.player.finished() {
-        state.player.play(assets::aseprite_tag_anim(0));
+        state.player.play(state.walk);
     }
 }
 

@@ -315,11 +315,11 @@ bool pxl_input_mouse_down(int32_t button);
 bool pxl_input_mouse_pressed(int32_t button);
 void pxl_input_mouse_pos(float* x, float* y);
 
-bool pxl_input_is_action_pressed(const char* action);
-bool pxl_input_is_action_just_pressed(const char* action);
-void pxl_input_add_binding(const char* action, int32_t keycode);
+bool pxl_input_is_action_pressed(const void* action, size_t action_len);
+bool pxl_input_is_action_just_pressed(const void* action, size_t action_len);
+void pxl_input_add_binding(const void* action, size_t action_len, int32_t keycode);
 
-PxlVec2 pxl_input_get_vector(const char* neg_x, const char* pos_x, const char* neg_y, const char* pos_y, int32_t diagonal);
+PxlVec2 pxl_input_get_vector(const void* neg_x, size_t neg_x_len, const void* pos_x, size_t pos_x_len, const void* neg_y, size_t neg_y_len, const void* pos_y, size_t pos_y_len, int32_t diagonal);
 
 bool pxl_input_is_gamepad_connected(size_t index);
 bool pxl_input_is_gamepad_button_down(size_t index, int32_t button);
@@ -343,6 +343,12 @@ void    pxl_window_quit(void);
 void    pxl_window_set_title(const char* title);
 void    pxl_window_set_clipboard(const char* str);
 const char* pxl_window_get_clipboard(void);
+
+bool    pxl_window_is_pixel_perfect(void);
+int32_t pxl_window_render_width(void);
+int32_t pxl_window_render_height(void);
+float   pxl_window_render_widthf(void);
+float   pxl_window_render_heightf(void);
 
 // ── Audio ────────────────────────────────────────────────────────────────────
 // Sound and playback handles are opaque u64 values. 0 = invalid/null.

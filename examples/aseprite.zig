@@ -67,7 +67,7 @@ pub fn render() !void {
 
     const frame = player.frame();
     const scale: f32 = 0.6;
-    const frame_x = pxl.gpu.renderWidthf() * 0.5 - frame.source.w * scale * 0.5;
+    const frame_x = pxl.window.renderWidthf() * 0.5 - frame.source.w * scale * 0.5;
     const frame_y: f32 = 40;
     api.drawTexturedRect(frame.texture, .{
         .x = frame_x,
@@ -112,9 +112,9 @@ pub fn render() !void {
     const info = std.fmt.bufPrint(&buf, "playing: {s}   tags: {d}   frames: {d}   layers: {d}   slices: {d}", .{
         current_name, meta.tags.len, meta.frames.len, meta.layers.len, meta.slices.len,
     }) catch unreachable;
-    api.drawText(null, Vec2.init(pxl.gpu.renderWidthf() * 0.5 + 40, y), info, Color.white);
+    api.drawText(null, Vec2.init(pxl.window.renderWidthf() * 0.5 + 40, y), info, Color.white);
     y += 16;
-    api.drawText(null, Vec2.init(pxl.gpu.renderWidthf() * 0.5 + 40, y), "W walk, R run, SPACE attack", Color.white);
+    api.drawText(null, Vec2.init(pxl.window.renderWidthf() * 0.5 + 40, y), "W walk, R run, SPACE attack", Color.white);
 
     pxl.endPass();
 }

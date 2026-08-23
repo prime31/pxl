@@ -33,21 +33,19 @@ pub fn mouse_pos() -> Vec2 {
 }
 
 pub fn is_action_pressed(action: &str) -> bool {
-    let c = std::ffi::CString::new(action).unwrap();
-    unsafe { pxl_sys::pxl_input_is_action_pressed(c.as_ptr()) }
+    unsafe { pxl_sys::pxl_input_is_action_pressed(action.as_ptr(), action.len()) }
 }
 
 pub fn is_action_just_pressed(action: &str) -> bool {
-    let c = std::ffi::CString::new(action).unwrap();
-    unsafe { pxl_sys::pxl_input_is_action_just_pressed(c.as_ptr()) }
+    unsafe { pxl_sys::pxl_input_is_action_just_pressed(action.as_ptr(), action.len()) }
 }
 
 pub fn add_binding(action: &str, keycode: Keycode) {
-    let c = std::ffi::CString::new(action).unwrap();
-    unsafe { pxl_sys::pxl_input_add_binding(c.as_ptr(), keycode as i32) };
+    unsafe { pxl_sys::pxl_input_add_binding(action.as_ptr(), action.len(), keycode as i32) };
 }
 
 /// Analog 2D input vector from four action bindings (like Godot's `get_vector`).
+/// Zero-allocation: passes raw ptr+len to the C API.
 pub fn get_vector(
     neg_x: &str,
     pos_x: &str,
@@ -55,16 +53,12 @@ pub fn get_vector(
     pos_y: &str,
     diagonal: crate::AxisDiagonal,
 ) -> Vec2 {
-    let neg_x_c = std::ffi::CString::new(neg_x).unwrap();
-    let pos_x_c = std::ffi::CString::new(pos_x).unwrap();
-    let neg_y_c = std::ffi::CString::new(neg_y).unwrap();
-    let pos_y_c = std::ffi::CString::new(pos_y).unwrap();
     let v = unsafe {
         pxl_sys::pxl_input_get_vector(
-            neg_x_c.as_ptr(),
-            pos_x_c.as_ptr(),
-            neg_y_c.as_ptr(),
-            pos_y_c.as_ptr(),
+            neg_x.as_ptr(), neg_x.len(),
+            pos_x.as_ptr(), pos_x.len(),
+            neg_y.as_ptr(), neg_y.len(),
+            pos_y.as_ptr(), pos_y.len(),
             diagonal as i32,
         )
     };

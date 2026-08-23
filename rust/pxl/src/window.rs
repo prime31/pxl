@@ -62,3 +62,22 @@ pub fn get_clipboard() -> &'static str {
         CStr::from_ptr(ptr).to_str().unwrap_or("")
     }
 }
+
+
+// ── Render target ────────────────────────────────────────────────────────────
+
+pub fn is_pixel_perfect() -> bool {
+    unsafe { pxl_sys::pxl_window_is_pixel_perfect() }
+}
+pub fn render_width() -> i32 {
+    unsafe { pxl_sys::pxl_window_render_width() }
+}
+pub fn render_height() -> i32 {
+    unsafe { pxl_sys::pxl_window_render_height() }
+}
+pub fn render_widthf() -> f32 {
+    unsafe { pxl_sys::pxl_window_render_widthf() }
+}
+pub fn render_heightf() -> f32 {
+    unsafe { pxl_sys::pxl_window_render_heightf() }
+}

@@ -22,7 +22,7 @@ pub const Color = extern union {
     /// - `#RRGGBB`
     /// - `RRGGBBAA`
     /// - `#RRGGBBAA`
-    pub fn parse(comptime str: []const u8) !Color {
+    pub fn parse(str: []const u8) !Color {
         switch (str.len) {
             // RGB
             3 => {
@@ -30,11 +30,7 @@ pub const Color = extern union {
                 const g = try std.fmt.parseInt(u8, str[1..2], 16);
                 const b = try std.fmt.parseInt(u8, str[2..3], 16);
 
-                return fromBytes(
-                    r | (r << 4),
-                    g | (g << 4),
-                    b | (b << 4),
-                );
+                return fromRgbBytes(r | (r << 4), g | (g << 4), b | (b << 4));
             },
 
             // #RGB, RGBA
@@ -238,4 +234,9 @@ test "test color" {
 
     const scaled = c5.scale(2);
     try std.testing.expectEqual(scaled.r_val(), 200);
+
+    // runtime strings (no comptime) — the shape LDtk hands us from JSON
+    try std.testing.expectEqual(Color.fromBytes(255, 0, 85, 255).value, (Color.parse("#FF0055") catch unreachable).value);
+    try std.testing.expectEqual(Color.fromBytes(255, 0, 85, 255).value, (Color.parse("FF0055") catch unreachable).value);
+    try std.testing.expectError(error.UnknownFormat, Color.parse("zz"));
 }

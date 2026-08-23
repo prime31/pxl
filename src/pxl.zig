@@ -239,15 +239,15 @@ pub fn beginPass(pass: Pass) void {
     if (pass.clear_color) |col| gpu.offscreen.pass.action.colors[0].clear_value = col.asSokol();
     sg.beginPass(gpu.offscreen.pass);
 
-    const target_w = gpu.renderWidthf();
-    const target_h = gpu.renderHeightf();
+    const target_w = window.renderWidthf();
+    const target_h = window.renderHeightf();
     const view = if (pass.camera) |cam|
         cam.getView(target_w, target_h)
     else
         math.Mat32.identity();
     const projection = math.Mat32.orthographic(target_w, target_h);
 
-    batcher.begin(view, projection, pass.pixel_snap and gpu.isPixelPerfect());
+    batcher.begin(view, projection, pass.pixel_snap and window.isPixelPerfect());
 }
 
 pub fn endPass() void {

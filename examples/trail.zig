@@ -319,8 +319,8 @@ pub fn update() !void {
 pub fn render() !void {
     pxl.beginPass(.{ .clear_color = Color.fromBytes(8, 10, 20, 255) });
 
-    const w = pxl.gpu.renderWidthf();
-    const h = pxl.gpu.renderHeightf();
+    const w = pxl.window.renderWidthf();
+    const h = pxl.window.renderHeightf();
 
     var x: f32 = 0;
     while (x <= w) : (x += 24) {

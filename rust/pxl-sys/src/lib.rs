@@ -185,14 +185,14 @@ extern "C" {
     pub fn pxl_input_mouse_pressed(button: i32) -> bool;
     pub fn pxl_input_mouse_pos(x: *mut f32, y: *mut f32);
 
-    pub fn pxl_input_is_action_pressed(action: *const c_char) -> bool;
-    pub fn pxl_input_is_action_just_pressed(action: *const c_char) -> bool;
-    pub fn pxl_input_add_binding(action: *const c_char, keycode: i32);
+    pub fn pxl_input_is_action_pressed(action: *const u8, action_len: usize) -> bool;
+    pub fn pxl_input_is_action_just_pressed(action: *const u8, action_len: usize) -> bool;
+    pub fn pxl_input_add_binding(action: *const u8, action_len: usize, keycode: i32);
     pub fn pxl_input_get_vector(
-        neg_x: *const c_char,
-        pos_x: *const c_char,
-        neg_y: *const c_char,
-        pos_y: *const c_char,
+        neg_x: *const u8, neg_x_len: usize,
+        pos_x: *const u8, pos_x_len: usize,
+        neg_y: *const u8, neg_y_len: usize,
+        pos_y: *const u8, pos_y_len: usize,
         diagonal: i32,
     ) -> PxlVec2;
 
@@ -214,6 +214,12 @@ extern "C" {
     pub fn pxl_window_set_title(title: *const c_char);
     pub fn pxl_window_set_clipboard(str: *const c_char);
     pub fn pxl_window_get_clipboard() -> *const c_char;
+
+    pub fn pxl_window_is_pixel_perfect() -> bool;
+    pub fn pxl_window_render_width() -> i32;
+    pub fn pxl_window_render_height() -> i32;
+    pub fn pxl_window_render_widthf() -> f32;
+    pub fn pxl_window_render_heightf() -> f32;
 
     // Audio
     pub fn pxl_audio_load(path: *const c_char, streamed: bool) -> u64;
