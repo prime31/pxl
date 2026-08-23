@@ -49,6 +49,13 @@ const LDtk = pxl.tilemap.LDtk;
 const SoundId = pxl.audio.SoundId;
 const AnimationId = pxl.animation.AnimationId;
 const Rect = pxl.math.Rect;
+const Vec = pxl.util.Vec;
+
+/// Assets loaded by file path at runtime (not present in the build manifest).
+/// Tracked so `destroy` and `deinit` can free them like manifest assets.
+var runtime_textures: Vec(*Texture) = .empty;
+var runtime_fonts: Vec(*BMFont) = .empty;
+var runtime_tilemaps: Vec(*LDtk) = .empty;
 
 var textures: [manifest.textures.len]Texture = undefined;
 var tex_refs: [manifest.textures.len]u32 = [1]u32{0} ** manifest.textures.len;
@@ -110,6 +117,64 @@ pub fn loadTilemap(id: TilemapId) !*LDtk {
     try tilemaps[i].loadTilesetTextures(prefix);
     tilemap_refs[i] = 1;
     return &tilemaps[i];
+}
+
+/// Load a texture by file path. Manifest assets (paths known at build time)
+/// resolve to the refcounted cached entry; any other path is loaded from disk
+/// at runtime, which requires a real filesystem and therefore does not work on
+/// web. Runtime-loaded assets are released with `pxl.assets.destroy(texture)`.
+pub fn loadTexturePath(path: []const u8) !*Texture {
+    if (manifest.findTextureId(path)) |id| return loadTexture(id);
+    if (comptime builtin.target.cpu.arch.isWasm()) return error.AssetNotFound;
+    const tex = pxl.mem.create(Texture, .persistent);
+    errdefer pxl.mem.destroy(tex);
+    tex.* = try Texture.initFromFile(pxl.mem.dupeZ(u8, path, .temp));
+    runtime_textures.append(tex);
+    return tex;
+}
+
+/// Load a BMFont by file path. Manifest fonts resolve to the cached entry;
+/// other paths load from disk (desktop/Android only, not web).
+pub fn loadFontPath(path: []const u8) !*BMFont {
+    if (manifest.findFontId(path)) |id| return loadFont(id);
+    if (comptime builtin.target.cpu.arch.isWasm()) return error.AssetNotFound;
+    const font = pxl.mem.create(BMFont, .persistent);
+    errdefer pxl.mem.destroy(font);
+    font.* = try BMFont.initFromFile(path);
+    runtime_fonts.append(font);
+    return font;
+}
+
+/// Load an LDtk tilemap by file path. Manifest tilemaps resolve to the cached
+/// entry; other paths load from disk (desktop/Android only, not web). Tileset
+/// textures must still be manifest assets.
+pub fn loadTilemapPath(path: []const u8) !*LDtk {
+    if (manifest.findTilemapId(path)) |id| return loadTilemap(id);
+    if (comptime builtin.target.cpu.arch.isWasm()) return error.AssetNotFound;
+    const bytes = try pxl.fs.read(path, .temp);
+    const map = pxl.mem.create(LDtk, .persistent);
+    errdefer pxl.mem.destroy(map);
+    map.* = try LDtk.parse(bytes);
+    const dir_end = std.mem.lastIndexOfScalar(u8, path, std.fs.path.sep) orelse 0;
+    try map.loadTilesetTextures(path[0 .. dir_end + 1]);
+    runtime_tilemaps.append(map);
+    return map;
+}
+
+/// Resolve an aseprite atlas path (e.g. "assets/atlases/robot.png") to its
+/// manifest id. Aseprite metadata is build-time only, so runtime loading of
+/// arbitrary .aseprite files is not supported.
+pub fn findAsepriteId(path: []const u8) ?AsepriteId {
+    for (manifest.aseprites, 0..) |meta, i| {
+        if (std.mem.eql(u8, meta.path, path)) return @enumFromInt(i);
+    }
+    return null;
+}
+
+/// Load an aseprite atlas + animations by atlas path (see `findAsepriteId`).
+pub fn loadAsepritePath(path: []const u8) !*Texture {
+    const id = findAsepriteId(path) orelse return error.AssetNotFound;
+    return loadAseprite(id);
 }
 
 pub fn loadAudio(id: AudioId, opts: pxl.audio.LoadOptions) !SoundId {
@@ -273,6 +338,21 @@ pub fn deinit() void {
             atlas_refs[i] = 0;
         }
     }
+    for (runtime_textures.items) |rt| {
+        rt.deinit();
+        pxl.mem.destroy(rt);
+    }
+    runtime_textures.deinit();
+    for (runtime_fonts.items) |rf| {
+        rf.deinit();
+        pxl.mem.destroy(rf);
+    }
+    runtime_fonts.deinit();
+    for (runtime_tilemaps.items) |rt| {
+        rt.deinit();
+        pxl.mem.destroy(rt);
+    }
+    runtime_tilemaps.deinit();
 }
 
 fn destroyTexture(tex: *Texture) void {
@@ -294,6 +374,14 @@ fn destroyTexture(tex: *Texture) void {
             return;
         }
     }
+    for (runtime_textures.items, 0..) |rt, ri| {
+        if (rt == tex) {
+            rt.deinit();
+            pxl.mem.destroy(rt);
+            _ = runtime_textures.orderedRemove(ri);
+            return;
+        }
+    }
     @panic("pxl.assets.destroy: texture was not loaded via pxl.assets");
 }
 
@@ -307,6 +395,14 @@ fn destroyFont(font: *BMFont) void {
             return;
         }
     }
+    for (runtime_fonts.items, 0..) |rf, ri| {
+        if (rf == font) {
+            rf.deinit();
+            pxl.mem.destroy(rf);
+            _ = runtime_fonts.orderedRemove(ri);
+            return;
+        }
+    }
     @panic("pxl.assets.destroy: font was not loaded via pxl.assets");
 }
 
@@ -317,6 +413,14 @@ fn destroyTilemap(map: *LDtk) void {
         if (&tilemaps[i] == map) {
             tilemap_refs[i] -= 1;
             if (tilemap_refs[i] == 0) tilemaps[i].deinit();
+            return;
+        }
+    }
+    for (runtime_tilemaps.items, 0..) |rt, ri| {
+        if (rt == map) {
+            rt.deinit();
+            pxl.mem.destroy(rt);
+            _ = runtime_tilemaps.orderedRemove(ri);
             return;
         }
     }

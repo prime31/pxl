@@ -1,7 +1,9 @@
 use glam::Vec2;
-use pxl::{assets::aseprite_find_tag, *};
+use pxl::*;
 
 pxl_game!(Game, config, setup, update, render);
+
+const ATLAS: &str = "assets/atlases/character_robot.png";
 
 #[derive(Default)]
 struct Game {
@@ -27,12 +29,13 @@ fn config() -> pxl::Config {
 fn setup(state: &mut Game) {
     state.pos = Vec2 { x: 10., y: 10. };
 
-    state.tex = assets::load_aseprite(0).unwrap();
+    let atlas_id = assets::aseprite_id_by_path(ATLAS).unwrap();
+    state.tex = assets::load_aseprite_path(ATLAS).unwrap();
     state.player = AnimPlayer::new();
 
-    state.walk = aseprite_find_tag(0, "walk").unwrap();
-    state.run = aseprite_find_tag(0, "run").unwrap();
-    state.attack = aseprite_find_tag(0, "attack").unwrap();
+    state.walk = assets::aseprite_anim_by_name(atlas_id, "walk").unwrap();
+    state.run = assets::aseprite_anim_by_name(atlas_id, "run").unwrap();
+    state.attack = assets::aseprite_anim_by_name(atlas_id, "attack").unwrap();
 
     state.player.play(state.walk);
 }

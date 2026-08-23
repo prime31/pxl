@@ -35,8 +35,8 @@ impl Default for Game {
 fn setup(state: &mut Game) {
     state.ferris = Vec::with_capacity(MAX_FERRIS);
     state.rng = StdRng::from_entropy();
-    state.tex = Some(assets::load_texture(3).unwrap_or_else(|| {
-        eprintln!("ferrismark: failed to load ferris_smol (id 3). Run from project root.");
+    state.tex = Some(assets::load_texture_path("assets/textures/ferris_smol.png").unwrap_or_else(|| {
+        eprintln!("ferrismark: failed to load assets/textures/ferris_smol.png. Run from project root.");
         std::process::exit(1);
     }));
     eprintln!("ferrismark: ready — press Space to spawn");

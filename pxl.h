@@ -379,6 +379,12 @@ void pxl_assets_destroy_font(PxlFont* font);
 void pxl_assets_destroy_tilemap(PxlTilemap* map);
 void pxl_assets_destroy_audio(uint64_t handle);
 
+// Path-based loaders: pass a file path + length. Manifest assets resolve by
+// path; other paths load from disk at runtime (desktop/Android only).
+PxlTexture*  pxl_assets_load_texture_path(const char* path, size_t path_len);
+PxlFont*     pxl_assets_load_font_path(const char* path, size_t path_len);
+PxlTilemap*  pxl_assets_load_tilemap_path(const char* path, size_t path_len);
+
 // ── Animation ────────────────────────────────────────────────────────────────
 
 uint32_t        pxl_anim_add(const char* name, PxlTexture* tex,
@@ -412,6 +418,8 @@ uint32_t    pxl_aseprite_tag_anim(uint32_t tag_id);
 uint32_t    pxl_aseprite_tag_count(uint32_t aseprite_id);
 const char* pxl_aseprite_tag_name(uint32_t tag_id);
 uint32_t    pxl_aseprite_frame_count(uint32_t aseprite_id);
+PxlTexture* pxl_aseprite_load_path(const char* path, size_t path_len);
+uint32_t    pxl_aseprite_find_id(const char* path, size_t path_len); // UINT32_MAX if not found
 
 // ── Color helpers ────────────────────────────────────────────────────────────
 

@@ -30,6 +30,26 @@ pub fn load_audio(id: u32, streamed: bool) -> Option<Sound> {
     if handle == 0 { None } else { Some(Sound(handle)) }
 }
 
+// ── Path-based loaders ───────────────────────────────────────────────────────
+// Pass a file path (e.g. "assets/textures/ferris_smol.png"). Manifest assets
+// resolve by path; other paths load from disk at runtime, which requires a
+// real filesystem and so does not work on web.
+
+pub fn load_texture_path(path: &str) -> Option<Texture> {
+    let raw = unsafe { pxl_sys::pxl_assets_load_texture_path(path.as_ptr(), path.len()) };
+    if raw.is_null() { None } else { Some(Texture { raw }) }
+}
+
+pub fn load_font_path(path: &str) -> Option<Font> {
+    let raw = unsafe { pxl_sys::pxl_assets_load_font_path(path.as_ptr(), path.len()) };
+    if raw.is_null() { None } else { Some(Font { raw }) }
+}
+
+pub fn load_tilemap_path(path: &str) -> Option<Tilemap> {
+    let raw = unsafe { pxl_sys::pxl_assets_load_tilemap_path(path.as_ptr(), path.len()) };
+    if raw.is_null() { None } else { Some(Tilemap { raw }) }
+}
+
 // ── Aseprite ─────────────────────────────────────────────────────────────────
 
 /// Load an aseprite atlas texture and register one `Animation` per tag.
@@ -37,6 +57,21 @@ pub fn load_audio(id: u32, streamed: bool) -> Option<Sound> {
 pub fn load_aseprite(aseprite_id: u32) -> Option<Texture> {
     let raw = unsafe { pxl_sys::pxl_aseprite_load(aseprite_id) };
     if raw.is_null() { None } else { Some(Texture { raw }) }
+}
+
+/// Load an aseprite atlas + animations by atlas path (e.g.
+/// "assets/atlases/robot.png"). Aseprite metadata is build-time only, so the
+/// path must resolve to a manifest aseprite.
+pub fn load_aseprite_path(path: &str) -> Option<Texture> {
+    let raw = unsafe { pxl_sys::pxl_aseprite_load_path(path.as_ptr(), path.len()) };
+    if raw.is_null() { None } else { Some(Texture { raw }) }
+}
+
+/// Resolve an aseprite atlas path to its manifest id. Returns `None` if the
+/// path is not a known aseprite atlas.
+pub fn aseprite_id_by_path(path: &str) -> Option<u32> {
+    let id = unsafe { pxl_sys::pxl_aseprite_find_id(path.as_ptr(), path.len()) };
+    if id == u32::MAX { None } else { Some(id) }
 }
 
 /// Get the `AnimationId` for an aseprite tag (global tag index).

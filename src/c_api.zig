@@ -518,6 +518,21 @@ export fn pxl_assets_destroy_audio(handle: u64) void {
     pxl.assets.destroy(unpackSoundId(handle));
 }
 
+// Path-based loaders. Resolve manifest assets by their path; other paths load
+// from disk at runtime (desktop/Android only — fails on web).
+
+export fn pxl_assets_load_texture_path(path: [*c]const u8, path_len: usize) ?*Texture {
+    return pxl.assets.loadTexturePath(path[0..path_len]) catch return null;
+}
+
+export fn pxl_assets_load_font_path(path: [*c]const u8, path_len: usize) ?*BMFont {
+    return pxl.assets.loadFontPath(path[0..path_len]) catch return null;
+}
+
+export fn pxl_assets_load_tilemap_path(path: [*c]const u8, path_len: usize) ?*LDtk {
+    return pxl.assets.loadTilemapPath(path[0..path_len]) catch return null;
+}
+
 // ── Animation ────────────────────────────────────────────────────────────────
 
 export fn pxl_anim_add(
@@ -629,4 +644,13 @@ export fn pxl_aseprite_tag_name(tag_id: u32) [*c]const u8 {
 export fn pxl_aseprite_frame_count(aseprite_id: u32) u32 {
     const meta = pxl.assets.asepriteMeta(@enumFromInt(aseprite_id));
     return @intCast(meta.frames.len);
+}
+
+export fn pxl_aseprite_load_path(path: [*c]const u8, path_len: usize) ?*Texture {
+    return pxl.assets.loadAsepritePath(path[0..path_len]) catch return null;
+}
+
+export fn pxl_aseprite_find_id(path: [*c]const u8, path_len: usize) u32 {
+    const id = pxl.assets.findAsepriteId(path[0..path_len]) orelse return std.math.maxInt(u32);
+    return @intFromEnum(id);
 }

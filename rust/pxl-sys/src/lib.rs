@@ -246,6 +246,10 @@ extern "C" {
     pub fn pxl_assets_destroy_tilemap(map: *mut PxlTilemap);
     pub fn pxl_assets_destroy_audio(handle: u64);
 
+    pub fn pxl_assets_load_texture_path(path: *const u8, path_len: usize) -> *mut PxlTexture;
+    pub fn pxl_assets_load_font_path(path: *const u8, path_len: usize) -> *mut PxlFont;
+    pub fn pxl_assets_load_tilemap_path(path: *const u8, path_len: usize) -> *mut PxlTilemap;
+
     // Animation
     pub fn pxl_anim_add(
         name: *const c_char,
@@ -288,4 +292,7 @@ extern "C" {
     pub fn pxl_aseprite_tag_count(aseprite_id: u32) -> u32;
     pub fn pxl_aseprite_tag_name(tag_id: u32) -> *const c_char;
     pub fn pxl_aseprite_frame_count(aseprite_id: u32) -> u32;
+    pub fn pxl_aseprite_load_path(path: *const u8, path_len: usize) -> *mut PxlTexture;
+    /// Returns UINT32_MAX if the path is not a known aseprite atlas.
+    pub fn pxl_aseprite_find_id(path: *const u8, path_len: usize) -> u32;
 }

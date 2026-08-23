@@ -37,9 +37,10 @@ pub use crate::input::{
 pub use crate::pass::{begin, end};
 
 pub use crate::assets::{
-    aseprite_anim_by_name, aseprite_find_tag, aseprite_frame_count, aseprite_tag_anim,
-    aseprite_tag_count, aseprite_tag_name, load_aseprite, load_audio, load_font, load_texture,
-    load_tilemap,
+    aseprite_anim_by_name, aseprite_find_tag, aseprite_frame_count, aseprite_id_by_path,
+    aseprite_tag_anim, aseprite_tag_count, aseprite_tag_name, load_aseprite, load_aseprite_path,
+    load_audio, load_font, load_font_path, load_texture, load_texture_path, load_tilemap,
+    load_tilemap_path,
 };
 
 pub use crate::window::{
