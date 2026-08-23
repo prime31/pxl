@@ -88,11 +88,24 @@ For now, we require ReleaseFast due to a bug in HashMap.
 **local webserver**: `python3 -m http.server 8000`
 
 
+### Asset preparation
+LDtk maps and Aseprite files are source assets under `assets_src/`. Runtime
+builds consume generated files and do not run the asset processor automatically.
+After changing a `.ldtk` or `.aseprite` file, run:
+
+```sh
+zig build assets -Daseprite=/path/to/aseprite
+```
+
+`zig build assets` writes compiled maps to `assets/maps/*.pxlmap` and Aseprite
+atlas PNGs plus metadata JSON to `assets/atlases/`. Shader generation remains a
+normal cached Zig build module and does not create files in the asset tree.
+The processor is intentionally an explicit preparation step because it
+materializes outputs under `assets/`, while ordinary builds never run it.
+
 ### Aseprite atlases
-Put `.aseprite` sources in `assets/aseprite/`. At build time they are exported
-(with the Aseprite CLI, `-Daseprite=/path/to/aseprite`) into
-`assets/atlases/<name>.png`, and the manifest records each file's frames, tags,
-slices and layers.
+Put `.aseprite` sources in `assets_src/aseprite/`. The processor exports the atlas
+and metadata while preserving frames, tags, slices and layers.
 
 ```zig
 const tex = try pxl.assets.loadAseprite(.character_robot);   // loads texture + binds every tag

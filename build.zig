@@ -64,6 +64,7 @@ const BuildWasmOptions = struct {
     opt_imgui: bool = false,
     dep_cimgui: *Build.Dependency,
     cimgui_clib_name: []const u8,
+    prepared_asset_validation: *Build.Step,
 };
 
 const AssetKind = enum { texture, font, tilemap, audio };
@@ -440,11 +441,61 @@ const AssetManifest = struct {
     c_header: Build.LazyPath,
 };
 
+fn requireGeneratedFile(b: *Build, path: []const u8) !void {
+    if (std.Io.Dir.accessAbsolute(b.graph.io, b.pathFromRoot(path), .{})) |_| return else |_| {
+        std.debug.print("pxl: generated asset '{s}' is missing; run `zig build assets`\n", .{path});
+        return error.GeneratedAssetMissing;
+    }
+}
+
+fn validatePreparedAssets(b: *Build) !void {
+    const maps_root = b.pathFromRoot("assets_src/maps");
+    var maps_dir = std.Io.Dir.openDirAbsolute(b.graph.io, maps_root, .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound => return,
+        else => return err,
+    };
+    defer maps_dir.close(b.graph.io);
+    var maps = try std.Io.Dir.walkSelectively(maps_dir, b.allocator);
+    defer maps.deinit();
+    while (try maps.next(b.graph.io)) |entry| {
+        if (entry.kind == .directory) {
+            try maps.enter(b.graph.io, entry);
+            continue;
+        }
+        if (entry.kind != .file or !std.mem.eql(u8, std.fs.path.extension(entry.path), ".ldtk")) continue;
+        const output = try std.fmt.allocPrint(b.allocator, "assets/maps/{s}.pxlmap", .{entry.path[0 .. entry.path.len - 5]});
+        defer b.allocator.free(output);
+        try requireGeneratedFile(b, output);
+    }
+
+    const aseprite_root = b.pathFromRoot("assets_src/aseprite");
+    var aseprite_dir = std.Io.Dir.openDirAbsolute(b.graph.io, aseprite_root, .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound => return,
+        else => return err,
+    };
+    defer aseprite_dir.close(b.graph.io);
+    var aseprite = try std.Io.Dir.walkSelectively(aseprite_dir, b.allocator);
+    defer aseprite.deinit();
+    while (try aseprite.next(b.graph.io)) |entry| {
+        if (entry.kind == .directory) {
+            try aseprite.enter(b.graph.io, entry);
+            continue;
+        }
+        if (entry.kind != .file or !std.mem.eql(u8, std.fs.path.extension(entry.path), ".aseprite")) continue;
+            const stem = try assetIdName(b, entry.path);
+        defer b.allocator.free(stem);
+        try requireGeneratedFile(b, b.fmt("assets/atlases/{s}.json", .{stem}));
+        try requireGeneratedFile(b, b.fmt("assets/atlases/{s}.png", .{stem}));
+    }
+}
+
 fn addAssetManifest(b: *Build) !AssetManifest {
-    try generatePxlMaps(b);
-    const exports = try exportAsepriteFiles(b);
+    const exports = try loadAsepriteExports(b);
     defer {
-        for (exports) |e| e.parsed.deinit();
+        for (exports) |e| {
+            e.parsed.deinit();
+            b.allocator.free(e.id_name);
+        }
         b.allocator.free(exports);
     }
     var entries = try collectAssetEntries(b, exports);
@@ -457,6 +508,108 @@ fn addAssetManifest(b: *Build) !AssetManifest {
         .zig_source = wf.add("asset_manifest.zig", zig_source),
         .c_header = wf.add("pxl_assets.h", c_header),
     };
+}
+
+fn loadAsepriteExports(b: *Build) ![]AsepriteExport {
+    const metadata_root = b.pathFromRoot("assets/atlases");
+    var dir = std.Io.Dir.openDirAbsolute(b.graph.io, metadata_root, .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound => return &.{},
+        else => return err,
+    };
+    defer dir.close(b.graph.io);
+
+    var walker = try std.Io.Dir.walkSelectively(dir, b.allocator);
+    defer walker.deinit();
+    var exports = std.ArrayList(AsepriteExport).empty;
+    errdefer {
+        for (exports.items) |e| {
+            e.parsed.deinit();
+            b.allocator.free(e.id_name);
+        }
+        exports.deinit(b.allocator);
+    }
+
+    while (try walker.next(b.graph.io)) |entry| {
+        if (entry.kind == .directory) {
+            try walker.enter(b.graph.io, entry);
+            continue;
+        }
+        if (entry.kind != .file or !std.mem.eql(u8, std.fs.path.extension(entry.path), ".json")) continue;
+        const path = try std.fs.path.join(b.allocator, &.{ metadata_root, entry.path });
+        defer b.allocator.free(path);
+        const bytes = try std.Io.Dir.readFileAlloc(std.Io.Dir.cwd(), b.graph.io, path, b.allocator, .unlimited);
+        defer b.allocator.free(bytes);
+        const parsed = try std.json.parseFromSlice(AsepriteJson, b.allocator, bytes, .{
+            .ignore_unknown_fields = true,
+            .allocate = .alloc_always,
+        });
+        const basename = std.fs.path.basename(entry.path);
+        const stem = basename[0 .. basename.len - std.fs.path.extension(basename).len];
+        try exports.append(b.allocator, .{ .id_name = b.dupe(stem), .parsed = parsed });
+    }
+    return exports.toOwnedSlice(b.allocator);
+}
+
+fn addAssetSourceInputs(b: *Build, run: *Build.Step.Run) !void {
+    const roots = [_][]const u8{ "assets_src/maps", "assets_src/aseprite" };
+    for (roots) |root| {
+        var dir = std.Io.Dir.openDir(std.Io.Dir.cwd(), b.graph.io, root, .{ .iterate = true }) catch |err| switch (err) {
+            error.FileNotFound => continue,
+            else => return err,
+        };
+        defer dir.close(b.graph.io);
+        var walker = try std.Io.Dir.walkSelectively(dir, b.allocator);
+        defer walker.deinit();
+        while (try walker.next(b.graph.io)) |entry| {
+            if (entry.kind == .directory) {
+                try walker.enter(b.graph.io, entry);
+                continue;
+            }
+            if (entry.kind != .file) continue;
+            const ext = std.fs.path.extension(entry.path);
+            if (!std.mem.eql(u8, ext, ".ldtk") and !std.mem.eql(u8, ext, ".aseprite")) continue;
+            const path = try std.fs.path.join(b.allocator, &.{ root, entry.path });
+            defer b.allocator.free(path);
+            run.addFileInput(b.path(path));
+        }
+    }
+}
+
+fn addPreparedAssetValidationStep(b: *Build) !*Build.Step {
+    const tool = b.addExecutable(.{
+        .name = "pxl-asset-processor-validate",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/asset_processor.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    const run = b.addRunArtifact(tool);
+    run.setCwd(b.path("."));
+    run.addArg("validate");
+    return &run.step;
+}
+
+fn addAssetPreparationStep(b: *Build) !void {
+    const tool = b.addExecutable(.{
+        .name = "pxl-asset-processor",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/asset_processor.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    const run = b.addRunArtifact(tool);
+    run.setCwd(b.path("."));
+    run.addArg("all");
+    if (b.option([]const u8, "aseprite", "Path to the Aseprite CLI executable")) |path| {
+        run.addArg(b.fmt("--aseprite={s}", .{path}));
+    }
+    try addAssetSourceInputs(b, run);
+    // The processor materializes outputs under assets/, so it is intentionally
+    // a side-effecting preparation step rather than a cache-owned output step.
+    run.has_side_effects = true;
+    b.step("assets", "Process LDtk and Aseprite source assets").dependOn(&run.step);
 }
 
 fn findAsepriteBin(b: *Build) ?[]const u8 {
@@ -487,7 +640,7 @@ fn runAseprite(b: *Build, bin: []const u8, src: []const u8, sheet: []const u8, d
 }
 
 fn exportAsepriteFiles(b: *Build) ![]AsepriteExport {
-    const src_root = b.pathFromRoot("assets/aseprite");
+    const src_root = b.pathFromRoot("assets_src/aseprite");
     var rel_paths = std.ArrayList([]const u8).empty;
     defer {
         for (rel_paths.items) |p| b.allocator.free(p);
@@ -518,10 +671,10 @@ fn exportAsepriteFiles(b: *Build) ![]AsepriteExport {
         return error.AsepriteNotFound;
     };
 
-    // The PNG is a runtime asset, so it lives in the source tree (and gets
-    // bundled into APKs). The JSON is only consumed by this build script.
+    // The generated files are runtime inputs and live under assets/ so they are
+    // included by Web and Android packaging. Normal builds only read these files.
     const png_dir_abs = b.pathFromRoot("assets/atlases");
-    const json_dir_abs = b.pathFromRoot(".zig-cache/aseprite-gen");
+    const json_dir_abs = b.pathFromRoot("assets/atlases");
     _ = std.Io.Dir.createDirPathStatus(std.Io.Dir.cwd(), b.graph.io, png_dir_abs, .default_dir) catch |err| switch (err) {
         error.PathAlreadyExists => {},
         else => return err,
@@ -600,13 +753,14 @@ fn containsPath(paths: []const []const u8, needle: []const u8) bool {
 }
 
 /// True for a `.png` generated by the aseprite export (e.g.
-/// `assets/atlases/character_robot.png`). Those are atlases, not standalone
-/// textures, so they must not be enumerated into `TextureId`.
+/// `assets/atlases/character_robot.png`). Those are atlases, not
+/// standalone textures, so they must not be enumerated into `TextureId`.
 fn isAsepriteExportPng(b: *Build, exports: []AsepriteExport, rel: []const u8) bool {
+    _ = b;
     if (!std.mem.eql(u8, std.fs.path.extension(rel), ".png")) return false;
-    const id = assetIdName(b, rel) catch return false;
-    defer b.allocator.free(id);
-    for (exports) |e| if (std.mem.eql(u8, e.id_name, id)) return true;
+    const basename = std.fs.path.basename(rel);
+    const stem = basename[0 .. basename.len - std.fs.path.extension(basename).len];
+    for (exports) |e| if (std.mem.eql(u8, e.id_name, stem)) return true;
     return false;
 }
 
@@ -638,7 +792,9 @@ fn collectAssetEntries(b: *Build, exports: []AsepriteExport) !std.ArrayList(Asse
         if (std.mem.eql(u8, std.fs.path.extension(entry.path), ".aseprite")) continue;
         if (std.mem.eql(u8, std.fs.path.extension(entry.path), ".ldtk")) continue;
         if (assetKind(entry.path) == null) {
-            std.debug.print("pxl assets: ignoring unsupported file 'assets/{s}'\n", .{entry.path});
+            if (!std.mem.eql(u8, std.fs.path.extension(entry.path), ".json")) {
+                std.debug.print("pxl assets: ignoring unsupported file 'assets/{s}'\n", .{entry.path});
+            }
             continue;
         }
         try rel_paths.append(b.allocator, b.dupe(entry.path));
@@ -992,11 +1148,14 @@ pub fn build(b: *Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    try addAssetPreparationStep(b);
+    const prepared_asset_validation = try addPreparedAssetValidationStep(b);
+
     // Android check first — early return to keep the native/wasm path clean
     const android_targets = android_build.standardTargets(b, target);
     if (android_targets.len > 0) {
         const manifest = try addAssetManifest(b);
-        try buildAndroid(b, optimize, android_targets, manifest.zig_source);
+        try buildAndroid(b, optimize, android_targets, manifest.zig_source, prepared_asset_validation);
         return;
     }
 
@@ -1032,7 +1191,7 @@ pub fn build(b: *Build) !void {
         dep_stb.module("stb").addSystemIncludePath(dep_emsdk.path("upstream/emscripten/cache/sysroot/include"));
     }
 
-    // for now add all shaders in one module
+    // Shader generation remains a cached build module owned by Zig.
     const shader_zig_path = try compileShaderPath(b, dep_sokol, shaders.engine_shader_dir ++ shaders.engine_shaders[0]);
     const mod_shader = b.addModule("shader_module", .{ .root_source_file = shader_zig_path });
     mod_shader.addImport("sokol", dep_sokol.module("sokol"));
@@ -1064,6 +1223,7 @@ pub fn build(b: *Build) !void {
     if (target.result.cpu.arch.isWasm()) {
         // currently only builds base.zig
         try buildWeb(b, .{
+            .prepared_asset_validation = prepared_asset_validation,
             // .target = target,
             // .optimize = optimize,
             .mod_pxl = mod_pxl,
@@ -1078,12 +1238,14 @@ pub fn build(b: *Build) !void {
             .optimize = optimize,
             .mod_pxl = mod_pxl,
             .dep_sokol = dep_sokol,
+            .prepared_asset_validation = prepared_asset_validation,
         });
     }
 
     // native unit tests for the pxl module (incl. tilemap SubpixelFloat)
     if (!target.result.cpu.arch.isWasm()) {
         const pxl_tests = b.addTest(.{ .root_module = mod_pxl });
+        pxl_tests.step.dependOn(prepared_asset_validation);
         const test_step = b.step("test", "Run pxl unit tests");
         test_step.dependOn(&b.addRunArtifact(pxl_tests).step);
 
@@ -1139,6 +1301,7 @@ pub fn build(b: *Build) !void {
         const install_assets_h = b.addInstallFile(manifest.c_header, "include/pxl_assets.h");
 
         const lib_step = b.step("lib", "Build libpxl.a + C headers");
+        lib_step.dependOn(prepared_asset_validation);
         lib_step.dependOn(&install_lib.step);
         lib_step.dependOn(&install_sokol.step);
         lib_step.dependOn(&install_h.step);
@@ -1155,6 +1318,7 @@ const ExeConfig = struct {
     optimize: std.builtin.OptimizeMode,
     mod_pxl: *std.Build.Module,
     dep_sokol: *Dependency,
+    prepared_asset_validation: *Build.Step,
 };
 
 // this is the regular build for all native platforms, nothing surprising here
@@ -1184,6 +1348,8 @@ fn buildNative(b: *Build, opts: ExeConfig) !void {
             }),
         });
 
+        exe.step.dependOn(opts.prepared_asset_validation);
+
         // only install the artifact for non-check examples
         if (!is_check) {
             b.installArtifact(exe);
@@ -1195,6 +1361,7 @@ fn buildNative(b: *Build, opts: ExeConfig) !void {
                 .name = "check",
                 .root_module = exe.root_module,
             });
+            exe_check.step.dependOn(opts.prepared_asset_validation);
 
             // add the "check" step which will be detected by ZLS and automatically enable Build-On-Save.
             const check = b.step("check", "Check if foo compiles");
@@ -1239,6 +1406,7 @@ fn buildWeb(b: *Build, opts: BuildWasmOptions) !void {
         .name = "web",
         .root_module = mod_entry,
     });
+    lib.step.dependOn(opts.prepared_asset_validation);
 
     // create a build step which invokes the Emscripten linker
     const emsdk = opts.dep_sokol.builder.dependency("emsdk", .{});
@@ -1263,9 +1431,11 @@ fn buildWeb(b: *Build, opts: BuildWasmOptions) !void {
     b.step("run", "Run web sample").dependOn(&run.step);
 }
 
-fn buildAndroid(b: *Build, optimize: OptimizeMode, android_targets: []ResolvedTarget, assets_gen: Build.LazyPath) !void {
+fn buildAndroid(b: *Build, optimize: OptimizeMode, android_targets: []ResolvedTarget, assets_gen: Build.LazyPath, prepared_asset_validation: *Build.Step) !void {
     // Use the first android target's sokol to reach the shdc host binary.
     // shdc always runs on the host regardless of target arch.
+    // Compile the cached shader module for the host; the generated source is not
+    // materialized into the packaged asset tree.
     const first_target = android_targets[0];
     const dep_sb_for_shdc = b.dependency("sokol_builder", .{
         .target = first_target,
@@ -1273,8 +1443,6 @@ fn buildAndroid(b: *Build, optimize: OptimizeMode, android_targets: []ResolvedTa
         .imgui = false,
         .dont_link_system_libs = true,
     });
-
-    // Compile shaders once — glsl300es output is target-agnostic (same source for all ABIs)
     const shader_zig_path = try compileShaderPath(
         b,
         dep_sb_for_shdc.builder.dependency("sokol", .{
@@ -1374,6 +1542,8 @@ fn buildAndroid(b: *Build, optimize: OptimizeMode, android_targets: []ResolvedTa
                     },
                 }),
             });
+
+            lib.step.dependOn(prepared_asset_validation);
 
             // Link Android system libraries on the final .so (not in the intermediate
             // static sokol archive, which would cause LLD warnings about .so stubs).

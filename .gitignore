@@ -5,3 +5,4 @@ zig-*/
 rust/target/
 assets/maps/*.pxlmap
 assets/maps/*/png/
+assets/atlases/*.json

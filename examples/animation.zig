@@ -18,6 +18,10 @@ var animator: pxl.AnimationPlayer = .{};
 
 pub fn config() pxl.Config {
     return .{
+        .win = .{
+            .width = 640 * 2,
+            .height = 320 * 2,
+        },
         .gfx = .{
             .design_width = 640,
             .design_height = 320,
