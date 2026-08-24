@@ -34,6 +34,9 @@ const examples = [_]Example{
     .{ .name = "verlet" },
     .{ .name = "fabrik" },
     .{ .name = "gamepad" },
+    // GPU fluid/smoke simulation example. Compute shaders require a compute-capable
+    // backend (Metal, D3D11, GL3.1+/GLES3.1, WebGPU) — not WebGL2.
+    .{ .name = "smoke" },
 };
 
 const shaders = struct {
@@ -209,12 +212,20 @@ const ExeConfig = struct {
 fn buildNative(b: *Build, opts: ExeConfig) !void {
     inline for (examples) |example| {
         const is_check = std.mem.eql(u8, example.name, "check");
+        const is_smoke = std.mem.eql(u8, example.name, "smoke");
         const mod_example = b.createModule(.{
             .root_source_file = b.path(try std.fmt.allocPrint(b.allocator, "examples/{s}.zig", .{example.name})),
             .target = opts.target,
             .optimize = opts.optimize,
             .imports = &.{.{ .name = "pxl", .module = opts.mod_pxl }},
         });
+        if (is_smoke) {
+            const fluid_path = try compileFluidShaderPath(b, opts.dep_sokol);
+            const mod_fluid_shader = b.createModule(.{ .root_source_file = fluid_path });
+            mod_fluid_shader.addImport("sokol", opts.dep_sokol.module("sokol"));
+            mod_fluid_shader.addImport("pxl", opts.mod_pxl);
+            mod_example.addImport("fluid_shaders", mod_fluid_shader);
+        }
         const exe = b.addExecutable(.{
             .name = example.name,
             .root_module = b.createModule(.{
@@ -303,6 +314,9 @@ fn buildAndroid(b: *Build, optimize: OptimizeMode, android_targets: []ResolvedTa
 
     for (examples) |example| {
         if (std.mem.eql(u8, example.name, "check")) continue;
+        // The smoke example is a GPU compute-shader demo; its fluid shader module
+        // is only wired into the native build path.
+        if (std.mem.eql(u8, example.name, "smoke")) continue;
         const apk = android_sdk.createApk(.{
             .name = example.name,
             .api_level = .android15,
@@ -407,6 +421,21 @@ fn setupEmsdkPython(b: *Build, dep_emsdk: *Build.Dependency) void {
 }
 
 fn compileShaderPath(b: *Build, dep_sokol: *Build.Dependency, shader_file: []const u8) !Build.LazyPath {
+    return compileShaderPathSlang(b, dep_sokol, shader_file, .{ .metal_macos = true, .glsl300es = true });
+}
+
+fn compileFluidShaderPath(b: *Build, dep_sokol: *Build.Dependency) !Build.LazyPath {
+    // Compute pass support: Metal for macOS/iOS, GLSL 4.30 for desktop GL and GLSL
+    // 3.10 ES for GLES3.1 targets. (WebGL2 has no compute — the smoke example is
+    // desktop/Android only.)
+    return compileShaderPathSlang(b, dep_sokol, "shaders/fluid.glsl", .{
+        .metal_macos = true,
+        .glsl430 = true,
+        .glsl310es = true,
+    });
+}
+
+fn compileShaderPathSlang(b: *Build, dep_sokol: *Build.Dependency, shader_file: []const u8, slang: shdc.Slang) !Build.LazyPath {
     const dep_shdc = dep_sokol.builder.dependency("shdc", .{});
     return shdc.compile(b, .{
         .shdc_dep = dep_shdc,
@@ -415,7 +444,7 @@ fn compileShaderPath(b: *Build, dep_sokol: *Build.Dependency, shader_file: []con
         .reflection = false,
         .bytecode = false,
         .no_log_cmdline = false,
-        .slang = .{ .metal_macos = true, .glsl300es = true },
+        .slang = slang,
         .genver = b.fmt("{b}", .{std.Io.Clock.now(.awake, b.graph.io).toNanoseconds()}),
     });
 }
