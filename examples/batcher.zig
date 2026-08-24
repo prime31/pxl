@@ -69,7 +69,6 @@ pub fn render() !void {
     // exercise the custom-pipeline + uniform API (pipeline is created once, on first press)
     if (pxl.input.keyDown(.p)) {
         api.setBlendMode(.add);
-        api.setUniform(null, null);
         api.drawTriangle(.init(320, 100), .init(520, 100), .init(420, 300), pxl.math.Color.red);
         api.resetPipeline();
     }
