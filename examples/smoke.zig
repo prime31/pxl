@@ -25,9 +25,16 @@ const Color = pxl.math.Color;
 const Map = pxl.tilemap.Map;
 const Texture = pxl.gpu.Texture;
 
-// The fluid domain == the visible design resolution, 1 cell per pixel.
+// The fluid runs 1:1 with the visible design resolution (320x180), exactly like
+// the reference game ("the game is rendered in 320x180, so I run the whole
+// fluid simulation without scaling it down"). Each sim cell is one design pixel,
+// upscaled 3x with nearest-neighbour sampling for the crisp pixel look.
+const DESIGN_W = 320;
+const DESIGN_H = 180;
 const SIM_W = 320;
 const SIM_H = 180;
+const SIM_SCALE = @as(f32, SIM_W) / @as(f32, DESIGN_W); // design px -> sim px
+const PX_PER_CELL = @as(f32, DESIGN_W) / @as(f32, SIM_W); // sim px -> design px
 
 const PHASE_CLEAR = 0;
 const PHASE_SEED = 1;
@@ -45,7 +52,7 @@ const PHASE_DISPLAY = 12;
 
 var map: *Map = undefined;
 var collision: pxl.tilemap.Layer = undefined;
-var camera: pxl.Camera = .{ .position = .init(@floatFromInt(SIM_W / 2), @floatFromInt(SIM_H / 2)), .zoom = 1.0, .rotation = 0 };
+var camera: pxl.Camera = .{ .position = .init(@floatFromInt(DESIGN_W / 2), @floatFromInt(DESIGN_H / 2)), .zoom = 1.0, .rotation = 0 };
 var player: pxl.tilemap.Player = .{};
 var player_prev: Vec2 = .{};
 
@@ -57,12 +64,12 @@ const SimConfig = struct {
     pressure_iters: f32 = 40, // red-black passes (2 per iteration)
     max_velocity: f32 = 400,
     gravity: f32 = 25, // buoyancy magnitude; +y is down on screen
-    buoyancy_temp: f32 = 0.12,
+    buoyancy_temp: f32 = 0.09,
     buoyancy_smoke: f32 = 0.05,
-    wind: f32 = 6,
-    smoke_decay: f32 = 0.15,
+    wind: f32 = 3,
+    smoke_decay: f32 = 0.03,
     temp_decay: f32 = 0.08,
-    smoke_diffusion: f32 = 0.25,
+    smoke_diffusion: f32 = 0.04,
     temp_diffusion: f32 = 0.4,
     ambient: f32 = 20,
     temp_rate: f32 = 8, // how fast the player heats nearby air
@@ -75,7 +82,17 @@ const SimConfig = struct {
     player_push: f32 = 4.5,
     disp_mode: i32 = 0, // 0 smoke, 1 temperature, 2 velocity, 3 divergence, 4 pressure
     show_panel: bool = false,
+    vent_strength: f32 = 1.0, // multiplier for all steam vents
 };
+
+// Steam vents (design px): x, y, radius, smoke emission per second. Hot plumes
+// rise off these spots, drift with the wind and curl around the maze walls.
+const vents = [_][4]f32{
+    .{ 60, 84, 16, 1.5 },
+    .{ 240, 36, 16, 1.5 },
+    .{ 36, 156, 16, 1.5 },
+};
+
 var cfg: SimConfig = .{};
 
 // ---- GPU resources ----
@@ -100,12 +117,12 @@ var mouse_prev: Vec2 = .{};
 pub fn config() pxl.Config {
     return .{
         .win = .{
-            .width = SIM_W * 3,
-            .height = SIM_H * 3,
+            .width = DESIGN_W * 3,
+            .height = DESIGN_H * 3,
         },
         .gfx = .{
-            .design_width = SIM_W,
-            .design_height = SIM_H,
+            .design_width = DESIGN_W,
+            .design_height = DESIGN_H,
             .resolution_policy = .show_all_pixel_perfect,
         },
     };
@@ -134,23 +151,38 @@ const EDGE_TOP = 3;
 
 /// Rasterize the IntGrid collision layer into a 1px-per-sim-cell obstacle mask.
 /// r = solid, g = packed 4-bit edge case (bit n set = edge n is blocked).
-/// The domain border is always solid so the fluid is contained.
+/// The domain border is open on the top and right (like the reference's
+/// openRightEdge/openTopEdge) so smoke flows out of the scene instead of
+/// recirculating against the walls; left and bottom stay solid. Each sim cell
+/// covers a PX_PER_CELL x PX_PER_CELL block of design pixels; a cell is solid
+/// if any design pixel in its block is a wall.
 fn buildObstacleMask() []u8 {
     const pixels = pxl.mem.alloc(u8, SIM_W * SIM_H * 4, .temp);
     @memset(pixels, 0);
     const solid = pxl.mem.alloc(u8, SIM_W * SIM_H, .temp);
     @memset(solid, 0);
     const tile: i32 = @intCast(map.tileSize());
+    const cell_px: i32 = @intFromFloat(PX_PER_CELL);
     var solid_cells: usize = 0;
 
     var y: i32 = 0;
     while (y < SIM_H) : (y += 1) {
         var x: i32 = 0;
         while (x < SIM_W) : (x += 1) {
-            const on_border = x == 0 or y == 0 or x == SIM_W - 1 or y == SIM_H - 1;
-            const cx: u32 = @intCast(@divFloor(x, tile));
-            const cy: u32 = @intCast(@divFloor(y, tile));
-            if (on_border or collision.isCellSolid(cx, cy)) {
+            const on_border = x == 0 or y == SIM_H - 1; // open top (y=0) + right (x=W-1)
+            var is_wall = false;
+            var dy: i32 = 0;
+            while (dy < cell_px and !is_wall) : (dy += 1) {
+                var dx: i32 = 0;
+                while (dx < cell_px and !is_wall) : (dx += 1) {
+                    const dpx = x * cell_px + dx;
+                    const dpy = y * cell_px + dy;
+                    const cx: u32 = @intCast(@divFloor(dpx, tile));
+                    const cy: u32 = @intCast(@divFloor(dpy, tile));
+                    if (collision.isCellSolid(cx, cy)) is_wall = true;
+                }
+            }
+            if (on_border or is_wall) {
                 solid[@as(usize, @intCast(y)) * SIM_W + @as(usize, @intCast(x))] = 1;
                 solid_cells += 1;
             }
@@ -274,21 +306,23 @@ pub fn setup() !void {
         .u_player_on = 1,
     };
     ctl2_u = .{
-        .u_player_pos = player.rect.center(),
+        .u_player_pos = player.rect.center().scale(SIM_SCALE),
         .u_player_delta = .{},
-        .u_player_radius = cfg.player_radius,
+        .u_player_radius = cfg.player_radius * SIM_SCALE,
         .u_player_push = cfg.player_push,
         .u_emit = 0,
         .u_player_temp = cfg.player_temp,
+        .u_vent_temp = 27,
+        .u_vents = .{ .{ 0, 0, 0, 0 }, .{ 0, 0, 0, 0 }, .{ 0, 0, 0, 0 } },
     };
 
     dispatch(PHASE_CLEAR);
 
     // Seed a warm puff around the spawn point so the scene isn't empty on the
     // first frame.
-    ctl2_u.u_emit = 0.6;
+    ctl2_u.u_emit = 0.5;
     var seed: u32 = 0;
-    while (seed < 5) : (seed += 1) dispatch(PHASE_SEED);
+    while (seed < 2) : (seed += 1) dispatch(PHASE_SEED);
     ctl2_u.u_emit = 0;
 }
 
@@ -325,23 +359,29 @@ fn runStep(dt: f32) void {
     sim_u.u_wind_x = cfg.wind;
     ctl_u.u_max_velocity = cfg.max_velocity;
 
-    // Player interaction (sim space == screen space, y-down).
+    // Player interaction (design px -> sim px, y-down).
     const pos = player.rect.center();
     const delta = pos.sub(player_prev);
-    ctl2_u.u_player_pos = pos;
-    ctl2_u.u_player_delta = delta.scale(cfg.player_push);
-    ctl2_u.u_player_radius = cfg.player_radius;
+    ctl2_u.u_player_pos = pos.scale(SIM_SCALE);
+    ctl2_u.u_player_delta = delta.scale(cfg.player_push * SIM_SCALE);
+    ctl2_u.u_player_radius = cfg.player_radius * SIM_SCALE;
     ctl_u.u_player_on = 1;
     const speed = delta.len() / @max(dt, 0.0001);
     ctl2_u.u_emit = cfg.emit * std.math.clamp(speed / 40.0, 0, 1.5);
     player_prev = pos;
 
-    // Mouse brush (left = push, right = add smoke).
+    // Steam vents (position/radius fixed, strength tunable).
+    for (vents, 0..) |v, i| {
+        ctl2_u.u_vents[i] = .{ v[0] * SIM_SCALE, v[1] * SIM_SCALE, v[2] * SIM_SCALE, v[3] * cfg.vent_strength };
+    }
+    ctl2_u.u_vent_temp = 27;
+
+    // Mouse brush (left = push, right = add smoke), design px -> sim px.
     const mouse = input.mousePosScaled();
-    ctl_u.u_brush_centre = mouse;
-    ctl_u.u_brush_delta = mouse.sub(mouse_prev).scale(cfg.brush_strength);
+    ctl_u.u_brush_centre = mouse.scale(SIM_SCALE);
+    ctl_u.u_brush_delta = mouse.sub(mouse_prev).scale(cfg.brush_strength * SIM_SCALE);
     const brushing = input.mouseDown(.left) or input.mouseDown(.right);
-    ctl_u.u_brush_radius = if (brushing) cfg.brush_radius else 0;
+    ctl_u.u_brush_radius = if (brushing) cfg.brush_radius * SIM_SCALE else 0;
     ctl_u.u_brush_add_smoke = if (input.mouseDown(.right)) 1 else 0;
     ctl_u.u_brush_set_velocities = if (input.mouseDown(.left)) 1 else 0;
     mouse_prev = mouse;
@@ -383,9 +423,9 @@ pub fn update() !void {
     const move = input.getVector("left", "right", "up", "down", .square);
     player.move(map, move);
 
-    // Keep the player inside the simulated viewport.
-    player.rect.x = std.math.clamp(player.rect.x, 1, SIM_W - 1 - player.rect.w);
-    player.rect.y = std.math.clamp(player.rect.y, 1, SIM_H - 1 - player.rect.h);
+    // Keep the player inside the visible viewport.
+    player.rect.x = std.math.clamp(player.rect.x, 1, DESIGN_W - 1 - player.rect.w);
+    player.rect.y = std.math.clamp(player.rect.y, 1, DESIGN_H - 1 - player.rect.h);
 
     if (input.keyPressed(.c)) clearSim();
     if (input.keyPressed(.space)) cfg.paused = !cfg.paused;
@@ -462,6 +502,9 @@ fn controlsWindow() void {
     mu.label("Emission:");
     _ = mu.slider(&cfg.emit, 0, 10, 0.05);
 
+    mu.label("Vent Strength:");
+    _ = mu.slider(&cfg.vent_strength, 0, 4, 0.05);
+
     mu.label("Brush Radius:");
     _ = mu.slider(&cfg.brush_radius, 2, 60, 1);
 
@@ -491,16 +534,21 @@ fn controlsWindow() void {
 pub fn render() !void {
     pxl.beginPass(.{ .camera = camera, .clear_color = Color.fromBytes(5, 7, 18, 255) });
 
-    // Smoke first: the tone-mapped GPU output fills the whole viewport...
-    api.drawTexture(.{ .img = field_imgs[@intFromEnum(FieldId.disp)], .width = SIM_W, .height = SIM_H }, .{});
+    // Smoke first: the tone-mapped GPU output covers the viewport, upscaled 2x
+    // with nearest sampling so each sim cell is a chunky pixel.
+    api.drawTextureEx(
+        .{ .img = field_imgs[@intFromEnum(FieldId.disp)], .width = SIM_W, .height = SIM_H },
+        .{ .pos = .{}, .origin = .top_left, .scale = .init(PX_PER_CELL, PX_PER_CELL) },
+        Color.white,
+    );
 
     // ...then the maze walls sit on top of the drifting smoke, then the player.
     // (entities stay hidden — this scene has none we care about)
     for (map.levels) |level| pxl.tilemap.renderLevel(map, level, false);
     drawPlayer();
 
-    api.drawText(null, .init(4, SIM_H - 24), "wasd move + stir smoke · hold mouse to blow", Color.aya);
-    api.drawText(null, .init(4, SIM_H - 12), "tab view · c clear · space pause · f1 settings", Color.aya);
+    api.drawText(null, .init(4, DESIGN_H - 24), "wasd move + stir smoke · hold mouse to blow", Color.aya);
+    api.drawText(null, .init(4, DESIGN_H - 12), "tab view · c clear · space pause · f1 settings", Color.aya);
 
     pxl.endPass();
 }

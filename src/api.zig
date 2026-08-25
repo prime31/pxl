@@ -145,7 +145,7 @@ pub fn drawTexture(tex: Texture, position: Vec2) void {
 
 /// Draw a texture using a Transform and color tint.
 pub fn drawTextureEx(tex: Texture, transform: Transform, color: Color) void {
-    drawSprite(.{ .texture = tex, .transform = transform, .color = color });
+    drawSprite(.{ .texture = tex, .color = color }, transform);
 }
 
 /// Draw the `src` pixel region of `tex` into the `dst` world rect (top-left), tinted by

@@ -66,6 +66,9 @@ layout(binding=2) uniform ctl2_ub {
     float u_player_push;
     float u_emit;
     float u_player_temp;
+    float u_vent_temp;
+    // Steam vents: xy = position, z = radius, w = smoke emission per second.
+    vec4  u_vents[3];
 };
 
 layout(binding=1) uniform texture2D u_obstacle_tex;
@@ -124,9 +127,42 @@ vec2 cell_edge_bottom(int x, int y) {
 }
 
 bool is_solid(ivec2 p) {
-    if (p.x < 0 || p.y < 0 || p.x >= dims().x || p.y >= dims().y) return true;
+    // Out-of-bounds cells: the domain is open on the top (y < 0) and right
+    // (x >= W) edges so smoke flows out of the scene (like the reference's
+    // openRightEdge/openTopEdge); left and bottom stay solid.
+    if (p.x < 0) return true;
+    if (p.y >= dims().y) return true;
+    if (p.x >= dims().x || p.y < 0) return false;
     vec2 uv = (vec2(p) + vec2(0.5)) / u_resolution;
     return texture(sampler2D(u_obstacle_tex, u_obstacle_smp), uv).r > 0.5;
+}
+
+// Cheap hash-based 1D value noise, used to give the ambient smoke turbulent,
+// billowing structure instead of a flat fill. value in [0,1].
+float hash1(float n) {
+    return fract(sin(n) * 43758.5453123);
+}
+float noise1(float x) {
+    float i = floor(x);
+    float f = fract(x);
+    float u = f * f * (3.0 - 2.0 * f);
+    return mix(hash1(i), hash1(i + 1.0), u);
+}
+// 2D value noise via hash of the (x,y) coordinates.
+float hash12(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+float noise2(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    float a = hash12(i);
+    float b = hash12(i + vec2(1.0, 0.0));
+    float c = hash12(i + vec2(0.0, 1.0));
+    float d = hash12(i + vec2(1.0, 1.0));
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 
 // Packed 4-bit edge case: bit n set means the edge in direction n is blocked.
@@ -226,14 +262,15 @@ void main() {
         return;
     }
 
-    // ---- seed a puff of smoke at the player (setup only) ----
+    // ---- seed a small puff of smoke around the player (setup only) ----
     if (u_phase == PHASE_SEED) {
         vec2 worldPos = cell_centre(id.x, id.y);
-        float k = falloff(worldPos, u_player_pos - u_resolution * 0.5, u_player_radius);
+        // A modest puff so the scene opens slightly smoky without filling it.
+        float k = falloff(worldPos, u_player_pos - u_resolution * 0.5, 17.0);
         if (k > 0.0) {
             vec4 sm = imageLoad(u_smoke, id);
-            sm.rgb += vec3(u_smoke_r, u_smoke_g, u_smoke_b) * u_emit * k;
-            sm.a = max(sm.a, u_ambient + 12.0 * k);
+            sm.rgb += vec3(u_smoke_r, u_smoke_g, u_smoke_b) * (0.35 + u_emit * 0.4) * k;
+            sm.a = max(sm.a, u_ambient + 14.0 * k);
             imageStore(u_smoke, id, sm);
         }
         return;
@@ -243,6 +280,20 @@ void main() {
     if (u_phase == PHASE_FORCES) {
         vec2 worldPos = cell_centre(id.x, id.y);
         vec4 smokeData = imageLoad(u_smoke, id);
+
+        // Steam vents: hot plumes rise off fixed sources, get pushed by the wind
+        // and curl around the maze walls, so the scene reads as drifting steam
+        // rather than a haze that fills the whole domain.
+        if (!is_solid(id)) {
+            for (int i = 0; i < 3; i++) {
+                vec4 v = u_vents[i];
+                if (v.w <= 0.0) continue;
+                float k = falloff(worldPos, v.xy - u_resolution * 0.5, v.z);
+                if (k <= 0.0) continue;
+                smokeData.rgb += vec3(u_smoke_r, u_smoke_g, u_smoke_b) * v.w * u_dt * k;
+                smokeData.a += (u_vent_temp - smokeData.a) * u_temperature_rate * u_dt * k;
+            }
+        }
 
         // The player's body heats the air, drags it along and emits smoke.
         if (u_player_on != 0 && u_player_radius > 0.0) {
@@ -267,6 +318,18 @@ void main() {
                 velocity.x += u_player_delta.x * k * (edge_blocked(id, EDGE_LEFT) ? 0.0 : 1.0);
                 velocity.y += u_player_delta.y * k * (edge_blocked(id, EDGE_BOTTOM) ? 0.0 : 1.0);
             }
+        }
+
+        // Divergence-free swirling eddies from curl noise, so advection stretches
+        // the smoke into wisps and billows instead of carrying it as a smooth sheet.
+        if (!is_solid(id)) {
+            float t = u_time * 0.04;
+            vec2 q = vec2(float(id.x), float(id.y)) * 0.075 + vec2(t * 0.25);
+            float e = 1.5;
+            float nx = noise2(q + vec2(e, 0.0)) - noise2(q - vec2(e, 0.0));
+            float ny = noise2(q + vec2(0.0, e)) - noise2(q - vec2(0.0, e));
+            vec2 swirl = vec2(ny, -nx); // rotated gradient ~ divergence free
+            velocity += (swirl * 12.0) * u_dt;
         }
 
         // Wind source: a column just inside the left edge of the domain.
@@ -448,21 +511,30 @@ void main() {
     // ---- tone-map the smoke into the RGBA8 display image ----
     if (u_phase == PHASE_DISPLAY) {
         vec4 sm = imageLoad(u_smoke, id);
-        vec3 col = vec3(0.016, 0.024, 0.06);
+        // Atmospheric background: deep blue-violet, dark enough for the smoke to read.
+        vec3 bg = vec3(0.010, 0.014, 0.038);
+        vec3 col = bg;
         if (u_disp_mode == 0) {
-            // smoke: blue-ish wisps on a dark background, hot cores glow
+            // Steam look matching the reference game: a dim blue-grey smoke body
+            // (lum ~16-64) drifting over a near-black scene, with light localised
+            // coverage instead of a full-screen haze. A pow curve lifts the plume
+            // mid-tones so the clouds read clearly, and per-cell density keeps the
+            // pixel texture.
             if (!is_solid(id)) {
-                float density = dot(sm.rgb, vec3(0.299, 0.587, 0.114));
-                float d = max(density - 0.03, 0.0) * 1.2;
-                vec3 c1 = vec3(0.07, 0.13, 0.28);
-                vec3 c2 = vec3(0.23, 0.43, 0.72);
-                vec3 c3 = vec3(0.72, 0.89, 1.0);
-                col = mix(col, c1, smoothstep(0.0, 0.35, d));
-                col = mix(col, c2, smoothstep(0.25, 0.8, d));
-                col = mix(col, c3, smoothstep(0.65, 1.35, d));
-                float heat = clamp((sm.a - u_ambient) * 0.4, 0.0, 1.0);
-                col = mix(col, vec3(1.0, 0.82, 0.6), heat * 0.3);
-                col += vec3(0.5, 0.7, 1.0) * d * d * 0.3;
+                float amt = (sm.r + sm.g + sm.b) / 3.0;
+                float d = clamp(amt, 0.0, 1.2);
+                // Blue-grey steam body (lum ~20-70) with luminous blue-white
+                // cores where the plumes are densest, like the reference.
+                vec3 steam = vec3(0.26, 0.36, 0.52);
+                // Per-cell grain anchored to the sim grid: each cell gets a fixed
+                // brightness bias, so the plume reads as chunky low-res pixels
+                // (the reference's coarse-cell smoke texture) instead of a smooth
+                // gradient wash.
+                float grain = 0.88 + 0.24 * hash12(vec2(id) + 4.7);
+                col = bg + steam * pow(d, 0.65) * 1.9 * grain;
+                // Slight cool-violet tint in the hot cores of the plumes.
+                float heat = clamp((sm.a - u_ambient) * 0.04, 0.0, 1.0);
+                col = mix(col, vec3(0.38, 0.40, 0.62), heat * 0.40);
             }
         } else if (u_disp_mode == 1) {
             // temperature: red hot, blue cold
