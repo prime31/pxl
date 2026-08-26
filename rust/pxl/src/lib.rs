@@ -45,8 +45,8 @@ pub mod audio;
 pub mod draw;
 pub mod input;
 pub mod pass;
-pub mod time;
 pub mod prelude;
+pub mod time;
 pub mod window;
 
 mod color;
@@ -262,7 +262,9 @@ macro_rules! pxl_game {
             $render(unsafe { $crate::state::<$state>() });
         }
         fn __px_drop() {
-            unsafe { std::ptr::drop_in_place(__PX_GAME_STATE.as_mut_ptr()); }
+            unsafe {
+                std::ptr::drop_in_place(__PX_GAME_STATE.as_mut_ptr());
+            }
         }
 
         fn main() {
@@ -296,7 +298,9 @@ macro_rules! pxl_game {
             $render(unsafe { $crate::state::<$state>() });
         }
         fn __px_drop() {
-            unsafe { std::ptr::drop_in_place(__PX_GAME_STATE.as_mut_ptr()); }
+            unsafe {
+                std::ptr::drop_in_place(__PX_GAME_STATE.as_mut_ptr());
+            }
         }
 
         fn main() {
@@ -391,7 +395,6 @@ macro_rules! simple_game {
     };
 }
 
-
 // ── Handles ──────────────────────────────────────────────────────────────────
 
 /// Loaded texture. Dropping calls `pxl.assets.destroy(texture)`.
@@ -400,8 +403,12 @@ pub struct Texture {
 }
 
 impl Texture {
-    pub fn is_null(&self) -> bool {
-        self.raw.is_null()
+    pub fn width(&self) -> i32 {
+        unsafe { (*self.raw).width }
+    }
+
+    pub fn height(&self) -> i32 {
+        unsafe { (*self.raw).height }
     }
 }
 
@@ -418,7 +425,6 @@ impl Drop for Texture {
         if !self.raw.is_null() {
             unsafe {
                 pxl_sys::pxl_assets_destroy_texture(self.raw);
-                self.raw = std::ptr::null_mut();
             };
         }
     }
@@ -431,7 +437,9 @@ pub struct Font {
 
 impl Default for Font {
     fn default() -> Self {
-        Self { raw: std::ptr::null_mut() }
+        Self {
+            raw: std::ptr::null_mut(),
+        }
     }
 }
 
@@ -439,7 +447,6 @@ impl Drop for Font {
     fn drop(&mut self) {
         if !self.raw.is_null() {
             unsafe { pxl_sys::pxl_assets_destroy_font(self.raw) };
-            self.raw = std::ptr::null_mut();
         }
     }
 }
@@ -453,7 +460,6 @@ impl Drop for Tilemap {
     fn drop(&mut self) {
         unsafe {
             pxl_sys::pxl_assets_destroy_tilemap(self.raw);
-            self.raw = std::ptr::null_mut()
         };
     }
 }
@@ -553,7 +559,6 @@ impl Drop for AnimPlayer {
         if !self.raw.is_null() {
             unsafe {
                 pxl_sys::pxl_anim_player_destroy(self.raw);
-                self.raw = std::ptr::null_mut()
             };
         }
     }

@@ -29,7 +29,9 @@ pub type PxlColor = u32;
 
 #[repr(C)]
 pub struct PxlTexture {
-    _private: [u8; 0],
+    pub img: u32,
+    pub width: i32,
+    pub height: i32,
 }
 #[repr(C)]
 pub struct PxlFont {
@@ -190,10 +192,14 @@ extern "C" {
     pub fn pxl_input_is_action_just_pressed(action: *const u8, action_len: usize) -> bool;
     pub fn pxl_input_add_binding(action: *const u8, action_len: usize, keycode: i32);
     pub fn pxl_input_get_vector(
-        neg_x: *const u8, neg_x_len: usize,
-        pos_x: *const u8, pos_x_len: usize,
-        neg_y: *const u8, neg_y_len: usize,
-        pos_y: *const u8, pos_y_len: usize,
+        neg_x: *const u8,
+        neg_x_len: usize,
+        pos_x: *const u8,
+        pos_x_len: usize,
+        neg_y: *const u8,
+        neg_y_len: usize,
+        pos_y: *const u8,
+        pos_y_len: usize,
         diagonal: i32,
     ) -> PxlVec2;
 

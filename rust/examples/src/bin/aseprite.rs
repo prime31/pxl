@@ -38,6 +38,11 @@ fn setup(state: &mut Game) {
     state.attack = assets::aseprite_anim_by_name(atlas_id, "attack").unwrap();
 
     state.player.play(state.walk);
+
+    input::add_binding("left", Keycode::Left);
+    input::add_binding("right", Keycode::Right);
+    input::add_binding("up", Keycode::Up);
+    input::add_binding("down", Keycode::Down);
 }
 
 fn update(state: &mut Game) {
