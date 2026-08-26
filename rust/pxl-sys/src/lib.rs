@@ -166,6 +166,7 @@ extern "C" {
     );
 
     pub fn pxl_draw_text(text: *const c_char, x: f32, y: f32, color: PxlColor);
+    pub fn pxl_draw_text_len(text: *const u8, text_len: usize, x: f32, y: f32, color: PxlColor);
 
     pub fn pxl_draw_set_blend_mode(mode: PxlBlendMode);
     pub fn pxl_draw_reset_blend_mode();
@@ -289,6 +290,7 @@ extern "C" {
     // Aseprite
     pub fn pxl_aseprite_load(aseprite_id: u32) -> *mut PxlTexture;
     pub fn pxl_aseprite_tag_anim(tag_id: u32) -> u32;
+    pub fn pxl_aseprite_anim_by_name(aseprite_id: u32, name: *const u8, name_len: usize) -> u32;
     pub fn pxl_aseprite_tag_count(aseprite_id: u32) -> u32;
     pub fn pxl_aseprite_tag_name(tag_id: u32) -> *const c_char;
     pub fn pxl_aseprite_frame_count(aseprite_id: u32) -> u32;

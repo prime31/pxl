@@ -294,6 +294,7 @@ void pxl_draw_textured_rect(PxlTexture* tex,
     float src_x, float src_y, float src_w, float src_h, PxlColor color);
 
 void pxl_draw_text(const char* text, float x, float y, PxlColor color);
+void pxl_draw_text_len(const void* text, size_t text_len, float x, float y, PxlColor color);
 
 void pxl_draw_set_blend_mode(PxlBlendMode mode);
 void pxl_draw_reset_blend_mode(void);

@@ -281,6 +281,10 @@ export fn pxl_draw_text(text: [*c]const u8, x: f32, y: f32, color: Color) void {
     pxl.api.drawText(null, .init(x, y), slice, color);
 }
 
+export fn pxl_draw_text_len(text: [*c]const u8, text_len: usize, x: f32, y: f32, color: Color) void {
+    pxl.api.drawText(null, .init(x, y), text[0..text_len], color);
+}
+
 export fn pxl_draw_set_blend_mode(mode: i32) void {
     pxl.api.setBlendMode(@enumFromInt(mode));
 }

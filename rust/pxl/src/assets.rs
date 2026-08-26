@@ -120,5 +120,6 @@ pub fn aseprite_find_tag(aseprite_id: u32, name: &str) -> Option<u32> {
 
 /// Find a tag by name and return its AnimationId. Returns `None` if not found.
 pub fn aseprite_anim_by_name(aseprite_id: u32, name: &str) -> Option<u32> {
-    aseprite_find_tag(aseprite_id, name).map(aseprite_tag_anim)
+    let id = unsafe { pxl_sys::pxl_aseprite_anim_by_name(aseprite_id, name.as_ptr(), name.len()) };
+    if id == u32::MAX { None } else { Some(id) }
 }

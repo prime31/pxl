@@ -1,42 +1,34 @@
 package main
 
 import pxl ".."
+import "core:fmt"
 
 Game :: struct {
 	pos: pxl.Vec2,
 }
 game: Game
+fps_buf: [32]u8
 
 setup :: proc() {
-	game.pos = pxl.Vec2{10, 10};
-	pxl.add_binding("left", .LEFT);
-	pxl.add_binding(
-		"right",
-		.RIGHT,
-	)
+	game.pos = pxl.Vec2{10, 10}
+	pxl.add_binding("left", .LEFT)
+	pxl.add_binding("right", .RIGHT)
 	pxl.add_binding("up", .UP)
 	pxl.add_binding("down", .DOWN)
 }
 
 update :: proc() {
-	move := pxl.scale(
-		pxl.get_vector("left", "right", "up", "down", .RAW),
-		200.0 * pxl.dt(),
-	)
+	move := pxl.scale(pxl.get_vector("left", "right", "up", "down", .RAW), 200.0 * pxl.dt())
 	game.pos.x += move.x
 	game.pos.y += move.y
 }
 
 render :: proc() {
-	pxl.begin_pass(pxl.color_rgb(20, 20, 30));
-	pxl.circle(
-		pxl.mouse_pos(),
-		32,
-		32,
-		pxl.color_rgb(253, 249, 0),
-	)
+	pxl.begin_pass(pxl.color_rgb(20, 20, 30))
+	pxl.circle(pxl.mouse_pos(), 32, 32, pxl.color_rgb(253, 249, 0))
 	pxl.circle(game.pos, 32, 32, pxl.color_rgb(200, 122, 255))
-	pxl.text("FPS", pxl.Vec2{8, 8}, pxl.color_rgb(255, 255, 255))
+	fps_text := fmt.bprintf(fps_buf[:], "FPS: %d", pxl.fps())
+	pxl.text(fps_text, pxl.Vec2{8, 8}, pxl.color_rgb(255, 255, 255))
 	pxl.end_pass()
 }
 

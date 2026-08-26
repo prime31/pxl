@@ -36,7 +36,7 @@ fn setup(state: &mut Game) {
         b.pos = Vec2 {
             x: rand::random(),
             y: rand::random(),
-        } * f32::min(window::widthf(), window::heightf());
+        } * f32::min(window::widthf(), pxl::window::heightf());
         b.vel = Vec2 {
             x: rand::thread_rng().gen_range(-200.0..200.),
             y: rand::thread_rng().gen_range(-200.0..200.),
