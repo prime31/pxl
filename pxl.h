@@ -415,6 +415,7 @@ void pxl_anim_player_reset(PxlAnimPlayer* player);
 
 PxlTexture* pxl_aseprite_load(uint32_t aseprite_id);
 uint32_t    pxl_aseprite_tag_anim(uint32_t tag_id);
+uint32_t    pxl_aseprite_anim_by_name(uint32_t aseprite_id, const void* name, size_t name_len);
 uint32_t    pxl_aseprite_tag_count(uint32_t aseprite_id);
 const char* pxl_aseprite_tag_name(uint32_t tag_id);
 uint32_t    pxl_aseprite_frame_count(uint32_t aseprite_id);

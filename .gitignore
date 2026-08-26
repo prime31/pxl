@@ -6,3 +6,6 @@ rust/target/
 assets/maps/*.pxlmap
 assets/maps/*/png/
 assets/atlases/*.json
+odin/aseprite/aseprite
+odin/hello/hello
+odin/shapes/shapes

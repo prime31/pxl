@@ -25,6 +25,7 @@ foreign libc {
 	pxl_aseprite_find_id :: proc(path: rawptr, path_len: uint) -> u32 ---
 	pxl_aseprite_load_path :: proc(path: rawptr, path_len: uint) -> ^Texture ---
 	pxl_aseprite_tag_anim :: proc(tag_id: u32) -> u32 ---
+	pxl_aseprite_anim_by_name :: proc(aseprite_id: u32, name: rawptr, name_len: uint) -> u32 ---
 	pxl_anim_player_create :: proc() -> ^Anim_Player ---
 	pxl_anim_player_destroy :: proc(player: ^Anim_Player) ---
 	pxl_anim_player_play :: proc(player: ^Anim_Player, animation: u32) ---
@@ -81,6 +82,7 @@ load_texture :: proc(path: string) -> ^Texture {return pxl_assets_load_texture_p
 load_aseprite :: proc(path: string) -> ^Texture {return pxl_aseprite_load_path(raw_data(path), uint(len(path)))}
 find_aseprite :: proc(path: string) -> u32 {return pxl_aseprite_find_id(raw_data(path), uint(len(path)))}
 aseprite_anim :: proc(tag: u32) -> u32 {return pxl_aseprite_tag_anim(tag)}
+aseprite_anim_by_name :: proc(id: u32, name: string) -> u32 {return pxl_aseprite_anim_by_name(id, raw_data(name), uint(len(name)))}
 destroy_texture :: proc(texture: ^Texture) {if texture != nil {pxl_assets_destroy_texture(texture)}}
 anim_player_create :: proc() -> ^Anim_Player {return pxl_anim_player_create()}
 anim_player_destroy :: proc(player: ^Anim_Player) {pxl_anim_player_destroy(player)}

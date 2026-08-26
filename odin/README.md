@@ -18,10 +18,12 @@ Each example is a standalone Odin package. From the project root:
 
 ```sh
 zig build lib
-Odin/build.sh hello
-Odin/build.sh shapes
-Odin/build.sh aseprite
+odin/build.sh hello
+odin/build.sh shapes
+odin/build.sh aseprite
 ```
 
-The script invokes `odin build -build-mode:obj` and then uses `zig cc` for the
-final executable link. It also adds the macOS frameworks required by sokol.
+The script invokes `odin build -build-mode:obj`, stores all generated object
+files in a temporary directory, uses `zig cc` for the final executable link,
+and then runs the selected demo from the project root. It also adds the macOS
+frameworks required by sokol.

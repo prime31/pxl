@@ -606,7 +606,7 @@ export fn pxl_anim_player_current_frame(
 ) bool {
     const anim = player.animation orelse return false;
     if (anim.frames.len == 0) return false;
-    const frame = player.frame();
+    const frame = &anim.frames[player.frame_index];
     tex.* = @constCast(&frame.texture);
     src_x.* = frame.source.x;
     src_y.* = frame.source.y;
@@ -630,6 +630,24 @@ export fn pxl_aseprite_load(aseprite_id: u32) ?*Texture {
 
 export fn pxl_aseprite_tag_anim(tag_id: u32) u32 {
     return packAnimId(pxl.assets.animation(@enumFromInt(tag_id)));
+}
+
+export fn pxl_aseprite_anim_by_name(aseprite_id: u32, name: [*c]const u8, name_len: usize) u32 {
+    const meta = pxl.assets.asepriteMeta(@enumFromInt(aseprite_id));
+    const needle = name[0..name_len];
+    for (meta.tags, 0..) |tag, index| {
+        if (std.ascii.eqlIgnoreCase(tag.name, needle)) {
+            var global_tag_index: usize = index;
+            var atlas_index: usize = 0;
+            while (atlas_index < aseprite_id) : (atlas_index += 1) {
+                global_tag_index += pxl.assets.asepriteMeta(@enumFromInt(atlas_index)).tags.len;
+            }
+            const global_tag_id = @as(u32, @intCast(global_tag_index));
+            if (global_tag_id != std.math.maxInt(u32))
+                return pxl_aseprite_tag_anim(global_tag_id);
+        }
+    }
+    return std.math.maxInt(u32);
 }
 
 export fn pxl_aseprite_tag_count(aseprite_id: u32) u32 {
