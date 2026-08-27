@@ -65,7 +65,8 @@ const SimConfig = struct {
     max_velocity: f32 = 400,
     gravity: f32 = 25, // buoyancy magnitude; +y is down on screen
     buoyancy_temp: f32 = 0.0,
-    buoyancy_smoke: f32 = 0.3,
+    buoyancy_smoke: f32 = 0.6,
+    surface_slide: f32 = 0.8,
     wind: f32 = 3,
     smoke_decay: f32 = 0.03,
     temp_decay: f32 = 0.08,
@@ -74,7 +75,7 @@ const SimConfig = struct {
     ambient: f32 = 20,
     temp_rate: f32 = 3, // keep surface smoke from becoming a rising hot plume
     player_temp: f32 = 20, // surface smoke is ambient-temperature and should fall
-    emit: f32 = 0.25, // subtle player contribution; tile edges are the main source
+    emit: f32 = 0.0, // tile edges are the only continuous smoke source
     brush_radius: f32 = 22,
     brush_strength: f32 = 3.2,
     brush_smoke: f32 = 4.0, // smoke density per second while right-dragging
@@ -146,8 +147,8 @@ fn makeField(comptime id: FieldId) void {
 // Edge directions, must match shaders/fluid.glsl.
 const EDGE_LEFT = 0;
 const EDGE_RIGHT = 1;
-const EDGE_BOTTOM = 2;
-const EDGE_TOP = 3;
+const EDGE_TOP = 2;
+const EDGE_BOTTOM = 3;
 
 /// Rasterize the IntGrid collision layer into a 1px-per-sim-cell obstacle mask.
 /// r = solid, g = packed 4-bit edge case (bit n set = edge n is blocked).
@@ -196,9 +197,10 @@ fn buildObstacleMask() []u8 {
         const self = solid[i];
         const w = solid[@as(usize, @intCast(cy)) * SIM_W + @as(usize, @intCast(std.math.clamp(x - 1, 0, SIM_W - 1)))];
         const e = solid[@as(usize, @intCast(cy)) * SIM_W + @as(usize, @intCast(std.math.clamp(x + 1, 0, SIM_W - 1)))];
-        const s = solid[@as(usize, @intCast(std.math.clamp(cy - 1, 0, SIM_H - 1))) * SIM_W + @as(usize, @intCast(x))];
-        const n = solid[@as(usize, @intCast(std.math.clamp(cy + 1, 0, SIM_H - 1))) * SIM_W + @as(usize, @intCast(x))];
-        const edge_case: u8 = (self | w) | ((self | e) << EDGE_RIGHT) | ((self | s) << EDGE_BOTTOM) | ((self | n) << EDGE_TOP);
+        const top = solid[@as(usize, @intCast(std.math.clamp(cy - 1, 0, SIM_H - 1))) * SIM_W + @as(usize, @intCast(x))];
+        const bottom = solid[@as(usize, @intCast(std.math.clamp(cy + 1, 0, SIM_H - 1))) * SIM_W + @as(usize, @intCast(x))];
+        const edge_case: u8 = (self | w) | ((self | e) << EDGE_RIGHT) |
+            ((self | top) << EDGE_TOP) | ((self | bottom) << EDGE_BOTTOM);
 
         const px = i * 4;
         pixels[px] = self * 255;
@@ -285,6 +287,7 @@ pub fn setup() !void {
         .u_smoke_decay = cfg.smoke_decay,
         .u_buoyancy_temperature = cfg.buoyancy_temp,
         .u_buoyancy_smoke = cfg.buoyancy_smoke,
+        .u_surface_slide = cfg.surface_slide,
         .u_edge_emission = 0.75,
         .u_wind_x = cfg.wind,
     };
@@ -304,7 +307,7 @@ pub fn setup() !void {
         .u_pass_index = 0,
         .u_clear_pressure = 0, // warm-start the pressure solve from the previous frame
         .u_disp_mode = cfg.disp_mode,
-        .u_player_on = 1,
+        .u_player_on = 0,
     };
     ctl2_u = .{
         .u_player_pos = player.rect.center().scale(SIM_SCALE),
@@ -357,6 +360,7 @@ fn runStep(dt: f32) void {
     sim_u.u_smoke_decay = cfg.smoke_decay;
     sim_u.u_buoyancy_temperature = cfg.buoyancy_temp;
     sim_u.u_buoyancy_smoke = cfg.buoyancy_smoke;
+    sim_u.u_surface_slide = cfg.surface_slide;
     sim_u.u_edge_emission = 0.75;
     sim_u.u_wind_x = cfg.wind;
     ctl_u.u_max_velocity = cfg.max_velocity;
@@ -367,7 +371,7 @@ fn runStep(dt: f32) void {
     ctl2_u.u_player_pos = pos.scale(SIM_SCALE);
     ctl2_u.u_player_delta = delta.scale(cfg.player_push * SIM_SCALE);
     ctl2_u.u_player_radius = cfg.player_radius * SIM_SCALE;
-    ctl_u.u_player_on = 1;
+    ctl_u.u_player_on = 0;
     const speed = delta.len() / @max(dt, 0.0001);
     ctl2_u.u_emit = cfg.emit * std.math.clamp(speed / 40.0, 0, 1.5);
     player_prev = pos;
@@ -484,7 +488,10 @@ fn controlsWindow() void {
     _ = mu.slider(&cfg.buoyancy_temp, 0, 0.5, 0.01);
 
     mu.label("Negative Buoyancy:");
-    _ = mu.slider(&cfg.buoyancy_smoke, 0, 0.3, 0.01);
+    _ = mu.slider(&cfg.buoyancy_smoke, 0, 1.5, 0.01);
+
+    mu.label("Surface Slide:");
+    _ = mu.slider(&cfg.surface_slide, 0, 2, 0.01);
 
     mu.label("Wind:");
     _ = mu.slider(&cfg.wind, 0, 60, 1);

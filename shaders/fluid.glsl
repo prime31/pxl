@@ -37,6 +37,7 @@ layout(binding=0) uniform sim_ub {
     float u_smoke_decay;
     float u_buoyancy_temperature;
     float u_buoyancy_smoke;
+    float u_surface_slide;
     float u_edge_emission;
     float u_wind_x;
 };
@@ -100,8 +101,8 @@ layout(local_size_x=8, local_size_y=8, local_size_z=1) in;
 
 #define EDGE_LEFT   0
 #define EDGE_RIGHT  1
-#define EDGE_BOTTOM 2
-#define EDGE_TOP    3
+#define EDGE_TOP    2
+#define EDGE_BOTTOM 3
 
 #define SOR_WEIGHT 1.7
 
@@ -122,8 +123,8 @@ vec2 cell_centre(int x, int y) {
 vec2 cell_edge_left(int x, int y) {
     return (vec2(float(x), float(y) + 0.5) - u_resolution * 0.5);
 }
-// Bottom edge of the cell — where the y-velocity component lives.
-vec2 cell_edge_bottom(int x, int y) {
+// Top edge of the cell — where the indexed y-velocity component lives.
+vec2 cell_edge_top(int x, int y) {
     return (vec2(float(x) + 0.5, float(y)) - u_resolution * 0.5);
 }
 
@@ -367,7 +368,11 @@ void main() {
 
     // ---- buoyancy: hot air rises (-y), heavy smoke sinks (+y) ----
     if (u_phase == PHASE_BUOYANCY) {
-        vec4 smokeData = get_smoke_at(cell_edge_bottom(id.x, id.y));
+        if (is_solid(id)) {
+            imageStore(u_vel, id, vec4(0));
+            return;
+        }
+        vec4 smokeData = get_smoke_at(cell_edge_top(id.x, id.y));
         float relativeTemperature = smokeData.a - u_ambient;
         // Screen Y grows downward. Keep temperature buoyancy separate from the
         // visible smoke: surface smoke should fall even while it is still faint.
@@ -376,9 +381,26 @@ void main() {
         float smokeWeight = max(smokeConcentration, 0.12) * step(0.001, smokeConcentration);
         float buoyancyForceSmoke = u_buoyancy_smoke * smokeWeight * u_gravity;
 
-        float mask = edge_blocked(id, EDGE_BOTTOM) ? 0.0 : 1.0;
+        // The stored y velocity is the face above this cell. A blocked top face
+        // must remain closed, while the open face below carries smoke downward.
+        float mask = edge_blocked(id, EDGE_TOP) ? 0.0 : 1.0;
         vec2 velocity = imageLoad(u_vel, id).xy;
         velocity.y += (buoyancyForceTemperature + buoyancyForceSmoke) * u_dt * mask;
+
+        // If the downward face is blocked, redirect part of gravity along the
+        // surface. At the end of a ledge the downward force becomes active again.
+        if (smokeWeight > 0.0 && !is_solid(id)) {
+            bool belowSolid = is_solid(id + ivec2(0, 1));
+            if (belowSolid) {
+                bool leftOpen = !is_solid(id - ivec2(1, 0));
+                bool rightOpen = !is_solid(id + ivec2(1, 0));
+                float slideDirection = sign(u_wind_x);
+                if (abs(u_wind_x) < 0.001) slideDirection = 1.0;
+                if (leftOpen && !rightOpen) slideDirection = -1.0;
+                if (rightOpen && !leftOpen) slideDirection = 1.0;
+                velocity.x += slideDirection * u_surface_slide * smokeWeight * u_gravity * u_dt;
+            }
+        }
         imageStore(u_vel, id, vec4(velocity, 0, 0));
         return;
     }
@@ -401,7 +423,7 @@ void main() {
 
         if (u_brush_set_velocities != 0 && r2 > 0.0001) {
             vec2 el = cell_edge_left(id.x, id.y);
-            vec2 eb = cell_edge_bottom(id.x, id.y);
+            vec2 eb = cell_edge_top(id.x, id.y);
             float wL = 1.0 - clamp(dot(el - centre, el - centre) / r2, 0.0, 1.0);
             float wB = 1.0 - clamp(dot(eb - centre, eb - centre) / r2, 0.0, 1.0);
             vec2 velocityAdd = u_brush_delta * vec2(wL, wB);
@@ -417,21 +439,21 @@ void main() {
     // ---- precompute velocity term + edge flow for the pressure solve ----
     if (u_phase == PHASE_PRESSURE_PREP) {
         int isSolidCell = is_solid(id) ? 1 : 0;
-        int flowTop    = 1 - (isSolidCell | (is_solid(id + ivec2(0, 1)) ? 1 : 0));
+        int flowTop    = 1 - (isSolidCell | (is_solid(id - ivec2(0, 1)) ? 1 : 0));
         int flowLeft   = 1 - (isSolidCell | (is_solid(id - ivec2(1, 0)) ? 1 : 0));
         int flowRight  = 1 - (isSolidCell | (is_solid(id + ivec2(1, 0)) ? 1 : 0));
-        int flowBottom = 1 - (isSolidCell | (is_solid(id - ivec2(0, 1)) ? 1 : 0));
+        int flowBottom = 1 - (isSolidCell | (is_solid(id + ivec2(0, 1)) ? 1 : 0));
         int packedEdgeFlow = flowLeft | (flowRight << EDGE_RIGHT) | (flowBottom << EDGE_BOTTOM) | (flowTop << EDGE_TOP);
 
-        float velTop    = imageLoad(u_vel, clamp_coord(id + ivec2(0, 1))).y;
+        float velTop    = imageLoad(u_vel, id).y;
         float velRight  = imageLoad(u_vel, clamp_coord(id + ivec2(1, 0))).x;
-        float velBottom = imageLoad(u_vel, id).y;
+        float velBottom = imageLoad(u_vel, clamp_coord(id + ivec2(0, 1))).y;
         float velLeft   = imageLoad(u_vel, id).x;
 
         int edgeFlowCount = flowTop + flowBottom + flowLeft + flowRight;
         float velocityTerm = 0.0;
         if (edgeFlowCount > 0) {
-            velocityTerm = (velRight - velLeft + velTop - velBottom) / (float(edgeFlowCount) * max(u_dt, 0.0001));
+            velocityTerm = (velRight - velLeft + velBottom - velTop) / (float(edgeFlowCount) * max(u_dt, 0.0001));
         }
 
         float pressure = (u_clear_pressure != 0) ? 0.0 : imageLoad(u_pressure, id).r;
@@ -452,10 +474,10 @@ void main() {
         int edgeFlowCount = flowTop + flowBottom + flowLeft + flowRight;
         if (edgeFlowCount == 0) return;
 
-        float pressureTop    = get_pressure(id.x, id.y + 1) * float(flowTop);
+        float pressureTop    = get_pressure(id.x, id.y - 1) * float(flowTop);
         float pressureLeft   = get_pressure(id.x - 1, id.y) * float(flowLeft);
         float pressureRight  = get_pressure(id.x + 1, id.y) * float(flowRight);
-        float pressureBottom = get_pressure(id.x, id.y - 1) * float(flowBottom);
+        float pressureBottom = get_pressure(id.x, id.y + 1) * float(flowBottom);
         float pressureTerm = (pressureLeft + pressureRight + pressureBottom + pressureTop) / float(edgeFlowCount);
         float pressureNew = pressureTerm - data.b;
 
@@ -468,24 +490,29 @@ void main() {
     if (u_phase == PHASE_PRESSURE_APPLY) {
         int canFlowL = edge_blocked(id, EDGE_LEFT) ? 0 : 1;
         int canFlowR = edge_blocked(id, EDGE_RIGHT) ? 0 : 1;
-        int canFlowD = edge_blocked(id, EDGE_BOTTOM) ? 0 : 1;
-        int canFlowU = edge_blocked(id, EDGE_TOP) ? 0 : 1;
-        if (canFlowL + canFlowR + canFlowD + canFlowU == 0) return;
+        int canFlowTop = edge_blocked(id, EDGE_TOP) ? 0 : 1;
+        if (canFlowL + canFlowR + canFlowTop == 0) return;
 
         float pressureLeft   = get_pressure(id.x - 1, id.y);
-        float pressureDown   = get_pressure(id.x, id.y - 1);
         float pressureCentre = get_pressure(id.x, id.y);
 
         vec2 edgeVel = imageLoad(u_vel, id).xy;
         if (canFlowL != 0) edgeVel.x -= u_dt * (pressureCentre - pressureLeft);
-        if (canFlowD != 0) edgeVel.y -= u_dt * (pressureCentre - pressureDown);
+        if (canFlowTop != 0) edgeVel.y -= u_dt * (pressureCentre - get_pressure(id.x, id.y - 1));
         imageStore(u_vel, id, vec4(edgeVel, 0, 0));
         return;
     }
 
     // ---- semi-Lagrangian advection of the smoke field ----
     if (u_phase == PHASE_SMOKE_ADVECT) {
+        if (is_solid(id)) {
+            imageStore(u_smoke_adv, id, vec4(0));
+            return;
+        }
         vec2 posOld = rewind_pos(cell_centre(id.x, id.y));
+        vec2 domainPos = posOld + u_resolution * 0.5;
+        ivec2 sourceCell = ivec2(floor(domainPos));
+        if (is_solid(sourceCell)) posOld = cell_centre(id.x, id.y);
         imageStore(u_smoke_adv, id, get_smoke_at(posOld));
         return;
     }
@@ -495,8 +522,8 @@ void main() {
         vec4 centre = get_advected_smoke(id.x, id.y);
         vec4 left   = get_advected_smoke(id.x - 1, id.y);
         vec4 right  = get_advected_smoke(id.x + 1, id.y);
-        vec4 top    = get_advected_smoke(id.x, id.y + 1);
-        vec4 bottom = get_advected_smoke(id.x, id.y - 1);
+        vec4 top    = get_advected_smoke(id.x, id.y - 1);
+        vec4 bottom = get_advected_smoke(id.x, id.y + 1);
         vec4 laplacian = (left + right + top + bottom) - 4.0 * centre; // cellSize = 1
 
         float temperatureNew = centre.a + u_temperature_diffusion * u_dt * laplacian.a;
@@ -514,13 +541,9 @@ void main() {
         vec2 velAdvected = vec2(0);
         if (!edge_blocked(id, EDGE_LEFT)) {
             velAdvected.x = get_velocity_at(rewind_pos(cell_edge_left(id.x, id.y))).x;
-        } else {
-            velAdvected.x = imageLoad(u_vel, id).x;
         }
-        if (!edge_blocked(id, EDGE_BOTTOM)) {
-            velAdvected.y = get_velocity_at(rewind_pos(cell_edge_bottom(id.x, id.y))).y;
-        } else {
-            velAdvected.y = imageLoad(u_vel, id).y;
+        if (!edge_blocked(id, EDGE_TOP)) {
+            velAdvected.y = get_velocity_at(rewind_pos(cell_edge_top(id.x, id.y))).y;
         }
         imageStore(u_vel_adv, id, vec4(velAdvected, 0, 0));
         return;
