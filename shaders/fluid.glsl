@@ -249,13 +249,14 @@ float floor_drop_direction(ivec2 id, float currentFlowX) {
     return direction;
 }
 
-// Smoke is a heavy scalar carried by the air field. The velocity field
-// already contains gravity (from PHASE_BUOYANCY); the pressure solver
-// redirects downward flow along walls and over ledges. We only clamp
-// upward transport so rising air currents cannot reverse the smoke's fall.
+// Smoke rides the pressure-projected velocity field. Gravity (added in
+// PHASE_BUOYANCY) makes it fall; the projection redirects that flow along
+// floors and around ledge corners — this displacement is what produces the
+// "pours over the edge" roll. Do NOT clamp upward motion here: the slight
+// upflow at a filled floor is the rolling. Only stop the backtrace from
+// crossing into walls.
 vec2 smoke_transport_velocity(ivec2 id, vec2 worldPos) {
     vec2 flow = get_velocity_at(worldPos);
-    flow.y = max(flow.y, 0.0);
 
     if (is_solid(id - ivec2(1, 0)) && flow.x < 0.0) flow.x = 0.0;
     if (is_solid(id + ivec2(1, 0)) && flow.x > 0.0) flow.x = 0.0;
@@ -598,6 +599,7 @@ void main() {
     if (u_phase == PHASE_VEL_READBACK) {
         vec2 v = imageLoad(u_vel_adv, id).xy;
         v = clamp(v, vec2(-u_max_velocity), vec2(u_max_velocity));
+        v *= exp(-u_dt * 0.2); // gentle drag so pushes and noise don't accumulate forever
         imageStore(u_vel, id, vec4(v, 0, 0));
         return;
     }
