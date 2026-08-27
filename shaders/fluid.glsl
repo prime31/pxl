@@ -3,7 +3,7 @@
 // Port of Sebastian Lague's Smoke Simulation
 // (github.com/SebLague/Smoke-Simulation) into a single sokol compute shader.
 // The fluid uses a staggered (MAC) grid: each cell stores the x-velocity of
-// its left edge and the y-velocity of its bottom edge, which keeps the
+// its left edge and the y-velocity of its top edge, which keeps the
 // pressure projection stable. Pressure is solved with a red-black Gauss-Seidel
 // iteration with SOR over-relaxation, and obstacles (maze walls + domain
 // border) are baked into a static mask with precomputed edge blocking.
@@ -98,6 +98,7 @@ layout(local_size_x=8, local_size_y=8, local_size_z=1) in;
 #define PHASE_VEL_ADVECT     10
 #define PHASE_VEL_READBACK   11
 #define PHASE_DISPLAY        12
+#define PHASE_GRAVITY        13
 
 #define EDGE_LEFT   0
 #define EDGE_RIGHT  1
@@ -205,7 +206,7 @@ float sample_vel_x(vec2 worldPos) {
     vec2 p = vec2(worldPos.x + u_resolution.x * 0.5, worldPos.y + u_resolution.y * 0.5 - 0.5);
     return sample_bilinear_vel(p).x;
 }
-// Sample the staggered y-velocity field (defined on cell bottom edges).
+// Sample the staggered y-velocity field (defined on cell top edges).
 float sample_vel_y(vec2 worldPos) {
     vec2 p = vec2(worldPos.x + u_resolution.x * 0.5 - 0.5, worldPos.y + u_resolution.y * 0.5);
     return sample_bilinear_vel(p).y;
@@ -218,6 +219,49 @@ vec2 get_velocity_at(vec2 worldPos) {
 vec2 rewind_pos(vec2 worldPos) {
     return worldPos - get_velocity_at(worldPos) * u_dt;
 }
+
+// Return the direction along a floor that reaches an exposed drop first. This is
+// the local equivalent of smoke spilling over the end of a tile instead of being
+// pushed sideways by a fixed global wind direction.
+float floor_drop_direction(ivec2 id, float currentFlowX) {
+    bool leftOpen = !is_solid(id + ivec2(-1, 0));
+    bool rightOpen = !is_solid(id + ivec2(1, 0));
+    bool leftDrop = leftOpen && !is_solid(id + ivec2(-1, 1));
+    bool rightDrop = rightOpen && !is_solid(id + ivec2(1, 1));
+    if (leftDrop && !rightDrop) return -1.0;
+    if (rightDrop && !leftDrop) return 1.0;
+
+    int leftDistance = 99;
+    int rightDistance = 99;
+    for (int distance = 1; distance <= 32; distance++) {
+        ivec2 left = id + ivec2(-distance, 0);
+        ivec2 right = id + ivec2(distance, 0);
+        if (leftDistance == 99 && !is_solid(left) && !is_solid(left + ivec2(0, 1))) leftDistance = distance;
+        if (rightDistance == 99 && !is_solid(right) && !is_solid(right + ivec2(0, 1))) rightDistance = distance;
+    }
+    if (leftDistance < rightDistance) return -1.0;
+    if (rightDistance < leftDistance) return 1.0;
+
+    float direction = sign(currentFlowX);
+    if (abs(direction) < 0.001) direction = sign(u_wind_x);
+    if (direction < 0.0 && !leftOpen) direction = rightOpen ? 1.0 : 0.0;
+    if (direction > 0.0 && !rightOpen) direction = leftOpen ? -1.0 : 0.0;
+    return direction;
+}
+
+// Smoke is a heavy scalar carried by the air field. The velocity field
+// already contains gravity (from PHASE_BUOYANCY); the pressure solver
+// redirects downward flow along walls and over ledges. We only clamp
+// upward transport so rising air currents cannot reverse the smoke's fall.
+vec2 smoke_transport_velocity(ivec2 id, vec2 worldPos) {
+    vec2 flow = get_velocity_at(worldPos);
+    flow.y = max(flow.y, 0.0);
+
+    if (is_solid(id - ivec2(1, 0)) && flow.x < 0.0) flow.x = 0.0;
+    if (is_solid(id + ivec2(1, 0)) && flow.x > 0.0) flow.x = 0.0;
+    return flow;
+}
+
 
 // Bilinearly sampled smoke at a world position; outside the domain returns
 // empty smoke at ambient temperature.
@@ -334,26 +378,31 @@ void main() {
         }
         imageStore(u_smoke, id, smokeData);
 
-        // The player drags air along as it moves (no flow through walls).
+        // The player displaces and stirs the carrier fluid. Apply drag to a
+        // slightly larger radius than the visible body so smoke responds around it.
         vec2 velocity = imageLoad(u_vel, id).xy;
         if (u_player_on != 0 && u_player_radius > 0.0) {
-            float k = falloff(worldPos, u_player_pos - u_resolution * 0.5, u_player_radius);
+            float k = falloff(worldPos, u_player_pos - u_resolution * 0.5, u_player_radius * 1.8);
             if (k > 0.0) {
-                velocity.x += u_player_delta.x * k * (edge_blocked(id, EDGE_LEFT) ? 0.0 : 1.0);
-                velocity.y += u_player_delta.y * k * (edge_blocked(id, EDGE_BOTTOM) ? 0.0 : 1.0);
+                float push = min(length(u_player_delta), 1.0);
+                vec2 pushVelocity = u_player_delta * (0.35 + 0.65 * k) * push;
+                if (!edge_blocked(id, EDGE_LEFT) || pushVelocity.x > 0.0) velocity.x += pushVelocity.x;
+                if (!edge_blocked(id, EDGE_RIGHT) || pushVelocity.x < 0.0) velocity.x += pushVelocity.x;
+                if (!edge_blocked(id, EDGE_TOP) || pushVelocity.y > 0.0) velocity.y += pushVelocity.y;
+                if (!edge_blocked(id, EDGE_BOTTOM) || pushVelocity.y < 0.0) velocity.y += pushVelocity.y;
             }
         }
 
-        // Divergence-free swirling eddies from curl noise, so advection stretches
-        // the smoke into wisps and billows instead of carrying it as a smooth sheet.
+        // Low-amplitude curl noise keeps the smoke organic without overpowering
+        // gravity or making it cling permanently to a wall.
         if (!is_solid(id)) {
             float t = u_time * 0.04;
             vec2 q = vec2(float(id.x), float(id.y)) * 0.075 + vec2(t * 0.25);
             float e = 1.5;
             float nx = noise2(q + vec2(e, 0.0)) - noise2(q - vec2(e, 0.0));
             float ny = noise2(q + vec2(0.0, e)) - noise2(q - vec2(0.0, e));
-            vec2 swirl = vec2(ny, -nx); // rotated gradient ~ divergence free
-            velocity += (swirl * 12.0) * u_dt;
+            vec2 swirl = vec2(ny, -nx);
+            velocity += swirl * 0.2 * u_dt;
         }
 
         // Wind source: a column just inside the left edge of the domain.
@@ -366,7 +415,7 @@ void main() {
         return;
     }
 
-    // ---- buoyancy: hot air rises (-y), heavy smoke sinks (+y) ----
+    // ---- buoyancy: temperature rises, smoke weight sinks ----
     if (u_phase == PHASE_BUOYANCY) {
         if (is_solid(id)) {
             imageStore(u_vel, id, vec4(0));
@@ -374,33 +423,19 @@ void main() {
         }
         vec4 smokeData = get_smoke_at(cell_edge_top(id.x, id.y));
         float relativeTemperature = smokeData.a - u_ambient;
-        // Screen Y grows downward. Keep temperature buoyancy separate from the
-        // visible smoke: surface smoke should fall even while it is still faint.
+        // Screen Y grows downward: positive force = downward.
         float buoyancyForceTemperature = -u_buoyancy_temperature * relativeTemperature * u_gravity;
-        float smokeConcentration = dot(smokeData.rgb, vec3(1.0)) / 3.0;
-        float smokeWeight = max(smokeConcentration, 0.12) * step(0.001, smokeConcentration);
-        float buoyancyForceSmoke = u_buoyancy_smoke * smokeWeight * u_gravity;
+        // Smoke weight: heavier smoke sinks. This is the main gravity force
+        // that makes smoke fall, hit ledges, and flow along surfaces.
+        float smokeAmount = (smokeData.r + smokeData.g + smokeData.b) / 3.0;
+        float smokeWeight = smoothstep(0.03, 0.5, smokeAmount) * u_buoyancy_smoke;
+        float buoyancyForceSmoke = smokeWeight * u_gravity;
 
-        // The stored y velocity is the face above this cell. A blocked top face
-        // must remain closed, while the open face below carries smoke downward.
-        float mask = edge_blocked(id, EDGE_TOP) ? 0.0 : 1.0;
         vec2 velocity = imageLoad(u_vel, id).xy;
-        velocity.y += (buoyancyForceTemperature + buoyancyForceSmoke) * u_dt * mask;
+        velocity.y = edge_blocked(id, EDGE_TOP) ? 0.0 :
+            velocity.y + (buoyancyForceTemperature + buoyancyForceSmoke) * u_dt;
+        if (edge_blocked(id, EDGE_LEFT)) velocity.x = 0.0;
 
-        // If the downward face is blocked, redirect part of gravity along the
-        // surface. At the end of a ledge the downward force becomes active again.
-        if (smokeWeight > 0.0 && !is_solid(id)) {
-            bool belowSolid = is_solid(id + ivec2(0, 1));
-            if (belowSolid) {
-                bool leftOpen = !is_solid(id - ivec2(1, 0));
-                bool rightOpen = !is_solid(id + ivec2(1, 0));
-                float slideDirection = sign(u_wind_x);
-                if (abs(u_wind_x) < 0.001) slideDirection = 1.0;
-                if (leftOpen && !rightOpen) slideDirection = -1.0;
-                if (rightOpen && !leftOpen) slideDirection = 1.0;
-                velocity.x += slideDirection * u_surface_slide * smokeWeight * u_gravity * u_dt;
-            }
-        }
         imageStore(u_vel, id, vec4(velocity, 0, 0));
         return;
     }
@@ -428,7 +463,7 @@ void main() {
             float wB = 1.0 - clamp(dot(eb - centre, eb - centre) / r2, 0.0, 1.0);
             vec2 velocityAdd = u_brush_delta * vec2(wL, wB);
             velocityAdd.x *= (edge_blocked(id, EDGE_LEFT) ? 0.0 : 1.0);
-            velocityAdd.y *= (edge_blocked(id, EDGE_BOTTOM) ? 0.0 : 1.0);
+            velocityAdd.y *= (edge_blocked(id, EDGE_TOP) ? 0.0 : 1.0);
             vec2 velocity = imageLoad(u_vel, id).xy;
             velocity += velocityAdd;
             imageStore(u_vel, id, vec4(velocity, 0, 0));
@@ -491,39 +526,45 @@ void main() {
         int canFlowL = edge_blocked(id, EDGE_LEFT) ? 0 : 1;
         int canFlowR = edge_blocked(id, EDGE_RIGHT) ? 0 : 1;
         int canFlowTop = edge_blocked(id, EDGE_TOP) ? 0 : 1;
-        if (canFlowL + canFlowR + canFlowTop == 0) return;
+        if (canFlowL + canFlowTop == 0) return;
 
         float pressureLeft   = get_pressure(id.x - 1, id.y);
         float pressureCentre = get_pressure(id.x, id.y);
 
         vec2 edgeVel = imageLoad(u_vel, id).xy;
         if (canFlowL != 0) edgeVel.x -= u_dt * (pressureCentre - pressureLeft);
+        else edgeVel.x = 0.0;
         if (canFlowTop != 0) edgeVel.y -= u_dt * (pressureCentre - get_pressure(id.x, id.y - 1));
+        else edgeVel.y = 0.0;
         imageStore(u_vel, id, vec4(edgeVel, 0, 0));
         return;
-    }
-
-    // ---- semi-Lagrangian advection of the smoke field ----
+    }        // ---- semi-Lagrangian advection of the smoke field ----
     if (u_phase == PHASE_SMOKE_ADVECT) {
         if (is_solid(id)) {
             imageStore(u_smoke_adv, id, vec4(0));
             return;
         }
-        vec2 posOld = rewind_pos(cell_centre(id.x, id.y));
+        vec2 worldPos = cell_centre(id.x, id.y);
+        vec2 flow = smoke_transport_velocity(id, worldPos);
+        vec2 posOld = worldPos - flow * u_dt;
         vec2 domainPos = posOld + u_resolution * 0.5;
         ivec2 sourceCell = ivec2(floor(domainPos));
-        if (is_solid(sourceCell)) posOld = cell_centre(id.x, id.y);
+        if (is_solid(sourceCell)) posOld = worldPos;
         imageStore(u_smoke_adv, id, get_smoke_at(posOld));
         return;
     }
 
     // ---- smoke / temperature diffusion + decay, read back into u_smoke ----
     if (u_phase == PHASE_SMOKE_DIFFUSE) {
+        if (is_solid(id)) {
+            imageStore(u_smoke, id, vec4(0));
+            return;
+        }
         vec4 centre = get_advected_smoke(id.x, id.y);
-        vec4 left   = get_advected_smoke(id.x - 1, id.y);
-        vec4 right  = get_advected_smoke(id.x + 1, id.y);
-        vec4 top    = get_advected_smoke(id.x, id.y - 1);
-        vec4 bottom = get_advected_smoke(id.x, id.y + 1);
+        vec4 left   = is_solid(id - ivec2(1, 0)) ? centre : get_advected_smoke(id.x - 1, id.y);
+        vec4 right  = is_solid(id + ivec2(1, 0)) ? centre : get_advected_smoke(id.x + 1, id.y);
+        vec4 top    = is_solid(id - ivec2(0, 1)) ? centre : get_advected_smoke(id.x, id.y - 1);
+        vec4 bottom = is_solid(id + ivec2(0, 1)) ? centre : get_advected_smoke(id.x, id.y + 1);
         vec4 laplacian = (left + right + top + bottom) - 4.0 * centre; // cellSize = 1
 
         float temperatureNew = centre.a + u_temperature_diffusion * u_dt * laplacian.a;
@@ -531,6 +572,10 @@ void main() {
 
         vec3 smokeNew = centre.rgb + u_smoke_diffusion * u_dt * laplacian.rgb;
         smokeNew = max(vec3(0), smokeNew) * exp(-u_dt * u_smoke_decay);
+        // Thin smoke dissipates faster than the dense core, preventing an
+        // indefinitely accumulating layer at the bottom of the map.
+        float density = (smokeNew.r + smokeNew.g + smokeNew.b) / 3.0;
+        smokeNew *= exp(-u_dt * (0.08 + 0.25 * (1.0 - smoothstep(0.02, 0.3, density))));
 
         imageStore(u_smoke, id, vec4(smokeNew, max(temperatureNew, 0.0)));
         return;

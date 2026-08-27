@@ -49,6 +49,7 @@ const PHASE_SMOKE_DIFFUSE = 9;
 const PHASE_VEL_ADVECT = 10;
 const PHASE_VEL_READBACK = 11;
 const PHASE_DISPLAY = 12;
+const PHASE_GRAVITY = 13;
 
 var map: *Map = undefined;
 var collision: pxl.tilemap.Layer = undefined;
@@ -63,11 +64,11 @@ const SimConfig = struct {
     time_scale: f32 = 1,
     pressure_iters: f32 = 40, // red-black passes (2 per iteration)
     max_velocity: f32 = 400,
-    gravity: f32 = 25, // buoyancy magnitude; +y is down on screen
+    gravity: f32 = 40, // downward acceleration; +y is down on screen
     buoyancy_temp: f32 = 0.0,
-    buoyancy_smoke: f32 = 0.6,
-    surface_slide: f32 = 0.8,
-    wind: f32 = 3,
+    buoyancy_smoke: f32 = 1.0, // smoke weight multiplier for downward settling
+    surface_slide: f32 = 1.0,
+    wind: f32 = 0,
     smoke_decay: f32 = 0.03,
     temp_decay: f32 = 0.08,
     smoke_diffusion: f32 = 0.04,
@@ -80,7 +81,7 @@ const SimConfig = struct {
     brush_strength: f32 = 3.2,
     brush_smoke: f32 = 4.0, // smoke density per second while right-dragging
     player_radius: f32 = 12,
-    player_push: f32 = 4.5,
+    player_push: f32 = 2.0,
     disp_mode: i32 = 0, // 0 smoke, 1 temperature, 2 velocity, 3 divergence, 4 pressure
     show_panel: bool = false,
     vent_strength: f32 = 0.0, // tilemap edges are the primary smoke source
@@ -321,13 +322,6 @@ pub fn setup() !void {
     };
 
     dispatch(PHASE_CLEAR);
-
-    // Seed a warm puff around the spawn point so the scene isn't empty on the
-    // first frame.
-    ctl2_u.u_emit = 0.5;
-    var seed: u32 = 0;
-    while (seed < 2) : (seed += 1) dispatch(PHASE_SEED);
-    ctl2_u.u_emit = 0;
 }
 
 fn dispatch(phase: i32) void {
@@ -371,7 +365,7 @@ fn runStep(dt: f32) void {
     ctl2_u.u_player_pos = pos.scale(SIM_SCALE);
     ctl2_u.u_player_delta = delta.scale(cfg.player_push * SIM_SCALE);
     ctl2_u.u_player_radius = cfg.player_radius * SIM_SCALE;
-    ctl_u.u_player_on = 0;
+    ctl_u.u_player_on = 1;
     const speed = delta.len() / @max(dt, 0.0001);
     ctl2_u.u_emit = cfg.emit * std.math.clamp(speed / 40.0, 0, 1.5);
     player_prev = pos;
