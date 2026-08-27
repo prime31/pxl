@@ -37,6 +37,7 @@ layout(binding=0) uniform sim_ub {
     float u_smoke_decay;
     float u_buoyancy_temperature;
     float u_buoyancy_smoke;
+    float u_edge_emission;
     float u_wind_x;
 };
 
@@ -270,10 +271,32 @@ void main() {
         if (k > 0.0) {
             vec4 sm = imageLoad(u_smoke, id);
             sm.rgb += vec3(u_smoke_r, u_smoke_g, u_smoke_b) * (0.35 + u_emit * 0.4) * k;
-            sm.a = max(sm.a, u_ambient + 14.0 * k);
+            sm.a = max(sm.a, u_ambient);
             imageStore(u_smoke, id, sm);
         }
         return;
+    }
+
+    // ---- smoke emitted continuously from every fluid-facing tilemap edge ----
+    // Solid cells are not sources themselves: each neighboring empty cell receives
+    // a small source on the side touching the wall. This makes smoke hug floors,
+    // ceilings, and both sides of corridors rather than coming from the player.
+    if (u_phase == PHASE_FORCES) {
+        if (!is_solid(id)) {
+            float edge_count = 0.0;
+            if (is_solid(id + ivec2(-1, 0))) edge_count += 1.0;
+            if (is_solid(id + ivec2(1, 0))) edge_count += 1.0;
+            if (is_solid(id + ivec2(0, -1))) edge_count += 1.0;
+            if (is_solid(id + ivec2(0, 1))) edge_count += 1.0;
+            if (edge_count > 0.0) {
+                vec4 sm = imageLoad(u_smoke, id);
+                float edge_noise = 0.72 + 0.28 * noise2(vec2(id) * 0.17 + vec2(u_time * 0.03));
+                sm.rgb += vec3(u_smoke_r, u_smoke_g, u_smoke_b)
+                    * u_edge_emission * u_dt * edge_noise * min(edge_count, 2.0);
+                sm.a += (u_ambient + 2.0 - sm.a) * 0.08 * u_dt * edge_count;
+                imageStore(u_smoke, id, sm);
+            }
+        }
     }
 
     // ---- external forces: player body + wind, zero smoke in obstacles ----
@@ -346,9 +369,12 @@ void main() {
     if (u_phase == PHASE_BUOYANCY) {
         vec4 smokeData = get_smoke_at(cell_edge_bottom(id.x, id.y));
         float relativeTemperature = smokeData.a - u_ambient;
+        // Screen Y grows downward. Keep temperature buoyancy separate from the
+        // visible smoke: surface smoke should fall even while it is still faint.
         float buoyancyForceTemperature = -u_buoyancy_temperature * relativeTemperature * u_gravity;
         float smokeConcentration = dot(smokeData.rgb, vec3(1.0)) / 3.0;
-        float buoyancyForceSmoke = u_buoyancy_smoke * smokeConcentration * u_gravity;
+        float smokeWeight = max(smokeConcentration, 0.12) * step(0.001, smokeConcentration);
+        float buoyancyForceSmoke = u_buoyancy_smoke * smokeWeight * u_gravity;
 
         float mask = edge_blocked(id, EDGE_BOTTOM) ? 0.0 : 1.0;
         vec2 velocity = imageLoad(u_vel, id).xy;

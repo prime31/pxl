@@ -64,17 +64,17 @@ const SimConfig = struct {
     pressure_iters: f32 = 40, // red-black passes (2 per iteration)
     max_velocity: f32 = 400,
     gravity: f32 = 25, // buoyancy magnitude; +y is down on screen
-    buoyancy_temp: f32 = 0.09,
-    buoyancy_smoke: f32 = 0.05,
+    buoyancy_temp: f32 = 0.0,
+    buoyancy_smoke: f32 = 0.3,
     wind: f32 = 3,
     smoke_decay: f32 = 0.03,
     temp_decay: f32 = 0.08,
     smoke_diffusion: f32 = 0.04,
     temp_diffusion: f32 = 0.4,
     ambient: f32 = 20,
-    temp_rate: f32 = 8, // how fast the player heats nearby air
-    player_temp: f32 = 32, // player body temperature (ambient + 12)
-    emit: f32 = 3.0, // smoke density emitted per second while moving
+    temp_rate: f32 = 3, // keep surface smoke from becoming a rising hot plume
+    player_temp: f32 = 20, // surface smoke is ambient-temperature and should fall
+    emit: f32 = 0.25, // subtle player contribution; tile edges are the main source
     brush_radius: f32 = 22,
     brush_strength: f32 = 3.2,
     brush_smoke: f32 = 4.0, // smoke density per second while right-dragging
@@ -82,7 +82,7 @@ const SimConfig = struct {
     player_push: f32 = 4.5,
     disp_mode: i32 = 0, // 0 smoke, 1 temperature, 2 velocity, 3 divergence, 4 pressure
     show_panel: bool = false,
-    vent_strength: f32 = 1.0, // multiplier for all steam vents
+    vent_strength: f32 = 0.0, // tilemap edges are the primary smoke source
 };
 
 // Steam vents (design px): x, y, radius, smoke emission per second. Hot plumes
@@ -285,6 +285,7 @@ pub fn setup() !void {
         .u_smoke_decay = cfg.smoke_decay,
         .u_buoyancy_temperature = cfg.buoyancy_temp,
         .u_buoyancy_smoke = cfg.buoyancy_smoke,
+        .u_edge_emission = 0.75,
         .u_wind_x = cfg.wind,
     };
     ctl_u = .{
@@ -356,6 +357,7 @@ fn runStep(dt: f32) void {
     sim_u.u_smoke_decay = cfg.smoke_decay;
     sim_u.u_buoyancy_temperature = cfg.buoyancy_temp;
     sim_u.u_buoyancy_smoke = cfg.buoyancy_smoke;
+    sim_u.u_edge_emission = 0.75;
     sim_u.u_wind_x = cfg.wind;
     ctl_u.u_max_velocity = cfg.max_velocity;
 
@@ -481,7 +483,7 @@ fn controlsWindow() void {
     mu.label("Buoyancy Temp:");
     _ = mu.slider(&cfg.buoyancy_temp, 0, 0.5, 0.01);
 
-    mu.label("Buoyancy Smoke:");
+    mu.label("Negative Buoyancy:");
     _ = mu.slider(&cfg.buoyancy_smoke, 0, 0.3, 0.01);
 
     mu.label("Wind:");
